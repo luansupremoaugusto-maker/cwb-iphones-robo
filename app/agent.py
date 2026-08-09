@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from agents import Agent, ModelSettings, Runner, function_tool, set_default_openai_key
 from agents.tracing import set_tracing_disabled
 
+from app.adapters.catalog_cache import _catalog_score, _is_available_item, _is_device_item
 from app.adapters.mercado_phone import InventoryCache
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS
 from app.config import Settings
@@ -214,6 +215,77 @@ def _is_available_list_request(text: str) -> bool:
         "catalogo",
     )
     return any(phrase in normalized for phrase in phrases)
+
+
+def _is_product_availability_request(text: str) -> bool:
+    """Route a product-specific availability question without an LLM guess."""
+    normalized = _normalize(text)
+    if not normalized or not _has_product_reference(normalized):
+        return False
+    if _is_available_list_request(text):
+        return False
+    if any(
+        marker in normalized
+        for marker in (
+            "foto",
+            "imagem",
+            "parcel",
+            "entrada",
+            "sinal",
+            "garantia",
+            "reserva",
+            "endereco",
+            "horario",
+            "entrega",
+            "pagamento",
+            "nota fiscal",
+        )
+    ):
+        return False
+    if any(
+        phrase in normalized
+        for phrase in (
+            "tem ",
+            "disponivel",
+            "disponibilidade",
+            "em estoque",
+            "estoque",
+            "a venda",
+            "vende",
+            "possui",
+            "quanto custa",
+            "qual o preco",
+        )
+    ):
+        return True
+    return bool(re.match(r"^(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized))
+
+
+def _requested_capacity_key(text: str) -> str | None:
+    normalized = _normalize(text)
+    match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized)
+    if match:
+        number = match.group(1).replace(",", ".")
+        unit = "tb" if match.group(2) == "tb" else "gb"
+        if number.endswith(".0"):
+            number = number[:-2]
+        return f"{number}{unit}"
+    for number in ("1024", "512", "256", "128", "64", "32"):
+        if re.search(rf"\b{number}\b", normalized):
+            return f"{number}gb"
+    return None
+
+
+def _capacity_key(value: Any) -> str | None:
+    normalized = _normalize(str(value or ""))
+    match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized)
+    if not match:
+        return None
+    number = match.group(1).replace(",", ".")
+    unit = "tb" if match.group(2) == "tb" else "gb"
+    if number.endswith(".0"):
+        number = number[:-2]
+    return f"{number}{unit}"
 
 
 def _is_physical_store_request(text: str) -> bool:
@@ -699,6 +771,35 @@ def _format_battery(value: Any) -> str:
     return f"{shown}%"
 
 
+def _format_product_availability(items: list[Any]) -> str:
+    if not items:
+        return "No momento não localizei esse produto no catálogo."
+
+    model = str(getattr(items[0], "name", None) or "produto").strip()
+    lines = [f"Sim 😊 Encontrei estas opções de {model} disponíveis:"]
+    for item in items:
+        color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
+        capacity = str(getattr(item, "capacity", None) or "").strip()
+        if not capacity:
+            name_and_description = f"{getattr(item, 'name', '')} {getattr(item, 'description', '')}"
+            capacity_match = re.search(
+                r"\b(\d+(?:[.,]\d+)?\s*(?:GB|TB))\b",
+                name_and_description,
+                flags=re.IGNORECASE,
+            )
+            capacity = capacity_match.group(1).upper() if capacity_match else "capacidade não informada"
+        if getattr(item, "source", None) == "google_sheets":
+            condition = "NOVO LACRADO"
+            battery_text = "não se aplica"
+        else:
+            condition = str(getattr(item, "condition", None) or "estado não informado").upper()
+            battery_text = _format_battery(getattr(item, "battery_health", None))
+        price = getattr(item, "price_brl", None)
+        price_text = format_brl(float(price)) if price is not None else "preço a confirmar"
+        lines.append(f"• {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}")
+    return "\n".join(lines)
+
+
 def _format_available_products(result: dict[str, Any]) -> str:
     def entry_line(entry: dict[str, Any]) -> str:
         color = entry.get("cor")
@@ -929,6 +1030,10 @@ class AgentService:
         if availability_decision is not None:
             return protect_customer_decision(availability_decision)
 
+        product_availability_decision = await self._try_product_availability(text)
+        if product_availability_decision is not None:
+            return protect_customer_decision(product_availability_decision)
+
         physical_store_decision = self._try_physical_store(text)
         if physical_store_decision is not None:
             return protect_customer_decision(physical_store_decision)
@@ -1008,6 +1113,59 @@ class AgentService:
         if not result.get("encontrado"):
             return None
         return AgentDecision(reply=_format_available_products(result), confidence="high")
+
+    async def _try_product_availability(self, text: str) -> AgentDecision | None:
+        if not _is_product_availability_request(text):
+            return None
+
+        try:
+            candidates = await self.cache.search(text, limit=30)
+        except Exception:
+            return None
+
+        public_candidates = [
+            item
+            for item in candidates
+            if _is_device_item(item)
+            and (
+                getattr(item, "source", None) != "mercado_phone"
+                or _is_available_item(item)
+            )
+        ]
+        requested_capacity = _requested_capacity_key(text)
+        if requested_capacity:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if _capacity_key(getattr(item, "capacity", None)) == requested_capacity
+            ]
+
+        if not public_candidates:
+            capacity_text = f" {requested_capacity.upper()}" if requested_capacity else ""
+            return AgentDecision(
+                reply=(
+                    f"No momento não localizei uma opção cadastrada{capacity_text} para esse produto. "
+                    "Pode me informar outro modelo ou capacidade?"
+                ),
+                confidence="medium",
+            )
+
+        scored = [(_catalog_score(text, item), item) for item in public_candidates]
+        best_score = max(score for score, _item in scored)
+        if best_score <= 0:
+            return AgentDecision(
+                reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
+                confidence="medium",
+            )
+
+        top_matches = [item for score, item in scored if score == best_score]
+        selected = top_matches[:3]
+        references = [str(getattr(item, "external_id", "")) for item in selected]
+        return AgentDecision(
+            reply=_format_product_availability(selected),
+            product_references=[reference for reference in references if reference],
+            confidence="high",
+        )
 
     def _try_current_day_information(self, text: str) -> AgentDecision | None:
         if _is_current_date_request(text):
@@ -1258,7 +1416,4 @@ class AgentService:
             suffix = f" — {' — '.join(details)}" if details else ""
             lines.append(f"• {item.name}{condition} — {price} — {availability}{suffix}")
         return AgentDecision(reply="Encontrei estas opções:\n" + "\n".join(lines), confidence="medium")
-
-
-
 

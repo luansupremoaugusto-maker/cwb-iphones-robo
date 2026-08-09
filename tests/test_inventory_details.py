@@ -39,6 +39,29 @@ def _iphone_16e_raw(
     }
 
 
+def _iphone_14_raw(
+    *,
+    capacity: str,
+    color: str,
+    battery: int,
+    model: str = "IPHONE 14",
+    availability: str = "Disponível para venda",
+) -> dict:
+    return {
+        "id": f"14-{model.lower().replace(' ', '-')}-{capacity}-{color.lower()}",
+        "aparelhoDescricao": model,
+        "descricao": (
+            f"{model} - {color} - {capacity} - Estado: SEMINOVO - "
+            f"Saúde bateria: {battery}"
+        ),
+        "quantidade": 1,
+        "valorVenda": 2200 if capacity == "256gb" else 2260,
+        "tipoProdutoDescricao": "Celular",
+        "produtoDisponibilidadeId": 1,
+        "produtoDisponibilidadeDescricao": availability,
+    }
+
+
 def test_inventory_normalization_extracts_iphone_16e_details():
     item = normalize_inventory_item(_iphone_16e_raw(color="PRETO", battery=88))
 
@@ -267,3 +290,71 @@ async def test_short_photo_request_uses_model_and_color(tmp_path):
     assert decision.product_references == ["16e-black"]
     assert "IPHONE 16 E" in decision.reply
     assert "16" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_specific_availability_prefers_exact_base_model_and_capacity(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    base = normalize_inventory_item(
+        _iphone_14_raw(capacity="256gb", color="AZUL", battery=91)
+    )
+    base_128 = normalize_inventory_item(
+        _iphone_14_raw(capacity="128gb", color="AMARELO", battery=86)
+    )
+    pro = normalize_inventory_item(
+        _iphone_14_raw(
+            capacity="256gb",
+            color="PRETO",
+            battery=90,
+            model="IPHONE 14 PRO",
+        )
+    )
+    cache.items = [base, base_128, pro]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Tem iPhone 14 256GB?")
+
+    assert decision.product_references == [base.external_id]
+    assert "IPHONE 14" in decision.reply
+    assert "AZUL — 256GB — SEMINOVO" in decision.reply
+    assert "AMARELO" not in decision.reply
+    assert "14 PRO" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_specific_availability_without_capacity_lists_exact_model_rows(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    base_256 = normalize_inventory_item(
+        _iphone_14_raw(capacity="256gb", color="AZUL", battery=91)
+    )
+    base_128 = normalize_inventory_item(
+        _iphone_14_raw(capacity="128gb", color="AMARELO", battery=86)
+    )
+    pro = normalize_inventory_item(
+        _iphone_14_raw(
+            capacity="256gb",
+            color="PRETO",
+            battery=90,
+            model="IPHONE 14 PRO",
+        )
+    )
+    cache.items = [base_256, base_128, pro]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Tem iPhone 14?")
+
+    assert "AZUL — 256GB — SEMINOVO" in decision.reply
+    assert "AMARELO — 128GB — SEMINOVO" in decision.reply
+    assert "14 PRO" not in decision.reply
