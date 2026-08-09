@@ -1,0 +1,71 @@
+store_name: "cwb.iphones"
+assistant_name: "Steve"
+address: "Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060"
+physical_store: "Sim, temos loja física na Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060. Atendemos de segunda a sexta, das 09:00 às 18:00. Aos sábados, domingos e feriados, a loja fica fechada. O atendimento é feito com horário marcado."
+hours: "Segunda a sexta, das 09:00 às 18:00. Sábados, domingos e feriados: fechado."
+delivery: "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser antecipado antes do despacho. Taxa e prazo devem ser cotados com um atendente."
+pickup: "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
+payment: "Aceitamos PIX, dinheiro e cartão. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
+warranty: "Produtos seminovos têm garantia de 90 dias. Produtos novos e lacrados têm garantia de 1 ano pela Apple."
+invoice: "Podemos emitir nota fiscal para todos os produtos, sejam seminovos ou lacrados."
+returns: "Trocas e devoluções devem ser verificadas com um atendente."
+accessories: "Aparelhos seminovos acompanham cabo e fonte novos, homologados pela Anatel. Se quiser, conseguimos capinha, película e protetor de câmera por R$ 10,00 cada. Aparelhos novos lacrados acompanham apenas o cabo original que já vem dentro da caixa."
+buyback: "Sim, compramos produtos da marca Apple, mediante avaliação. Vou enviar a lista de avaliação para preenchimento e encaminhar o atendimento para um atendente."
+
+topics:
+  nome_da_loja: "cwb.iphones"
+  nome: "cwb.iphones"
+  loja_fisica: "Sim, temos loja física na Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060. Atendemos de segunda a sexta, das 09:00 às 18:00. Aos sábados, domingos e feriados, a loja fica fechada. O atendimento é feito com horário marcado."
+  endereco: "Estamos na Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060. O atendimento é feito com horário marcado."
+  horario: "Atendemos de segunda a sexta, das 09:00 às 18:00. Aos sábados, domingos e feriados, a loja fica fechada."
+  retirada: "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
+  entrega: "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser antecipado antes do despacho. Taxa e prazo devem ser cotados com um atendente."
+  lacrado: "Trabalhamos com aparelhos novos lacrados por encomenda. O prazo de entrega é de 1 semana e o pagamento pode ser feito somente na hora da entrega. Eles acompanham apenas o cabo original que já vem dentro da caixa."
+  link_pagamento: "Sim, fazemos link de pagamento quando necessário. Preferimos o pagamento pela máquina física; o link fica como segunda opção."
+  taxas_link_pagamento: |
+    Taxas do link de pagamento:
+    Pix: grátis
+    Crédito à vista: 4,20%
+    2x: 6,09%
+    3x: 7,01%
+    4x: 7,91%
+    5x: 8,80%
+    6x: 9,67%
+    7x: 12,59%
+    8x: 13,42%
+    9x: 14,25%
+    10x: 15,06%
+    11x: 15,87%
+    12x: 16,66%
+  pagamento: "Aceitamos PIX, dinheiro e cartão. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
+  cartoes: "Se desejar, o cliente pode pagar a mesma compra usando mais de um cartão de crédito."
+  parcelamento: "Parcelamos no cartão de crédito em até 18 vezes. Se desejar, o cliente pode pagar a mesma compra usando mais de um cartão de crédito. Não parcelamos no boleto ou PIX."
+  desconto_pix: "Não há desconto no PIX; os preços já são para pagamento à vista."
+  produtos: "Vendemos produtos de toda a linha Apple, conforme disponibilidade no estoque."
+  condicao: "Trabalhamos com produtos seminovos e produtos novos, lacrados."
+  seminovos: "Aparelhos seminovos acompanham cabo e fonte novos, homologados pela Anatel. Se quiser, conseguimos capinha, película e protetor de câmera por R$ 10,00 cada."
+  lacrados: "Trabalhamos com aparelhos novos lacrados por encomenda. O prazo de entrega é de 1 semana e o pagamento pode ser feito somente na hora da entrega. Eles acompanham apenas o cabo original que já vem dentro da caixa."
+  acessorios: "Se quiser, conseguimos capinha, película e protetor de câmera por R$ 10,00 cada. Aparelhos seminovos acompanham cabo e fonte novos, homologados pela Anatel. Aparelhos novos lacrados acompanham apenas o cabo original que já vem dentro da caixa."
+  bateria: "A informação de saúde da bateria está disponível no sistema Mercado Phone e será confirmada na consulta do produto."
+  garantia: "Produtos seminovos têm garantia de 90 dias. Produtos novos e lacrados têm garantia de 1 ano pela Apple."
+  garantia_seminovos: "Produtos seminovos têm garantia de 90 dias."
+  garantia_lacrados: "Produtos novos lacrados têm garantia de 1 ano pela Apple."
+  nota_fiscal: "Podemos emitir nota fiscal para todos os produtos, sejam seminovos ou lacrados."
+  trocas_devolucoes: "Trocas e devoluções devem ser verificadas com um atendente."
+  reserva: "Não trabalhamos com reserva de aparelhos porque alguns clientes reservam e depois cancelam, e nesse período deixamos de vender o aparelho para outras pessoas."
+  preco: "Os preços podem ser alterados sem aviso prévio. A confirmação deve ser feita no momento do atendimento."
+  compra_produtos: "Sim, compramos produtos da marca Apple, mediante avaliação. Vou enviar a lista de avaliação para preenchimento e encaminhar o atendimento para um atendente."
+  compramos: "Sim, compramos produtos da marca Apple, mediante avaliação. Vou enviar a lista de avaliação para preenchimento e encaminhar o atendimento para um atendente."
+  instagram: "https://www.instagram.com/cwb.iphones/"
+  telefone: "(41) 98455-7424"
+  atendimento_humano: "Um atendente pode assumir quando o cliente solicitar, quando houver um problema a resolver ou quando o cliente pedir avaliação do celular como parte do pagamento. O atendimento humano funciona das 09:00 às 18:00."
+  avaliacao: "Compramos somente produtos da marca Apple, mediante avaliação. A lista de avaliação deve ser preenchida e o atendimento será encaminhado para um atendente."
+
+
+
+
+
+
+
+
+

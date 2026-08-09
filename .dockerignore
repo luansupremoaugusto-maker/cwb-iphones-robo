@@ -1,0 +1,16 @@
+.env.local
+.env
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.pytest-temp-address
+.git
+.gitignore
+data/*.db
+data/*cache*.json
+secrets
+tests
+docs
+scripts
+*.before-*

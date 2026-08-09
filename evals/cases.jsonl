@@ -1,0 +1,3 @@
+{"name":"produto existente","message":"Tem iPhone 13?","expect_handoff":false,"must_contain":["iPhone 13"]}
+{"name":"produto desconhecido","message":"Tem um aparelho modelo inexistente?","expect_handoff":false,"must_contain":["catálogo"]}
+{"name":"pedido de atendente","message":"Quero falar com uma pessoa","expect_handoff":true,"must_contain":["atendente"]}

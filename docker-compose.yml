@@ -1,0 +1,78 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://robo:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD via --env-file .env.local}@db:5432/robo
+      FAQ_PATH: /app/config/faq.yaml
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - app_data:/app/data
+      - ./secrets:/run/secrets:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    expose:
+      - "8000"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file:
+      - .env.local
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://robo:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD via --env-file .env.local}@db:5432/robo
+      FAQ_PATH: /app/config/faq.yaml
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - app_data:/app/data
+      - ./secrets:/run/secrets:ro
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: robo
+      POSTGRES_USER: robo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD via --env-file .env.local}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U robo -d robo"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Defina DOMAIN via --env-file .env.local}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  app_data:
+  postgres_data:
+  caddy_data:
+  caddy_config:
