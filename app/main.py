@@ -88,7 +88,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "openai": bool(current.settings.openai_api_key),
             "mercado_phone": bool(current.settings.mercado_phone_api_key)
             and _source_has_snapshot(current.cache),
-            "google_sheets": _source_has_snapshot(current.google_sheets, require_rates=True),
+            # The prices cache intentionally keeps rates empty: installment
+            # rates are fixed in app.installments, not loaded from Sheets.
+            "google_sheets": _source_has_snapshot(current.google_sheets),
             "zapi": bool(
                 current.settings.zapi_instance_id
                 and current.settings.zapi_token

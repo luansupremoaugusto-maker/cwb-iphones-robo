@@ -83,7 +83,7 @@ def test_ready_accepts_loaded_stale_catalog_snapshots():
             enabled=True,
             configured=True,
             items=[object()],
-            rates={1: 0.0495},
+            rates={},
             last_refresh=1.0,
         )
 
