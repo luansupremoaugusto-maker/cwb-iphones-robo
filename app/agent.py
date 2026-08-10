@@ -10,12 +10,23 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from agents import Agent, ModelSettings, Runner, function_tool, set_default_openai_key
 from agents.tracing import set_tracing_disabled
 
-from app.adapters.catalog_cache import _catalog_score, _is_available_item, _is_device_item
+from app.adapters.catalog_cache import (
+    _catalog_score,
+    _is_available_item,
+    _is_device_item,
+    _matches_requested_model,
+    _requested_photo_condition,
+)
 from app.adapters.mercado_phone import InventoryCache
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS
 from app.config import Settings
 from app.faq import FAQStore
-from app.installments import format_brl, format_installment_result, format_installment_table
+from app.installments import (
+    format_brl,
+    format_installment_rates,
+    format_installment_result,
+    format_installment_table,
+)
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision
 from app.trade_in import (
@@ -275,19 +286,27 @@ def _is_product_availability_request(text: str) -> bool:
     return bool(re.match(r"^(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized))
 
 
-def _requested_capacity_key(text: str) -> str | None:
+def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     normalized = _normalize(text)
-    match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized)
-    if match:
+    keys: list[str] = []
+    for match in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized):
         number = match.group(1).replace(",", ".")
         unit = "tb" if match.group(2) == "tb" else "gb"
         if number.endswith(".0"):
             number = number[:-2]
-        return f"{number}{unit}"
-    for number in ("1024", "512", "256", "128", "64", "32"):
-        if re.search(rf"\b{number}\b", normalized):
-            return f"{number}gb"
-    return None
+        key = f"{number}{unit}"
+        if key not in keys:
+            keys.append(key)
+    for match in re.finditer(r"\b(1024|512|256|128|64|32)\b", normalized):
+        key = f"{match.group(1)}gb"
+        if key not in keys:
+            keys.append(key)
+    return tuple(keys)
+
+
+def _requested_capacity_key(text: str) -> str | None:
+    keys = _requested_capacity_keys(text)
+    return keys[0] if keys else None
 
 
 def _capacity_key(value: Any) -> str | None:
@@ -352,6 +371,26 @@ def _is_today_store_status_request(text: str) -> bool:
             "abre",
             "fecha",
         )
+    )
+
+
+def _is_store_hours_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or "hoje" in normalized:
+        return False
+    phrases = (
+        "ate que horas",
+        "ate que horario",
+        "qual o horario",
+        "qual horario",
+        "horario de atendimento",
+        "horario de funcionamento",
+        "que horas voces atendem",
+        "que horario voces atendem",
+        "quando voces atendem",
+    )
+    return any(phrase in normalized for phrase in phrases) or (
+        "horario" in normalized and "atendimento" in normalized
     )
 
 
@@ -535,6 +574,13 @@ def _store_hours(faq: FAQStore) -> str:
         "Atendemos de segunda a sexta, das 09:00 às 18:00. "
         "Aos sábados, domingos e feriados, a loja fica fechada."
     )
+
+
+def _store_hours_reply(faq: FAQStore) -> str:
+    hours = _store_hours(faq)
+    if "marcad" in _normalize(hours):
+        return hours
+    return f"{hours} O atendimento \u00e9 feito com hor\u00e1rio marcado."
 
 
 def _today_store_reply(faq: FAQStore, *, include_physical_store: bool = True) -> str:
@@ -723,6 +769,21 @@ def _is_payment_link_rate_request(text: str) -> bool:
     )
 
 
+def _is_installment_rate_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or _is_payment_link_request(text):
+        return False
+    if any(
+        marker in normalized
+        for marker in ("taxa de entrega", "taxa do frete", "frete", "motoboy", "sedex", "entrega")
+    ):
+        return False
+    return any(
+        marker in normalized
+        for marker in ("taxa", "taxas", "juros", "tarifa")
+    )
+
+
 def _is_full_installment_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -819,6 +880,21 @@ def _has_installment_product_context(value: str) -> bool:
         re.search(r"\b(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized)
         or re.search(r"\b\d{1,2}\s*(?:e|pro|max|air|mini|plus)\b", normalized)
     )
+
+
+def _has_installment_rate_prompt(history: list[dict[str, str]] | None) -> bool:
+    return any(
+        entry.get("role") == "assistant"
+        and "taxas do cartao na maquina fisica" in _normalize(entry.get("content", ""))
+        and "qual modelo" in _normalize(entry.get("content", ""))
+        for entry in (history or [])
+    )
+
+
+def _is_rate_model_followup(text: str, history: list[dict[str, str]] | None) -> bool:
+    if _is_installment_rate_question(text) or not _has_installment_rate_prompt(history):
+        return False
+    return _has_installment_product_context(text)
 
 
 def _installment_context_query(text: str, history: list[dict[str, str]] | None) -> str:
@@ -945,7 +1021,13 @@ def _format_product_availability(items: list[Any]) -> str:
         price = getattr(item, "price_brl", None)
         price_text = format_brl(float(price)) if price is not None else "preço a confirmar"
         lines.append(f"• {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}")
-    return "\n".join(lines)
+    formatted_lines = [lines[0]]
+    separator = "\u2014"
+    for item, line in zip(items, lines[1:]):
+        item_name = str(getattr(item, "name", None) or "produto").strip()
+        _, _, details = line.partition(" ")
+        formatted_lines.append(f"\u2022 {item_name} {separator} {details}")
+    return "\n".join(formatted_lines)
 
 
 def _format_available_products(result: dict[str, Any]) -> str:
@@ -1033,6 +1115,24 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
     @function_tool
     async def get_product_photos(product_query: str) -> str:
         """Retorna somente fotos aprovadas cadastradas para o produto solicitado."""
+        finder = getattr(cache, "find_product_photos", None)
+        if callable(finder):
+            try:
+                selected = await finder(product_query)
+            except Exception:
+                selected = None
+            if selected is None:
+                return json.dumps({"encontrado": False, "produtos": []}, ensure_ascii=False)
+            urls = list(getattr(selected, "photo_urls", []) or [])[:MAX_PRODUCT_PHOTOS]
+            products = [
+                {
+                    "nome": selected.name,
+                    "capacidade": selected.capacity,
+                    "fotos": urls,
+                }
+            ] if urls else []
+            return json.dumps({"encontrado": bool(products), "produtos": products}, ensure_ascii=False)
+
         items = await cache.search(product_query, limit=5)
         products = [
             {
@@ -1184,6 +1284,18 @@ class AgentService:
         if current_day_decision is not None:
             return protect_customer_decision(current_day_decision)
 
+        store_hours_decision = self._try_store_hours(text)
+        if store_hours_decision is not None:
+            return protect_customer_decision(store_hours_decision)
+
+        installment_rate_decision = self._try_installment_rate_question(text)
+        if installment_rate_decision is not None:
+            return protect_customer_decision(installment_rate_decision)
+
+        rate_followup_decision = await self._try_rate_model_followup(text, history)
+        if rate_followup_decision is not None:
+            return protect_customer_decision(rate_followup_decision)
+
         availability_decision = await self._try_available_products(text)
         if availability_decision is not None:
             return protect_customer_decision(availability_decision)
@@ -1262,6 +1374,26 @@ class AgentService:
                 confidence="low",
             )
 
+    def _try_installment_rate_question(self, text: str) -> AgentDecision | None:
+        if not _is_installment_rate_question(text):
+            return None
+        return AgentDecision(
+            reply=format_installment_rates(),
+            confidence="high",
+        )
+
+    async def _try_rate_model_followup(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not _is_rate_model_followup(text, history):
+            return None
+        specific = await self._try_specific_installment(text, history)
+        if specific is not None:
+            return specific
+        return await self._try_full_installment_table(text, history)
+
     def _try_payment_link(self, text: str) -> AgentDecision | None:
         if not _is_payment_link_request(text):
             return None
@@ -1313,16 +1445,22 @@ class AgentService:
                 or _is_available_item(item)
             )
         ]
-        requested_capacity = _requested_capacity_key(query)
-        if requested_capacity:
+        public_candidates = [item for item in public_candidates if _matches_requested_model(query, item)]
+        requested_capacities = _requested_capacity_keys(query)
+        if requested_capacities:
             public_candidates = [
                 item
                 for item in public_candidates
-                if _capacity_key(getattr(item, "capacity", None)) == requested_capacity
+                if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                in requested_capacities
             ]
 
         if not public_candidates:
-            capacity_text = f" {requested_capacity.upper()}" if requested_capacity else ""
+            capacity_text = (
+                f" {', '.join(value.upper() for value in requested_capacities)}"
+                if requested_capacities
+                else ""
+            )
             return AgentDecision(
                 reply=(
                     f"No momento não localizei uma opção cadastrada{capacity_text} para esse produto. "
@@ -1339,8 +1477,27 @@ class AgentService:
                 confidence="medium",
             )
 
-        top_matches = [item for score, item in scored if score == best_score]
-        selected = top_matches[:3]
+        if len(requested_capacities) > 1:
+            selected = []
+            for capacity in requested_capacities:
+                capacity_matches = [
+                    (score, item)
+                    for score, item in scored
+                    if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                    == capacity
+                ]
+                if not capacity_matches:
+                    continue
+                capacity_best = max(score for score, _item in capacity_matches)
+                selected.extend(
+                    item
+                    for score, item in capacity_matches
+                    if score == capacity_best
+                )
+            selected = selected[:3]
+        else:
+            top_matches = [item for score, item in scored if score == best_score]
+            selected = top_matches[:3]
         references = [str(getattr(item, "external_id", "")) for item in selected]
         return AgentDecision(
             reply=_format_product_availability(selected),
@@ -1357,6 +1514,14 @@ class AgentService:
                 confidence="high",
             )
         return None
+
+    def _try_store_hours(self, text: str) -> AgentDecision | None:
+        if not _is_store_hours_request(text):
+            return None
+        return AgentDecision(
+            reply=_store_hours_reply(self.faq),
+            confidence="high",
+        )
 
     def _try_visit_scheduling(
         self,
@@ -1478,7 +1643,15 @@ class AgentService:
             _current_catalog_context(text, image_description),
             history,
         )
+        requested_condition = _requested_photo_condition(query)
         finder = getattr(self.cache, "find_product_photos", None)
+
+        def condition_matches(item: Any) -> bool:
+            if requested_condition is None:
+                return True
+            is_sealed = _is_sealed_item(item)
+            return is_sealed if requested_condition == "sealed" else not is_sealed
+
         if callable(finder):
             try:
                 selected = await finder(query)
@@ -1504,6 +1677,7 @@ class AgentService:
                         fallback = await self.cache.search(query, limit=5)
                     except Exception:
                         fallback = []
+                fallback = [item for item in fallback if condition_matches(item)]
                 if fallback and _is_sealed_item(fallback[0]):
                     return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
                 return None
@@ -1513,6 +1687,7 @@ class AgentService:
                 items = await self.cache.search(query, limit=5)
             except Exception:
                 return None
+        items = [item for item in items if condition_matches(item)]
         if items:
             selected = items[0]
             if _is_made_to_order_sealed_item(selected):
@@ -1598,7 +1773,7 @@ class AgentService:
         text: str,
         history: list[dict[str, str]] | None,
     ) -> AgentDecision | None:
-        if not _is_full_installment_request(text):
+        if not (_is_full_installment_request(text) or _is_rate_model_followup(text, history)):
             return None
         method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
