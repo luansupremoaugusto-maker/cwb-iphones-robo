@@ -59,6 +59,58 @@ def _model_key(value: Any) -> tuple[int, str] | None:
     return int(match.group("number")), variant
 
 
+def _is_iphone_catalog_item(item: Any) -> bool:
+    text = _score_text(
+        f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} {getattr(item, 'search_text', '')}"
+    )
+    return bool(re.search(r"\biphone\b", text))
+
+
+def _catalog_family(value: Any) -> str | None:
+    normalized = _score_text(value)
+    if re.search(r"\biphone\b", normalized):
+        return "iphone"
+    if re.search(r"\bipad\b", normalized):
+        return "ipad"
+    if re.search(r"\bmacbook\b", normalized):
+        return "macbook"
+    if re.search(r"\bairpods?\b|\bair pods\b", normalized):
+        return "airpods"
+    if re.search(r"\bapple watch\b", normalized):
+        return "apple_watch"
+    return None
+
+
+def _matches_requested_family(query: str, item: Any) -> bool:
+    requested_family = _catalog_family(query)
+    if requested_family is None:
+        return True
+    item_text = (
+        f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} "
+        f"{getattr(item, 'search_text', '')}"
+    )
+    return _catalog_family(item_text) == requested_family
+
+
+def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
+    normalized = _score_text(value)
+    target = _model_key(value)
+    if target is None:
+        return None
+    if any(marker in normalized for marker in ("ipad", "macbook", "airpods", "apple watch")):
+        return None
+    return target
+
+
+def _matches_requested_model(query: str, item: Any) -> bool:
+    if not _matches_requested_family(query, item):
+        return False
+    target = _requested_iphone_model_key(query)
+    if target is None:
+        return True
+    return _is_iphone_catalog_item(item) and _model_key(getattr(item, "name", "")) == target
+
+
 def _capacity_key(value: Any) -> str | None:
     """Normalize explicit storage capacities, including bare common values."""
     normalized = _score_text(value)
@@ -208,6 +260,42 @@ def _is_available_item(item: Any) -> bool:
         return False
 
 
+def _requested_photo_condition(value: Any) -> str | None:
+    """Return the last explicit condition in a photo lookup context."""
+    normalized = _score_text(value)
+    markers = (
+        ("lacrado", "sealed"),
+        ("lacrados", "sealed"),
+        ("encomenda", "sealed"),
+        ("encomendas", "sealed"),
+        ("seminovo", "used"),
+        ("seminovos", "used"),
+        ("usado", "used"),
+        ("usados", "used"),
+    )
+    occurrences = [
+        (match.start(), condition)
+        for marker, condition in markers
+        for match in re.finditer(rf"\b{re.escape(marker)}\b", normalized)
+    ]
+    if not occurrences:
+        return None
+    return max(occurrences, key=lambda item: item[0])[1]
+
+
+def _is_sealed_catalog_item(item: Any) -> bool:
+    source = _normalize(str(getattr(item, "source", "") or "")).replace("_", " ")
+    condition = _normalize(str(getattr(item, "condition", "") or ""))
+    return source == "google sheets" or "lacrado" in condition or "encomenda" in condition
+
+
+def _matches_photo_condition(item: Any, requested_condition: str | None) -> bool:
+    if requested_condition is None:
+        return True
+    is_sealed = _is_sealed_catalog_item(item)
+    return is_sealed if requested_condition == "sealed" else not is_sealed
+
+
 def _display_capacity(item: Any) -> str | None:
     capacity = str(getattr(item, "capacity", "") or "").strip()
     if capacity and capacity != "-":
@@ -299,6 +387,8 @@ class StoreCatalogCache(InventoryCache):
             if _is_device_item(item)
             and (getattr(item, "source", "") != "mercado_phone" or _is_available_item(item))
         ]
+        candidates = [item for item in candidates if _matches_requested_model(query, item)]
+
         ranked = sorted(
             candidates,
             key=lambda item: (_catalog_score(query, item), item.name, item.capacity or ""),
@@ -307,23 +397,27 @@ class StoreCatalogCache(InventoryCache):
         selected = [item for item in ranked if _catalog_score(query, item) > 0][:limit]
         return [await self._attach_remote_photos(item) for item in selected]
 
+
     async def find_product_photos(self, query: str) -> Any | None:
         """Find one exact in-stock Mercado Phone item for a photo request.
 
         Photo lookup must not choose a neighboring model just because it has
-        attachments. Model, storage, availability, and any explicit color are
-        resolved before the selected item's attachments are loaded.
+        attachments. Model, storage, availability, condition, and any explicit
+        color are resolved before the selected item's attachments are loaded.
         """
         if _is_excluded_query(query):
             return None
 
+        requested_condition = _requested_photo_condition(query)
         candidates = [
             item
             for item in await super().search(query, limit=300)
             if getattr(item, "source", "") == "mercado_phone"
             and _is_device_item(item)
             and _is_available_item(item)
+            and _matches_photo_condition(item, requested_condition)
         ]
+        candidates = [item for item in candidates if _matches_requested_family(query, item)]
         if not candidates:
             return None
 

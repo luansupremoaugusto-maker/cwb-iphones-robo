@@ -26,6 +26,20 @@ FIXED_INSTALLMENT_RATES: dict[int, float] = {
 }
 
 
+def format_installment_rates() -> str:
+    lines = ["Taxas do cart\u00e3o na m\u00e1quina f\u00edsica:"]
+    for count, rate in FIXED_INSTALLMENT_RATES.items():
+        percent = f"{rate * 100:.2f}".replace(".", ",")
+        lines.append(f"{count}x: {percent}%")
+    lines.extend(
+        [
+            "",
+            "Qual modelo e capacidade voc\u00ea gostaria de simular?",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _simulate_for_price(item: Any, price: float, installments: int) -> dict[str, Any]:
     count = int(installments)
     if not 1 <= count <= 18:

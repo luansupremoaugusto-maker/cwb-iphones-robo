@@ -182,3 +182,16 @@ async def test_new_product_question_overrides_stale_visit_prompt(tmp_path, monke
     assert "IPHONE 12" in decision.reply
     assert "visita" not in decision.reply.lower()
     assert "09:00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_generic_hours_question_uses_faq_and_marked_appointment(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Ate que horario voces atendem?")
+
+    assert decision.handoff is False
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "marcad" in decision.reply.lower()
+    assert "confirmar" not in decision.reply.lower()
