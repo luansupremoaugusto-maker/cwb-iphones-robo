@@ -32,7 +32,7 @@ def test_webhook_validates_secret_and_deduplicates():
     assert second.status_code == 200 and second.json()["duplicate"] is True
 
 
-def test_ready_requires_loaded_and_fresh_catalog_sources():
+def test_ready_requires_loaded_catalog_sources():
     class FakeRepository:
         @staticmethod
         def healthcheck():
@@ -62,3 +62,47 @@ def test_ready_requires_loaded_and_fresh_catalog_sources():
     assert response.json()["ready"] is False
     assert response.json()["checks"]["mercado_phone"] is False
     assert response.json()["checks"]["google_sheets"] is False
+
+
+def test_ready_accepts_loaded_stale_catalog_snapshots():
+    class FakeRepository:
+        @staticmethod
+        def healthcheck():
+            return True
+
+    class FakeRuntime:
+        settings = Settings(
+            openai_api_key="configured",
+            mercado_phone_api_key="configured",
+            zapi_instance_id="instance",
+            zapi_token="token",
+        )
+        repository = FakeRepository()
+        cache = SimpleNamespace(items=[object()], last_refresh=1.0)
+        google_sheets = SimpleNamespace(
+            enabled=True,
+            configured=True,
+            items=[object()],
+            rates={},
+            last_refresh=1.0,
+        )
+
+        async def aclose(self):
+            return None
+
+    app = create_app(FakeRuntime())
+
+    with TestClient(app) as client:
+        response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ready": True,
+        "checks": {
+            "database": True,
+            "openai": True,
+            "mercado_phone": True,
+            "google_sheets": True,
+            "zapi": True,
+        },
+    }

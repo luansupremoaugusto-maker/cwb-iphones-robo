@@ -28,6 +28,53 @@ def _score_text(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", _normalize(str(value or ""))).strip()
 
 
+_MODEL_PATTERN = re.compile(
+    r"\b(?:iphone\s*)?(?P<number>\d{1,2})"
+    r"(?:\s*(?P<variant>pro\s+max|pro|max|plus|mini|air|e))?\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _model_key(value: Any) -> tuple[int, str] | None:
+    """Return the last explicit iPhone model/variant mentioned in a text."""
+    normalized = _score_text(value)
+    matches = list(_MODEL_PATTERN.finditer(normalized))
+    if not matches:
+        return None
+
+    def is_usable(match: re.Match[str]) -> bool:
+        # Battery percentages, installment counts, and other numeric details
+        # can appear after the model in an assistant summary. They are not
+        # product models and must not replace an explicit iPhone reference.
+        suffix = normalized[match.end() :]
+        return not re.match(r"\s*(?:%|gb|tb|g|x)", suffix)
+
+    explicit_iphone = [
+        match
+        for match in matches
+        if match.group(0).lower().startswith("iphone") and is_usable(match)
+    ]
+    match = (explicit_iphone or [match for match in matches if is_usable(match)])[-1]
+    variant = " ".join((match.group("variant") or "").split()).lower()
+    return int(match.group("number")), variant
+
+
+def _capacity_key(value: Any) -> str | None:
+    """Normalize explicit storage capacities, including bare common values."""
+    normalized = _score_text(value)
+    match = re.search(r"\b(\d+(?:\.\d+)?)\s*(gb|tb|g)\b", normalized)
+    if match:
+        number = match.group(1)
+        unit = "tb" if match.group(2).lower() == "tb" else "gb"
+        if number.endswith(".0"):
+            number = number[:-2]
+        return f"{number}{unit}"
+    for number in ("1024", "512", "256", "128", "64", "32"):
+        if re.search(rf"\b{number}\b", normalized):
+            return f"{number}gb"
+    return None
+
+
 def _catalog_score(query: str, item: Any) -> int:
     score = score_item(query, item)
     normalized_query = _score_text(query)
@@ -236,6 +283,56 @@ class StoreCatalogCache(InventoryCache):
         )
         selected = [item for item in ranked if _catalog_score(query, item) > 0][:limit]
         return [await self._attach_remote_photos(item) for item in selected]
+
+    async def find_product_photos(self, query: str) -> Any | None:
+        """Find one exact in-stock Mercado Phone item for a photo request.
+
+        Photo lookup must not choose a neighboring model just because it has
+        attachments. Model, storage, availability, and any explicit color are
+        resolved before the selected item's attachments are loaded.
+        """
+        if _is_excluded_query(query):
+            return None
+
+        candidates = [
+            item
+            for item in await super().search(query, limit=300)
+            if getattr(item, "source", "") == "mercado_phone"
+            and _is_device_item(item)
+            and _is_available_item(item)
+        ]
+        if not candidates:
+            return None
+
+        target_model = _model_key(query)
+        if target_model is not None:
+            candidates = [item for item in candidates if _model_key(item.name) == target_model]
+            if not candidates:
+                return None
+
+        target_capacity = _capacity_key(query)
+        if target_capacity is not None:
+            candidates = [
+                item
+                for item in candidates
+                if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                == target_capacity
+            ]
+            if not candidates:
+                return None
+
+        scored = [(_catalog_score(query, item), item) for item in candidates]
+        best_score = max(score for score, _item in scored)
+        if best_score <= 0:
+            return None
+
+        top = [item for score, item in scored if score == best_score]
+        unique_top = {str(getattr(item, "external_id", "")): item for item in top}
+        if len(unique_top) > 1:
+            # An ambiguous request must never expose a different customer's
+            # product photos. Ask for a detail instead of guessing.
+            return None
+        return await self._attach_remote_photos(next(iter(unique_top.values())))
 
     async def get(self, product_id: str):
         item = await super().get(product_id)

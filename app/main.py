@@ -22,6 +22,28 @@ CONTROL_CALLBACK_MARKERS = ("delivery", "status", "disconnect", "connection")
 logger = logging.getLogger(__name__)
 
 
+def _source_has_snapshot(source: Any, *, require_rates: bool = False) -> bool:
+    """Report whether a configured source has usable persisted data.
+
+    Freshness is enforced by each catalog query through ``ensure_fresh``. The
+    readiness probe should not become unhealthy merely because the in-memory
+    snapshot crossed its short refresh threshold while the worker is alive.
+    """
+    if not getattr(source, "enabled", True):
+        return True
+    if not getattr(source, "configured", True):
+        return False
+    try:
+        last_refresh = float(getattr(source, "last_refresh", 0.0))
+    except (TypeError, ValueError):
+        return False
+    if not getattr(source, "items", None) or last_refresh <= 0:
+        return False
+    if require_rates and not getattr(source, "rates", None):
+        return False
+    return True
+
+
 async def _prime_production_sources(runtime: Runtime) -> None:
     """Load the API process' own caches before reporting readiness."""
     if runtime.settings.mercado_phone_api_key:
@@ -64,8 +86,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         checks = {
             "database": current.repository.healthcheck(),
             "openai": bool(current.settings.openai_api_key),
-            "mercado_phone": bool(current.settings.mercado_phone_api_key) and current.cache.ready,
-            "google_sheets": current.google_sheets.ready,
+            "mercado_phone": bool(current.settings.mercado_phone_api_key)
+            and _source_has_snapshot(current.cache),
+            # The prices cache intentionally keeps rates empty: installment
+            # rates are fixed in app.installments, not loaded from Sheets.
+            "google_sheets": _source_has_snapshot(current.google_sheets),
             "zapi": bool(
                 current.settings.zapi_instance_id
                 and current.settings.zapi_token

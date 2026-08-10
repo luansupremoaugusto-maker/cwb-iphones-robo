@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from agents import Agent, ModelSettings, Runner, function_tool, set_default_openai_key
 from agents.tracing import set_tracing_disabled
 
+from app.adapters.catalog_cache import _catalog_score, _is_available_item, _is_device_item
 from app.adapters.mercado_phone import InventoryCache
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS
 from app.config import Settings
@@ -86,10 +87,10 @@ REGRAS OBRIGATÓRIAS:
 - Ao informar o que acompanha um aparelho seminovo, diga que ele acompanha cabo e
   fonte novos, homologados pela Anatel.
 
-- Se o cliente pedir fotos de aparelhos novos lacrados ou por encomenda, explique
-  que não há fotos do produto cadastradas no sistema porque esses aparelhos são
-  vendidos por encomenda. Não tente buscar nem enviar fotos de um seminovo no
-  lugar do lacrado.
+- Se o cliente pedir fotos de um lacrado por encomenda, explique que não há fotos
+  do produto cadastradas no sistema porque esse aparelho não está a pronta entrega.
+  Se o lacrado estiver no estoque do Mercado Phone, marcado como disponível para
+  venda e tiver anexos, envie as fotos dele. Nunca use fotos de outro modelo.
 - Saiba a data atual usando o relógio do servidor no fuso de Curitiba (America/Sao_Paulo).
   Quando o cliente perguntar o dia de hoje, informe o dia da semana e a data. Quando
   perguntar se a loja está aberta hoje, informe o dia atual e o funcionamento real.
@@ -214,6 +215,77 @@ def _is_available_list_request(text: str) -> bool:
         "catalogo",
     )
     return any(phrase in normalized for phrase in phrases)
+
+
+def _is_product_availability_request(text: str) -> bool:
+    """Route a product-specific availability question without an LLM guess."""
+    normalized = _normalize(text)
+    if not normalized or not _has_product_reference(normalized):
+        return False
+    if _is_available_list_request(text):
+        return False
+    if any(
+        marker in normalized
+        for marker in (
+            "foto",
+            "imagem",
+            "parcel",
+            "entrada",
+            "sinal",
+            "garantia",
+            "reserva",
+            "endereco",
+            "horario",
+            "entrega",
+            "pagamento",
+            "nota fiscal",
+        )
+    ):
+        return False
+    if any(
+        phrase in normalized
+        for phrase in (
+            "tem ",
+            "disponivel",
+            "disponibilidade",
+            "em estoque",
+            "estoque",
+            "a venda",
+            "vende",
+            "possui",
+            "quanto custa",
+            "qual o preco",
+        )
+    ):
+        return True
+    return bool(re.match(r"^(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized))
+
+
+def _requested_capacity_key(text: str) -> str | None:
+    normalized = _normalize(text)
+    match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized)
+    if match:
+        number = match.group(1).replace(",", ".")
+        unit = "tb" if match.group(2) == "tb" else "gb"
+        if number.endswith(".0"):
+            number = number[:-2]
+        return f"{number}{unit}"
+    for number in ("1024", "512", "256", "128", "64", "32"):
+        if re.search(rf"\b{number}\b", normalized):
+            return f"{number}gb"
+    return None
+
+
+def _capacity_key(value: Any) -> str | None:
+    normalized = _normalize(str(value or ""))
+    match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized)
+    if not match:
+        return None
+    number = match.group(1).replace(",", ".")
+    unit = "tb" if match.group(2) == "tb" else "gb"
+    if number.endswith(".0"):
+        number = number[:-2]
+    return f"{number}{unit}"
 
 
 def _is_physical_store_request(text: str) -> bool:
@@ -362,6 +434,41 @@ def _has_appointment_prompt(history: list[dict[str, str]] | None) -> bool:
     )
 
 
+def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) -> bool:
+    """Use appointment history only when the current message looks like a reply to it."""
+    if not _has_appointment_prompt(history):
+        return False
+
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    # A new request must win over an old appointment prompt.
+    if (
+        _is_current_date_request(text)
+        or _is_today_store_status_request(text)
+        or _is_available_list_request(text)
+        or _is_product_availability_request(text)
+        or _is_physical_store_request(text)
+    ):
+        return False
+
+    if _has_visit_date_reference(text) or _has_visit_time_reference(text):
+        return True
+
+    return normalized in {
+        "sim",
+        "pode",
+        "pode ser",
+        "ok",
+        "okay",
+        "beleza",
+        "esse horario",
+        "esse horario serve",
+        "esse horario esta bom",
+    }
+
+
 def _appointment_context(text: str, history: list[dict[str, str]] | None) -> str:
     previous_user_text = [
         entry.get("content", "").strip()
@@ -484,10 +591,6 @@ def _is_sealed_photo_request(text: str) -> bool:
     return any(
         marker in normalized
         for marker in (
-            "lacrado",
-            "lacrados",
-            "lacrada",
-            "lacradas",
             "por encomenda",
             "encomenda",
         )
@@ -499,6 +602,13 @@ def _is_sealed_item(item: Any) -> bool:
     source = _normalize(str(getattr(item, "source", "") or ""))
     condition = _normalize(str(getattr(item, "condition", "") or ""))
     return source == "google sheets" or "lacrado" in condition or "encomenda" in condition
+
+
+def _is_made_to_order_sealed_item(item: Any) -> bool:
+    """Identify sheet/order items that must never send catalog photos."""
+    source = _normalize(str(getattr(item, "source", "") or "")).replace("_", " ")
+    condition = _normalize(str(getattr(item, "condition", "") or ""))
+    return source == "google sheets" or "encomenda" in condition
 
 
 SEALED_PHOTO_REPLY = (
@@ -654,12 +764,37 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
     if _has_product_reference(normalized):
         return current
 
-    previous_user_text = [
-        item.get("content", "").strip()
-        for item in (history or [])
-        if item.get("role") == "user" and item.get("content", "").strip()
+    def is_specific_product_answer(content: str) -> bool:
+        answer = _normalize(content)
+        return bool(
+            _has_product_reference(answer)
+            and any(marker in answer for marker in ("r$", "bateria", "disponivel", "capacidade", "gb"))
+            and not any(marker in answer for marker in ("lista completa", "novos lacrados por encomenda"))
+        )
+
+    entries = [
+        (index, item.get("role"), item.get("content", "").strip())
+        for index, item in enumerate(history or [])
+        if item.get("content", "").strip()
     ]
-    return "\n".join([*previous_user_text[-2:], current]).strip()
+    anchors = [
+        index
+        for index, role, content in entries
+        if role == "user" and _has_product_reference(_normalize(content))
+    ]
+    anchor_index = anchors[-1] if anchors else 0
+
+    parts: list[str] = []
+    for index, role, content in entries:
+        if index >= anchor_index and role == "user" and content not in parts:
+            parts.append(content)
+    for index, role, content in reversed(entries):
+        if index >= anchor_index and role == "assistant" and is_specific_product_answer(content):
+            if content not in parts:
+                parts.append(content)
+            break
+    parts.append(current)
+    return "\n".join(parts[-6:]).strip()
 
 
 def _has_photo_request_in_history(history: list[dict[str, str]] | None) -> bool:
@@ -697,6 +832,35 @@ def _format_battery(value: Any) -> str:
         return "não informada no cadastro"
     shown = str(int(number)) if number.is_integer() else str(number).replace(".", ",")
     return f"{shown}%"
+
+
+def _format_product_availability(items: list[Any]) -> str:
+    if not items:
+        return "No momento não localizei esse produto no catálogo."
+
+    model = str(getattr(items[0], "name", None) or "produto").strip()
+    lines = [f"Sim 😊 Encontrei estas opções de {model} disponíveis:"]
+    for item in items:
+        color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
+        capacity = str(getattr(item, "capacity", None) or "").strip()
+        if not capacity:
+            name_and_description = f"{getattr(item, 'name', '')} {getattr(item, 'description', '')}"
+            capacity_match = re.search(
+                r"\b(\d+(?:[.,]\d+)?\s*(?:GB|TB))\b",
+                name_and_description,
+                flags=re.IGNORECASE,
+            )
+            capacity = capacity_match.group(1).upper() if capacity_match else "capacidade não informada"
+        if getattr(item, "source", None) == "google_sheets":
+            condition = "NOVO LACRADO"
+            battery_text = "não se aplica"
+        else:
+            condition = str(getattr(item, "condition", None) or "estado não informado").upper()
+            battery_text = _format_battery(getattr(item, "battery_health", None))
+        price = getattr(item, "price_brl", None)
+        price_text = format_brl(float(price)) if price is not None else "preço a confirmar"
+        lines.append(f"• {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}")
+    return "\n".join(lines)
 
 
 def _format_available_products(result: dict[str, Any]) -> str:
@@ -929,6 +1093,10 @@ class AgentService:
         if availability_decision is not None:
             return protect_customer_decision(availability_decision)
 
+        product_availability_decision = await self._try_product_availability(text)
+        if product_availability_decision is not None:
+            return protect_customer_decision(product_availability_decision)
+
         physical_store_decision = self._try_physical_store(text)
         if physical_store_decision is not None:
             return protect_customer_decision(physical_store_decision)
@@ -1009,6 +1177,59 @@ class AgentService:
             return None
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
+    async def _try_product_availability(self, text: str) -> AgentDecision | None:
+        if not _is_product_availability_request(text):
+            return None
+
+        try:
+            candidates = await self.cache.search(text, limit=30)
+        except Exception:
+            return None
+
+        public_candidates = [
+            item
+            for item in candidates
+            if _is_device_item(item)
+            and (
+                getattr(item, "source", None) != "mercado_phone"
+                or _is_available_item(item)
+            )
+        ]
+        requested_capacity = _requested_capacity_key(text)
+        if requested_capacity:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if _capacity_key(getattr(item, "capacity", None)) == requested_capacity
+            ]
+
+        if not public_candidates:
+            capacity_text = f" {requested_capacity.upper()}" if requested_capacity else ""
+            return AgentDecision(
+                reply=(
+                    f"No momento não localizei uma opção cadastrada{capacity_text} para esse produto. "
+                    "Pode me informar outro modelo ou capacidade?"
+                ),
+                confidence="medium",
+            )
+
+        scored = [(_catalog_score(text, item), item) for item in public_candidates]
+        best_score = max(score for score, _item in scored)
+        if best_score <= 0:
+            return AgentDecision(
+                reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
+                confidence="medium",
+            )
+
+        top_matches = [item for score, item in scored if score == best_score]
+        selected = top_matches[:3]
+        references = [str(getattr(item, "external_id", "")) for item in selected]
+        return AgentDecision(
+            reply=_format_product_availability(selected),
+            product_references=[reference for reference in references if reference],
+            confidence="high",
+        )
+
     def _try_current_day_information(self, text: str) -> AgentDecision | None:
         if _is_current_date_request(text):
             return AgentDecision(reply=f"Hoje é {_today_label()}.", confidence="high")
@@ -1026,7 +1247,7 @@ class AgentService:
     ) -> AgentDecision | None:
         is_visit = _is_visit_request(text)
         is_reservation = _is_reservation_request(text)
-        is_followup = _has_appointment_prompt(history)
+        is_followup = _is_appointment_followup(text, history)
         if not (is_visit or is_reservation or is_followup):
             return None
 
@@ -1134,13 +1355,44 @@ class AgentService:
         if _is_sealed_photo_request(text):
             return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
         query = _product_context_query(text, history)
-        try:
-            items = await self.cache.search(query, limit=5)
-        except Exception:
-            return None
+        finder = getattr(self.cache, "find_product_photos", None)
+        if callable(finder):
+            try:
+                selected = await finder(query)
+            except Exception:
+                return None
+            if selected is None:
+                fallback = []
+                sealed_cache = getattr(self.cache, "sealed_cache", None)
+                if sealed_cache is not None:
+                    try:
+                        ensure_fresh = getattr(sealed_cache, "ensure_fresh", None)
+                        if callable(ensure_fresh):
+                            await ensure_fresh()
+                        search_sealed = getattr(sealed_cache, "search", None)
+                        if callable(search_sealed):
+                            fallback = await search_sealed(query, limit=5)
+                        else:
+                            fallback = list(getattr(sealed_cache, "items", []))[:5]
+                    except Exception:
+                        fallback = []
+                if not fallback:
+                    try:
+                        fallback = await self.cache.search(query, limit=5)
+                    except Exception:
+                        fallback = []
+                if fallback and _is_sealed_item(fallback[0]):
+                    return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
+                return None
+            items = [selected]
+        else:
+            try:
+                items = await self.cache.search(query, limit=5)
+            except Exception:
+                return None
         if items:
             selected = items[0]
-            if _is_sealed_item(selected):
+            if _is_made_to_order_sealed_item(selected):
                 return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
             urls = list(dict.fromkeys(getattr(selected, "photo_urls", []) or []))[:MAX_PRODUCT_PHOTOS]
             if urls:
@@ -1258,7 +1510,3 @@ class AgentService:
             suffix = f" — {' — '.join(details)}" if details else ""
             lines.append(f"• {item.name}{condition} — {price} — {availability}{suffix}")
         return AgentDecision(reply="Encontrei estas opções:\n" + "\n".join(lines), confidence="medium")
-
-
-
-
