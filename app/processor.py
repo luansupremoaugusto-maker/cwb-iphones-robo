@@ -182,14 +182,21 @@ class MessageProcessor:
                 last,
                 "Não consegui processar essa mídia agora. Vou encaminhar sua mensagem para um atendente.",
             )
-            self.repository.set_conversation_status(phone, "human_pending", str(exc)[:255])
-            await self._notify_admins(
-                phone,
-                "Falha ao processar mídia",
-                "\n".join(text_parts)[:900],
-                chat_name=first.chat_name,
-                history=previous_history,
-            )
+            reason = str(exc)[:255]
+            if self.repository.claim_human_handoff(phone, reason):
+                await self._notify_admins(
+                    phone,
+                    "Falha ao processar mídia",
+                    "\n".join(text_parts)[:900],
+                    chat_name=first.chat_name,
+                    history=previous_history,
+                )
+            else:
+                self.repository.audit(
+                    "handoff_notification_suppressed",
+                    phone,
+                    {"reason": "conversation_already_human", "handoff_reason": reason},
+                )
             return
 
         combined_text = "\n".join(text_parts).strip()
@@ -221,18 +228,21 @@ class MessageProcessor:
             },
         )
         if decision.handoff:
-            self.repository.set_conversation_status(
-                phone,
-                "human_pending",
-                decision.handoff_reason or "Atendimento humano solicitado",
-            )
-            await self._notify_admins(
-                phone,
-                decision.handoff_reason or "Atendimento humano solicitado",
-                combined_text[:900],
-                chat_name=first.chat_name,
-                history=previous_history,
-            )
+            reason = decision.handoff_reason or "Atendimento humano solicitado"
+            if self.repository.claim_human_handoff(phone, reason):
+                await self._notify_admins(
+                    phone,
+                    reason,
+                    combined_text[:900],
+                    chat_name=first.chat_name,
+                    history=previous_history,
+                )
+            else:
+                self.repository.audit(
+                    "handoff_notification_suppressed",
+                    phone,
+                    {"reason": "conversation_already_human", "handoff_reason": reason},
+                )
 
     @staticmethod
     def _safe_raw(incoming: IncomingMessage) -> dict[str, Any]:
