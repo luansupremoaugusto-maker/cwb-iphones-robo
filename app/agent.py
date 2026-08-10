@@ -23,7 +23,7 @@ from app.trade_in import (
     TRADE_IN_NEGOTIATION_REPLY,
     TRADE_IN_REASON,
     is_trade_in_negotiation,
-    is_trade_in_request,
+    is_trade_in_context_request,
     trade_in_em_andamento,
 )
 
@@ -1147,7 +1147,7 @@ class AgentService:
         image_description: str | None = None,
     ) -> AgentDecision:
         combined_request = " ".join(part for part in (text, image_description) if part)
-        if is_trade_in_request(combined_request):
+        if is_trade_in_context_request(combined_request, history):
             return AgentDecision(
                 reply=TRADE_IN_FORM,
                 handoff=True,
@@ -1247,6 +1247,12 @@ class AgentService:
             result = await Runner.run(self.agent, prompt, max_turns=6)
             output = result.final_output
             decision = output if isinstance(output, AgentDecision) else AgentDecision.model_validate(output)
+            decision = _ensure_trade_in_form_before_handoff(
+                decision,
+                text,
+                history,
+                image_description=image_description,
+            )
             return protect_customer_decision(self._sanitize_image_urls(decision))
         except Exception as exc:
             return AgentDecision(
@@ -1686,3 +1692,52 @@ class AgentService:
             suffix = f" — {' — '.join(details)}" if details else ""
             lines.append(f"• {item.name}{condition} — {price} — {availability}{suffix}")
         return AgentDecision(reply="Encontrei estas opções:\n" + "\n".join(lines), confidence="medium")
+
+
+def _looks_like_trade_in_handoff(decision: AgentDecision) -> bool:
+    normalized = _normalize(f"{decision.reply} {decision.handoff_reason}")
+    has_device = re.search(
+        r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+        r"usado|usada|seminovo|seminova)\b",
+        normalized,
+    )
+    has_trade_in_language = re.search(
+        r"\b(?:parte do pagamento|como entrada|para troca|trade[- ]?in)\b",
+        normalized,
+    ) or (
+        re.search(r"\b(?:avaliacao|avaliar)\b", normalized)
+        and re.search(r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|"
+                      r"celular|aparelho|usado|usada|seminovo|seminova)\b", normalized)
+    )
+    return bool(has_device and has_trade_in_language)
+
+
+def _ensure_trade_in_form_before_handoff(
+    decision: AgentDecision,
+    text: str,
+    history: list[dict[str, str]] | None,
+    image_description: str | None = None,
+) -> AgentDecision:
+    """Never transfer a trade-in conversation without first sending its form."""
+    if not decision.handoff or trade_in_em_andamento(history):
+        return decision
+
+    request_context = " ".join(
+        part.strip()
+        for part in (text, image_description)
+        if part and part.strip()
+    )
+    if not (
+        is_trade_in_context_request(request_context, history)
+        or _looks_like_trade_in_handoff(decision)
+    ):
+        return decision
+
+    return decision.model_copy(
+        update={
+            "reply": TRADE_IN_FORM,
+            "handoff": True,
+            "handoff_reason": TRADE_IN_REASON,
+            "confidence": "high",
+        }
+    )
