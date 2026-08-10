@@ -4,11 +4,31 @@ import time
 
 import pytest
 
+from app.adapters.mercado_phone import InventoryCache
+from app.agent import AgentService
 from app.config import Settings
+from app.faq import FAQStore
 from app.processor import _build_handoff_message
 from app.runtime import build_runtime
 from app.schemas import InventoryItem
 
+
+@pytest.mark.asyncio
+async def test_affirmative_handoff_confirmation_sets_handoff(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path="data/faq.yaml")
+    cache = InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json")
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "sim, pfv",
+        history=[
+            {"role": "assistant", "content": "Posso encaminhar seu pedido para um atendente finalizar a compra."},
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "encaminhar" in decision.reply.lower()
+    assert "confirmou" in (decision.handoff_reason or "").lower()
 
 def test_handoff_summary_has_client_context_and_safe_commands():
     message = _build_handoff_message(

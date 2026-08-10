@@ -469,6 +469,38 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
     }
 
 
+def _is_handoff_confirmation(text: str, history: list[dict[str, str]] | None) -> bool:
+    """Treat a short affirmative as human handoff only after an explicit offer."""
+    normalized = re.sub(r"[^\w\s]", " ", _normalize(text), flags=re.UNICODE)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if normalized not in {
+        "sim",
+        "sim pfv",
+        "sim por favor",
+        "pode",
+        "pode sim",
+        "claro",
+        "ok",
+        "okay",
+        "beleza",
+    }:
+        return False
+
+    offer_markers = (
+        "posso encaminhar",
+        "vou encaminhar",
+        "encaminhar seu pedido",
+        "falar com um atendente",
+        "atendente finalizar",
+        "atendente confirmar",
+    )
+    return any(
+        entry.get("role") == "assistant"
+        and any(marker in _normalize(entry.get("content", "")) for marker in offer_markers)
+        for entry in (history or [])
+    )
+
+
 def _appointment_context(text: str, history: list[dict[str, str]] | None) -> str:
     previous_user_text = [
         entry.get("content", "").strip()
@@ -1080,6 +1112,16 @@ class AgentService:
         payment_link_decision = self._try_payment_link(text)
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
+
+        if _is_handoff_confirmation(text, history):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply="Perfeito! Vou encaminhar seu pedido para um atendente finalizar o atendimento.",
+                    handoff=True,
+                    handoff_reason="Cliente confirmou o encaminhamento para atendimento humano",
+                    confidence="high",
+                )
+            )
 
         visit_decision = self._try_visit_scheduling(text, history)
         if visit_decision is not None:
