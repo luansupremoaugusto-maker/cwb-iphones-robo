@@ -87,10 +87,10 @@ REGRAS OBRIGATÓRIAS:
 - Ao informar o que acompanha um aparelho seminovo, diga que ele acompanha cabo e
   fonte novos, homologados pela Anatel.
 
-- Se o cliente pedir fotos de aparelhos novos lacrados ou por encomenda, explique
-  que não há fotos do produto cadastradas no sistema porque esses aparelhos são
-  vendidos por encomenda. Não tente buscar nem enviar fotos de um seminovo no
-  lugar do lacrado.
+- Se o cliente pedir fotos de um lacrado por encomenda, explique que não há fotos
+  do produto cadastradas no sistema porque esse aparelho não está a pronta entrega.
+  Se o lacrado estiver no estoque do Mercado Phone, marcado como disponível para
+  venda e tiver anexos, envie as fotos dele. Nunca use fotos de outro modelo.
 - Saiba a data atual usando o relógio do servidor no fuso de Curitiba (America/Sao_Paulo).
   Quando o cliente perguntar o dia de hoje, informe o dia da semana e a data. Quando
   perguntar se a loja está aberta hoje, informe o dia atual e o funcionamento real.
@@ -556,10 +556,6 @@ def _is_sealed_photo_request(text: str) -> bool:
     return any(
         marker in normalized
         for marker in (
-            "lacrado",
-            "lacrados",
-            "lacrada",
-            "lacradas",
             "por encomenda",
             "encomenda",
         )
@@ -571,6 +567,13 @@ def _is_sealed_item(item: Any) -> bool:
     source = _normalize(str(getattr(item, "source", "") or ""))
     condition = _normalize(str(getattr(item, "condition", "") or ""))
     return source == "google sheets" or "lacrado" in condition or "encomenda" in condition
+
+
+def _is_made_to_order_sealed_item(item: Any) -> bool:
+    """Identify sheet/order items that must never send catalog photos."""
+    source = _normalize(str(getattr(item, "source", "") or "")).replace("_", " ")
+    condition = _normalize(str(getattr(item, "condition", "") or ""))
+    return source == "google sheets" or "encomenda" in condition
 
 
 SEALED_PHOTO_REPLY = (
@@ -726,12 +729,37 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
     if _has_product_reference(normalized):
         return current
 
-    previous_user_text = [
-        item.get("content", "").strip()
-        for item in (history or [])
-        if item.get("role") == "user" and item.get("content", "").strip()
+    def is_specific_product_answer(content: str) -> bool:
+        answer = _normalize(content)
+        return bool(
+            _has_product_reference(answer)
+            and any(marker in answer for marker in ("r$", "bateria", "disponivel", "capacidade", "gb"))
+            and not any(marker in answer for marker in ("lista completa", "novos lacrados por encomenda"))
+        )
+
+    entries = [
+        (index, item.get("role"), item.get("content", "").strip())
+        for index, item in enumerate(history or [])
+        if item.get("content", "").strip()
     ]
-    return "\n".join([*previous_user_text[-2:], current]).strip()
+    anchors = [
+        index
+        for index, role, content in entries
+        if role == "user" and _has_product_reference(_normalize(content))
+    ]
+    anchor_index = anchors[-1] if anchors else 0
+
+    parts: list[str] = []
+    for index, role, content in entries:
+        if index >= anchor_index and role == "user" and content not in parts:
+            parts.append(content)
+    for index, role, content in reversed(entries):
+        if index >= anchor_index and role == "assistant" and is_specific_product_answer(content):
+            if content not in parts:
+                parts.append(content)
+            break
+    parts.append(current)
+    return "\n".join(parts[-6:]).strip()
 
 
 def _has_photo_request_in_history(history: list[dict[str, str]] | None) -> bool:
@@ -1292,13 +1320,44 @@ class AgentService:
         if _is_sealed_photo_request(text):
             return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
         query = _product_context_query(text, history)
-        try:
-            items = await self.cache.search(query, limit=5)
-        except Exception:
-            return None
+        finder = getattr(self.cache, "find_product_photos", None)
+        if callable(finder):
+            try:
+                selected = await finder(query)
+            except Exception:
+                return None
+            if selected is None:
+                fallback = []
+                sealed_cache = getattr(self.cache, "sealed_cache", None)
+                if sealed_cache is not None:
+                    try:
+                        ensure_fresh = getattr(sealed_cache, "ensure_fresh", None)
+                        if callable(ensure_fresh):
+                            await ensure_fresh()
+                        search_sealed = getattr(sealed_cache, "search", None)
+                        if callable(search_sealed):
+                            fallback = await search_sealed(query, limit=5)
+                        else:
+                            fallback = list(getattr(sealed_cache, "items", []))[:5]
+                    except Exception:
+                        fallback = []
+                if not fallback:
+                    try:
+                        fallback = await self.cache.search(query, limit=5)
+                    except Exception:
+                        fallback = []
+                if fallback and _is_sealed_item(fallback[0]):
+                    return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
+                return None
+            items = [selected]
+        else:
+            try:
+                items = await self.cache.search(query, limit=5)
+            except Exception:
+                return None
         if items:
             selected = items[0]
-            if _is_sealed_item(selected):
+            if _is_made_to_order_sealed_item(selected):
                 return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
             urls = list(dict.fromkeys(getattr(selected, "photo_urls", []) or []))[:MAX_PRODUCT_PHOTOS]
             if urls:
@@ -1416,4 +1475,3 @@ class AgentService:
             suffix = f" — {' — '.join(details)}" if details else ""
             lines.append(f"• {item.name}{condition} — {price} — {availability}{suffix}")
         return AgentDecision(reply="Encontrei estas opções:\n" + "\n".join(lines), confidence="medium")
-

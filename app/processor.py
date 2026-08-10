@@ -110,12 +110,14 @@ class MessageProcessor:
         zapi: ZapiClient,
         agent: AgentService,
         media: Any | None = None,
+        photo_normalizer: Any | None = None,
     ):
         self.settings = settings
         self.repository = repository
         self.zapi = zapi
         self.agent = agent
         self.media = media
+        self.photo_normalizer = photo_normalizer
 
     async def process_payload(self, payload: dict[str, Any]) -> None:
         await self.process_batch([payload])
@@ -311,9 +313,12 @@ class MessageProcessor:
     ) -> None:
         await self._send_phone(incoming.phone, text, reply_to=incoming.message_id)
         for index, image_url in enumerate(image_urls or []):
+            normalized_url = image_url
+            if self.photo_normalizer is not None:
+                normalized_url = await self.photo_normalizer.normalize(image_url)
             await self._send_image(
                 incoming.phone,
-                image_url,
+                normalized_url,
                 reply_to=incoming.message_id if index == 0 else None,
             )
 

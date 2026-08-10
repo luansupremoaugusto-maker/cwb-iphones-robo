@@ -8,6 +8,7 @@ from app.adapters.google_sheets_prices import GoogleSheetsPricesCache
 from app.adapters.google_sheets_public_csv import PublicCsvSheetsClient
 from app.adapters.mercado_phone import MercadoPhoneClient
 from app.adapters.openai_media import OpenAIMediaService
+from app.adapters.photo_normalizer import ProductPhotoNormalizer
 from app.adapters.zapi import ZapiClient
 from app.agent import AgentService
 from app.config import Settings
@@ -27,11 +28,14 @@ class Runtime:
     zapi: ZapiClient
     agent: AgentService
     media: OpenAIMediaService | None
+    photo_normalizer: ProductPhotoNormalizer | None
     processor: MessageProcessor
 
     async def aclose(self) -> None:
         await self.mercado.aclose()
         await self.google_sheets.aclose()
+        if self.photo_normalizer is not None:
+            await self.photo_normalizer.aclose()
         await self.zapi.aclose()
 
 
@@ -53,5 +57,18 @@ def build_runtime(settings: Settings, offline: bool = False) -> Runtime:
     zapi = ZapiClient(settings)
     agent = AgentService(cache, faq, settings, offline=offline)
     media = None if offline or not settings.openai_api_key else OpenAIMediaService(settings)
-    processor = MessageProcessor(settings, repository, zapi, agent, media)
-    return Runtime(settings, repository, mercado, google_sheets, cache, faq, zapi, agent, media, processor)
+    photo_normalizer = None if offline else ProductPhotoNormalizer(settings)
+    processor = MessageProcessor(settings, repository, zapi, agent, media, photo_normalizer)
+    return Runtime(
+        settings,
+        repository,
+        mercado,
+        google_sheets,
+        cache,
+        faq,
+        zapi,
+        agent,
+        media,
+        photo_normalizer,
+        processor,
+    )

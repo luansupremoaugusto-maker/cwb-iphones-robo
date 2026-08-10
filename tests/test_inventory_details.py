@@ -358,3 +358,59 @@ async def test_specific_availability_without_capacity_lists_exact_model_rows(tmp
     assert "AZUL — 256GB — SEMINOVO" in decision.reply
     assert "AMARELO — 128GB — SEMINOVO" in decision.reply
     assert "14 PRO" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_short_photo_followup_keeps_the_last_confirmed_iphone_14_not_plus(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    iphone_14 = InventoryItem(
+        external_id="14-blue-256",
+        name="IPHONE 14",
+        category="Celular",
+        capacity="256GB",
+        color="AZUL",
+        colors="AZUL",
+        condition="SEMINOVO",
+        availability="Disponivel para venda",
+        quantity=1,
+        price_brl=2200,
+        battery_health=91,
+        search_text="iphone 14 azul 256 gb celular seminovo",
+        photo_urls=["https://photos.example/iphone-14-blue-256.jpg"],
+    )
+    iphone_14_plus = iphone_14.model_copy(
+        update={
+            "external_id": "14-plus-blue-128",
+            "name": "IPHONE 14 PLUS",
+            "capacity": "128GB",
+            "search_text": "iphone 14 plus azul 128 gb celular seminovo",
+            "photo_urls": ["https://photos.example/iphone-14-plus-blue.jpg"],
+        }
+    )
+    cache.items = [iphone_14, iphone_14_plus]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    history = [
+        {"role": "user", "content": "Tem iPhone 14?"},
+        {
+            "role": "assistant",
+            "content": "Para iPhone 14 de 128 GB, nao encontrei. Temos iPhone 14 seminovo de 256 GB.",
+        },
+        {"role": "user", "content": "O azul"},
+        {
+            "role": "assistant",
+            "content": "O iPhone 14 azul, 256 GB, seminovo esta disponivel por R$ 2.200. A bateria esta com 91%.",
+        },
+    ]
+
+    decision = await agent.respond("Tem fotos?", history=history)
+
+    assert decision.image_urls == ["https://photos.example/iphone-14-blue-256.jpg"]
+    assert decision.product_references == ["14-blue-256"]
+    assert "IPHONE 14 PLUS" not in decision.reply

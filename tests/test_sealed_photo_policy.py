@@ -70,3 +70,37 @@ async def test_specific_sealed_item_never_sends_photos(tmp_path):
     assert decision.image_urls == []
     assert "por encomenda" in decision.reply.lower()
     assert "fotos do produto" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_ready_sealed_item_can_send_its_catalog_photos(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedPriceCache(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-17-ready-sealed",
+            name="iPhone 17",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            price_brl=5700.0,
+            source="mercado_phone",
+            condition="novo lacrado",
+            availability="Disponível para venda",
+            quantity=1,
+            search_text="iphone 17 256 gb preto novo lacrado",
+            photo_urls=["https://photos.example/iphone-17-ready-sealed.jpg"],
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Pode mandar a foto do iPhone 17 lacrado?")
+
+    assert decision.image_urls == ["https://photos.example/iphone-17-ready-sealed.jpg"]
+    assert decision.product_references == ["iphone-17-ready-sealed"]
