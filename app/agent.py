@@ -30,12 +30,14 @@ from app.installments import (
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision
 from app.trade_in import (
+    PURCHASE_WITHOUT_TRADE_IN_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
     TRADE_IN_REASON,
     is_trade_in_negotiation,
     is_trade_in_context_request,
     trade_in_em_andamento,
+    is_purchase_without_trade_in_request,
 )
 
 
@@ -1247,7 +1249,10 @@ class AgentService:
         image_description: str | None = None,
     ) -> AgentDecision:
         combined_request = " ".join(part for part in (text, image_description) if part)
-        if is_trade_in_context_request(combined_request, history):
+        if (
+            not is_purchase_without_trade_in_request(combined_request)
+            and is_trade_in_context_request(combined_request, history)
+        ):
             return AgentDecision(
                 reply=TRADE_IN_FORM,
                 handoff=True,
@@ -1894,6 +1899,19 @@ def _ensure_trade_in_form_before_handoff(
     image_description: str | None = None,
 ) -> AgentDecision:
     """Never transfer a trade-in conversation without first sending its form."""
+    if (
+        not trade_in_em_andamento(history)
+        and is_purchase_without_trade_in_request(text)
+        and _looks_like_trade_in_handoff(decision)
+    ):
+        return decision.model_copy(
+            update={
+                "reply": PURCHASE_WITHOUT_TRADE_IN_REPLY,
+                "handoff": False,
+                "handoff_reason": None,
+                "confidence": "high",
+            }
+        )
     if not decision.handoff or trade_in_em_andamento(history):
         return decision
 
