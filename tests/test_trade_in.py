@@ -10,6 +10,7 @@ from app.trade_in import (
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
     is_trade_in_negotiation,
+    is_trade_in_context_request,
     is_trade_in_request,
     trade_in_em_andamento,
 )
@@ -130,3 +131,68 @@ async def test_processor_pauses_trade_in_conversation_after_sending_form():
 
     assert conversation is not None and conversation.status == "human_pending"
     assert any(item["role"] == "assistant" and "Qual modelo de iPhone?" in item["content"] for item in messages)
+
+
+def test_trade_in_context_detector_matches_abbreviated_model_followup():
+    history = [
+        {"role": "user", "content": "Quanto esta o iPhone 17 Pro Max?"},
+        {
+            "role": "assistant",
+            "content": "iPhone 17 Pro Max por R$ 7.800. Qual capacidade voce deseja?",
+        },
+    ]
+
+    assert is_trade_in_context_request("Tenho 14 quantos sera ficaria dai?", history)
+    assert not is_trade_in_context_request("Tenho 14 anos, quanto falta?", history)
+
+
+@pytest.mark.asyncio
+async def test_trade_in_context_followup_returns_form_before_handoff(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Tenho 14 quantos sera ficaria dai?",
+        history=[
+            {"role": "user", "content": "Quanto esta o iPhone 17 Pro Max?"},
+            {
+                "role": "assistant",
+                "content": "iPhone 17 Pro Max por R$ 7.800. Qual capacidade voce deseja?",
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_trade_in_confirmation_returns_form_before_handoff(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Ok",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Voce quer dar seu iPhone 14 como parte do pagamento? "
+                    "A avaliacao depende do estado. Vou encaminhar para um atendente."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM

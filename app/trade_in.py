@@ -283,3 +283,72 @@ def is_trade_in_negotiation(text: str | None) -> bool:
     money = bool(re.search(r"\br\$\s*\d|\b\d{2,5}\s*(?:reais|conto|mil)\b", normalized))
     context = bool(re.search(r"\b(?:valor|oferta|usado|iphone|celular|aparelho|troca)\b", normalized))
     return bool(closing and (money or context))
+
+
+def is_trade_in_context_request(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize abbreviated trade-in follow-ups using the recent conversation."""
+    if is_trade_in_request(text):
+        return True
+
+    normalized = _normalize(text)
+    if not normalized or not history:
+        return False
+
+    recent_assistant_messages = [
+        _normalize(entry.get("content", ""))
+        for entry in reversed(history[-8:])
+        if entry.get("role") == "assistant" and entry.get("content")
+    ]
+    trade_in_offer_pending = any(
+        "favor preencher lista de avaliacao" not in content
+        and (
+            (
+                re.search(r"\b(?:parte do pagamento|como entrada|para troca)\b", content)
+                and _DEVICE_RE.search(content)
+            )
+            or (
+                re.search(r"\b(?:avaliacao|avaliar)\b", content)
+                and _DEVICE_RE.search(content)
+            )
+        )
+        for content in recent_assistant_messages
+    )
+
+    if normalized in {
+        "sim",
+        "sim por favor",
+        "sim pfv",
+        "pode",
+        "pode sim",
+        "claro",
+        "ok",
+        "okay",
+        "beleza",
+    }:
+        return trade_in_offer_pending
+
+    # Some customers omit "iPhone" in a short follow-up such as
+    # "Tenho 14, quanto ficaria dai?" after a product price was discussed.
+    owns_numbered_device = re.search(
+        r"\b(?:tenho|possuo|estou com|to com)\s+(?:um\s+)?"
+        r"(?:iphone\s*)?\d{1,2}\b",
+        normalized,
+    )
+    asks_for_trade_in_value = re.search(
+        r"\b(?:quanto|ficaria|diferenca|troco|valor|pagamento|entrada)\b",
+        normalized,
+    )
+    if not owns_numbered_device or not asks_for_trade_in_value:
+        return False
+    if re.search(r"\b\d{1,2}\s+anos?\b", normalized):
+        return False
+
+    recent_context = " ".join(
+        _normalize(entry.get("content", ""))
+        for entry in history[-8:]
+        if entry.get("content")
+    )
+    return bool(_APPLE_PRODUCT_RE.search(recent_context))
