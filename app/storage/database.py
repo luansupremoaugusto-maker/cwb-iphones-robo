@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, create_engine, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
@@ -165,6 +165,31 @@ class Repository:
                 record.paused_reason = reason
                 record.updated_at = utc_now()
             session.commit()
+
+    def claim_human_handoff(self, phone: str, reason: str | None = None) -> bool:
+        """Atomically claim the first handoff for an active bot conversation.
+
+        The conditional update prevents concurrent/retried processing from
+        sending the same attendant notification more than once. A later
+        handoff is allowed after an attendant explicitly releases the
+        conversation back to bot_active.
+        """
+        with Session(self.engine) as session:
+            now = utc_now()
+            result = session.execute(
+                update(ConversationRecord)
+                .where(
+                    ConversationRecord.phone == phone,
+                    ConversationRecord.status == "bot_active",
+                )
+                .values(
+                    status="human_pending",
+                    paused_reason=reason,
+                    updated_at=now,
+                )
+            )
+            session.commit()
+            return int(result.rowcount or 0) == 1
 
     def release_all_human_conversations(self, reason: str | None = None) -> int:
         """Reactivate conversations waiting for or receiving human service.

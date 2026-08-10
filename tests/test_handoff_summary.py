@@ -54,6 +54,24 @@ def test_handoff_summary_has_client_context_and_safe_commands():
 
 
 @pytest.mark.asyncio
+async def test_repository_claims_handoff_only_once_per_bot_cycle():
+    settings = Settings(database_url="sqlite:///:memory:", openai_api_key=None)
+    runtime = build_runtime(settings, offline=True)
+    customer = "5541999999999"
+    try:
+        runtime.repository.get_or_create_conversation(customer)
+
+        assert runtime.repository.claim_human_handoff(customer, "Primeiro pedido") is True
+        assert runtime.repository.claim_human_handoff(customer, "Reprocessamento") is False
+        assert runtime.repository.get_conversation(customer).status == "human_pending"
+
+        runtime.repository.set_conversation_status(customer, "bot_active", "Atendimento encerrado")
+        assert runtime.repository.claim_human_handoff(customer, "Novo pedido") is True
+    finally:
+        await runtime.aclose()
+
+
+@pytest.mark.asyncio
 async def test_processor_sends_structured_handoff_summary_to_admin():
     settings = Settings(
         database_url="sqlite:///:memory:",
