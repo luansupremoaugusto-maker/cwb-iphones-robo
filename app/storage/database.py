@@ -238,6 +238,24 @@ class Repository:
             session.commit()
             return int(record.id)
 
+    def update_message_text(self, message_id: int, text: str) -> None:
+        """Update derived text for an already stored media message.
+
+        Media descriptions are produced after the inbound event is persisted.
+        Keeping the description in the message text makes it available to a
+        later turn without storing the original media or exposing it in raw
+        webhook data.
+        """
+        with Session(self.engine) as session:
+            record = session.get(MessageRecord, int(message_id))
+            if record is None:
+                return
+            record.text = text or ""
+            conversation = session.get(ConversationRecord, record.conversation_id)
+            if conversation is not None:
+                conversation.updated_at = utc_now()
+            session.commit()
+
     def recent_messages(self, phone: str, limit: int = 20) -> list[dict[str, str]]:
         with Session(self.engine) as session:
             conversation = session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))

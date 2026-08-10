@@ -198,6 +198,20 @@ def _has_product_reference(normalized: str) -> bool:
     )
 
 
+def _is_image_history_entry(content: str) -> bool:
+    normalized = _normalize(content)
+    return normalized.startswith("descricao visual da imagem recebida:") or (
+        normalized.startswith("legenda da imagem:")
+        and "descricao visual da imagem recebida:" in normalized
+    )
+
+
+def _current_catalog_context(text: str, image_description: str | None = None) -> str:
+    """Put visual context before explicit text so explicit text wins on conflict."""
+    parts = [part.strip() for part in (image_description, text) if part and part.strip()]
+    return "\n".join(parts).strip()
+
+
 def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -604,7 +618,7 @@ def _is_photo_request(text: str) -> bool:
         return False
     if any(
         phrase in normalized
-        for phrase in ("manda", "mandar", "enviar", "envia", "mostra", "ver", "tem", "possui", "disponivel")
+        for phrase in ("manda", "mande", "mandar", "enviar", "envia", "mostra", "ver", "tem", "possui", "disponivel")
     ):
         return True
     # Short WhatsApp requests such as "fotos do 16e preto?" often omit the
@@ -774,6 +788,39 @@ def _requested_installments(text: str) -> int | None:
     return None
 
 
+def _last_requested_installments(history: list[dict[str, str]] | None) -> int | None:
+    for item in reversed(history or []):
+        if item.get("role") != "user":
+            continue
+        requested = _requested_installments(item.get("content", ""))
+        if requested is not None:
+            return requested
+    return None
+
+
+def _is_installment_selection_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if _requested_installments(text) is not None:
+        return True
+    if _last_requested_installments(history) is None:
+        return False
+    normalized = _normalize(text)
+    return any(
+        marker in normalized
+        for marker in ("bateria", "saude da bateria", "essa opcao", "essa unidade", "qual delas", "a de ", "o de ")
+    )
+
+
+def _has_installment_product_context(value: str) -> bool:
+    normalized = _normalize(value)
+    return bool(
+        re.search(r"\b(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized)
+        or re.search(r"\b\d{1,2}\s*(?:e|pro|max|air|mini|plus)\b", normalized)
+    )
+
+
 def _installment_context_query(text: str, history: list[dict[str, str]] | None) -> str:
     current = text.strip()
     for item in reversed(history or []):
@@ -816,15 +863,21 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
     ]
     anchor_index = anchors[-1] if anchors else 0
 
+    image_anchor = any(
+        index == anchor_index and role == "user" and _is_image_history_entry(content)
+        for index, role, content in entries
+    )
+
     parts: list[str] = []
     for index, role, content in entries:
         if index >= anchor_index and role == "user" and content not in parts:
             parts.append(content)
-    for index, role, content in reversed(entries):
-        if index >= anchor_index and role == "assistant" and is_specific_product_answer(content):
-            if content not in parts:
-                parts.append(content)
-            break
+    if not image_anchor:
+        for index, role, content in reversed(entries):
+            if index >= anchor_index and role == "assistant" and is_specific_product_answer(content):
+                if content not in parts:
+                    parts.append(content)
+                break
     parts.append(current)
     return "\n".join(parts[-6:]).strip()
 
@@ -1135,7 +1188,10 @@ class AgentService:
         if availability_decision is not None:
             return protect_customer_decision(availability_decision)
 
-        product_availability_decision = await self._try_product_availability(text)
+        product_availability_decision = await self._try_product_availability(
+            text,
+            image_description=image_description,
+        )
         if product_availability_decision is not None:
             return protect_customer_decision(product_availability_decision)
 
@@ -1143,7 +1199,11 @@ class AgentService:
         if physical_store_decision is not None:
             return protect_customer_decision(physical_store_decision)
 
-        photo_decision = await self._try_product_photos(text, history)
+        photo_decision = await self._try_product_photos(
+            text,
+            history,
+            image_description=image_description,
+        )
         if photo_decision is not None:
             return protect_customer_decision(self._sanitize_image_urls(photo_decision))
 
@@ -1154,6 +1214,10 @@ class AgentService:
         entry_installment_decision = await self._try_entry_installment(text, history)
         if entry_installment_decision is not None:
             return protect_customer_decision(entry_installment_decision)
+
+        specific_installment_decision = await self._try_specific_installment(text, history)
+        if specific_installment_decision is not None:
+            return protect_customer_decision(specific_installment_decision)
 
         full_installment_decision = await self._try_full_installment_table(text, history)
         if full_installment_decision is not None:
@@ -1219,12 +1283,18 @@ class AgentService:
             return None
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
-    async def _try_product_availability(self, text: str) -> AgentDecision | None:
-        if not _is_product_availability_request(text):
+    async def _try_product_availability(
+        self,
+        text: str,
+        *,
+        image_description: str | None = None,
+    ) -> AgentDecision | None:
+        query = _current_catalog_context(text, image_description)
+        if not _is_product_availability_request(query):
             return None
 
         try:
-            candidates = await self.cache.search(text, limit=30)
+            candidates = await self.cache.search(query, limit=30)
         except Exception:
             return None
 
@@ -1237,7 +1307,7 @@ class AgentService:
                 or _is_available_item(item)
             )
         ]
-        requested_capacity = _requested_capacity_key(text)
+        requested_capacity = _requested_capacity_key(query)
         if requested_capacity:
             public_candidates = [
                 item
@@ -1255,7 +1325,7 @@ class AgentService:
                 confidence="medium",
             )
 
-        scored = [(_catalog_score(text, item), item) for item in public_candidates]
+        scored = [(_catalog_score(query, item), item) for item in public_candidates]
         best_score = max(score for score, _item in scored)
         if best_score <= 0:
             return AgentDecision(
@@ -1389,6 +1459,8 @@ class AgentService:
         self,
         text: str,
         history: list[dict[str, str]] | None,
+        *,
+        image_description: str | None = None,
     ) -> AgentDecision | None:
         if not _is_photo_request(text):
             return None
@@ -1396,7 +1468,10 @@ class AgentService:
             return None
         if _is_sealed_photo_request(text):
             return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
-        query = _product_context_query(text, history)
+        query = _product_context_query(
+            _current_catalog_context(text, image_description),
+            history,
+        )
         finder = getattr(self.cache, "find_product_photos", None)
         if callable(finder):
             try:
@@ -1452,6 +1527,65 @@ class AgentService:
                 confidence="low",
             )
         return None
+
+    async def _try_specific_installment(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        installments = _requested_installments(text)
+        if installments is None:
+            if not _is_installment_selection_followup(text, history):
+                return None
+            installments = _last_requested_installments(history)
+        if installments is None:
+            return None
+
+        query = _installment_context_query(text, history)
+        if not _has_installment_product_context(query):
+            return None
+        method = getattr(self.cache, "simulate_installment", None)
+        if not callable(method):
+            return None
+        try:
+            result = await method(query, installments)
+        except Exception:
+            return None
+        if result.get("encontrado"):
+            return AgentDecision(
+                reply=format_installment_result(result),
+                confidence="high",
+            )
+        if not result.get("ambiguo"):
+            return None
+
+        candidates = result.get("candidatos") or []
+        lines: list[str] = []
+        for candidate in candidates[:3]:
+            if not isinstance(candidate, dict):
+                continue
+            name = str(candidate.get("nome") or "Produto")
+            capacity = candidate.get("capacidade")
+            battery = candidate.get("saude_bateria")
+            price = candidate.get("preco_brl")
+            details = [name]
+            if capacity:
+                details.append(str(capacity))
+            if battery is not None:
+                details.append(f"bateria {float(battery):g}%")
+            if price is not None:
+                details.append(format_brl(float(price)))
+            lines.append(" - ".join(details))
+        if not lines:
+            return None
+        return AgentDecision(
+            reply=(
+                "Encontrei mais de uma unidade compativel:\n"
+                + "\n".join(lines)
+                + "\nQual delas voce quer simular?"
+            ),
+            confidence="medium",
+        )
 
     async def _try_full_installment_table(
         self,
