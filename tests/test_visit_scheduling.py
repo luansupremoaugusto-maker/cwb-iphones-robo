@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -10,6 +11,7 @@ from app.adapters.mercado_phone import InventoryCache
 from app.agent import AgentService
 from app.config import Settings
 from app.faq import FAQStore
+from app.schemas import InventoryItem
 
 
 class EmptyMercadoClient:
@@ -139,3 +141,44 @@ async def test_explicit_reservation_overrides_pending_visit_context(tmp_path):
     assert "não trabalhamos com reserva" in decision.reply.lower()
     assert "cancelam" in decision.reply.lower()
     assert "deixamos de vender" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_new_product_question_overrides_stale_visit_prompt(tmp_path, monkeypatch):
+    current = datetime(2026, 8, 10, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    settings = Settings(faq_path="data/faq.yaml")
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-12-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2200,
+            search_text="iphone 12 preto 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    initial = await agent.respond("Estao abertos hoje?")
+    decision = await agent.respond(
+        "Ainda tem o 12?",
+        history=[
+            {"role": "user", "content": "Estao abertos hoje?"},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+
+    assert "IPHONE 12" in decision.reply
+    assert "visita" not in decision.reply.lower()
+    assert "09:00" not in decision.reply

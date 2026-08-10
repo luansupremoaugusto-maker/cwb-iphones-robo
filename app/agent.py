@@ -434,6 +434,41 @@ def _has_appointment_prompt(history: list[dict[str, str]] | None) -> bool:
     )
 
 
+def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) -> bool:
+    """Use appointment history only when the current message looks like a reply to it."""
+    if not _has_appointment_prompt(history):
+        return False
+
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    # A new request must win over an old appointment prompt.
+    if (
+        _is_current_date_request(text)
+        or _is_today_store_status_request(text)
+        or _is_available_list_request(text)
+        or _is_product_availability_request(text)
+        or _is_physical_store_request(text)
+    ):
+        return False
+
+    if _has_visit_date_reference(text) or _has_visit_time_reference(text):
+        return True
+
+    return normalized in {
+        "sim",
+        "pode",
+        "pode ser",
+        "ok",
+        "okay",
+        "beleza",
+        "esse horario",
+        "esse horario serve",
+        "esse horario esta bom",
+    }
+
+
 def _appointment_context(text: str, history: list[dict[str, str]] | None) -> str:
     previous_user_text = [
         entry.get("content", "").strip()
@@ -1212,7 +1247,7 @@ class AgentService:
     ) -> AgentDecision | None:
         is_visit = _is_visit_request(text)
         is_reservation = _is_reservation_request(text)
-        is_followup = _has_appointment_prompt(history)
+        is_followup = _is_appointment_followup(text, history)
         if not (is_visit or is_reservation or is_followup):
             return None
 
