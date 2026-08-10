@@ -75,6 +75,25 @@ def _capacity_key(value: Any) -> str | None:
     return None
 
 
+def _battery_key(value: Any) -> float | None:
+    try:
+        number = float(str(value).replace(",", ".").strip())
+    except (TypeError, ValueError):
+        return None
+    return round(number, 2) if 0 <= number <= 100 else None
+
+
+def _requested_battery_health(value: Any) -> float | None:
+    normalized = _score_text(value)
+    matches = re.findall(
+        r"(?:saude\s+(?:da\s+)?bateria|bateria|battery\s*health)"
+        r"\s*(?:de|em|com|:|-)?\s*(\d{1,3}(?:[.,]\d+)?)\s*%?",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return _battery_key(matches[-1]) if matches else None
+
+
 def _catalog_score(query: str, item: Any) -> int:
     score = score_item(query, item)
     normalized_query = _score_text(query)
@@ -101,6 +120,10 @@ def _catalog_score(query: str, item: Any) -> int:
     item_color = _score_text(getattr(item, "color", None) or getattr(item, "colors", None))
     if item_color and re.search(rf"(?<!\w){re.escape(item_color)}(?!\w)", normalized_query):
         score += 300 + len(item_color.split()) * 20
+
+    requested_battery = _requested_battery_health(query)
+    if requested_battery is not None and _battery_key(getattr(item, "battery_health", None)) == requested_battery:
+        score += 400
 
     if query_tokens.intersection({"normal", "comum", "base"}):
         variants = {"air", "pro", "max", "mini", "plus", "e"}
@@ -404,7 +427,19 @@ class StoreCatalogCache(InventoryCache):
 
     async def _select_priced_candidate(self, query: str) -> tuple[Any | None, dict[str, Any] | None]:
         candidates = [item for item in await self.search(query, limit=10) if item.price_brl is not None]
+        requested_battery = _requested_battery_health(query)
+        if requested_battery is not None:
+            candidates = [
+                item
+                for item in candidates
+                if _battery_key(getattr(item, "battery_health", None)) == requested_battery
+            ]
         if not candidates:
+            if requested_battery is not None:
+                return None, {
+                    "encontrado": False,
+                    "motivo": f"Unidade com saude da bateria de {requested_battery:g}% e preco confirmado nao localizada",
+                }
             return None, {"encontrado": False, "motivo": "Produto com preço confirmado não localizado"}
 
         if len(candidates) > 1 and _catalog_score(query, candidates[0]) == _catalog_score(query, candidates[1]):
@@ -412,7 +447,12 @@ class StoreCatalogCache(InventoryCache):
                 "encontrado": False,
                 "ambiguo": True,
                 "candidatos": [
-                    {"nome": item.name, "capacidade": item.capacity, "preco_brl": item.price_brl}
+                    {
+                        "nome": item.name,
+                        "capacidade": item.capacity,
+                        "preco_brl": item.price_brl,
+                        "saude_bateria": getattr(item, "battery_health", None),
+                    }
                     for item in candidates[:3]
                 ],
             }

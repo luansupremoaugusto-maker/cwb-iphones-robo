@@ -37,6 +37,18 @@ def _clean_summary_text(value: str | None, limit: int = 900) -> str:
     return text
 
 
+def _image_history_text(caption: str | None, description: str | None) -> str:
+    """Persist only safe, text-based context derived from an inbound image."""
+    parts: list[str] = []
+    safe_caption = _clean_summary_text(caption, limit=500)
+    safe_description = _clean_summary_text(description, limit=1200)
+    if safe_caption:
+        parts.append(f"Legenda da imagem: {safe_caption}")
+    if safe_description:
+        parts.append(f"Descricao visual da imagem recebida: {safe_description}")
+    return "\n".join(parts)
+
+
 def _handoff_title(reason: str, context: str) -> str:
     combined = _fold_text(f"{reason} {context}")
     if any(marker in combined for marker in ("trade", "usado", "parte do pagamento", "avaliacao")):
@@ -149,14 +161,17 @@ class MessageProcessor:
         self.repository.get_or_create_conversation(phone, first.chat_name)
         previous_history = self.repository.recent_messages(phone, limit=12)
 
+        stored_message_ids: list[int] = []
         for incoming in incoming_messages:
-            self.repository.add_message(
-                phone,
-                direction="inbound",
-                kind=incoming.kind,
-                text=incoming.text or incoming.caption,
-                provider_message_id=incoming.message_id,
-                raw=self._safe_raw(incoming),
+            stored_message_ids.append(
+                self.repository.add_message(
+                    phone,
+                    direction="inbound",
+                    kind=incoming.kind,
+                    text=incoming.text or incoming.caption,
+                    provider_message_id=incoming.message_id,
+                    raw=self._safe_raw(incoming),
+                )
             )
 
         conversation = self.repository.get_conversation(phone)
@@ -171,12 +186,23 @@ class MessageProcessor:
         text_parts: list[str] = []
         image_descriptions: list[str] = []
         try:
-            for incoming in incoming_messages:
+            for index, incoming in enumerate(incoming_messages):
                 working_text, image_description = await self._prepare_input(incoming)
                 if working_text:
                     text_parts.append(working_text)
                 if image_description:
                     image_descriptions.append(image_description)
+                    self.repository.update_message_text(
+                        stored_message_ids[index],
+                        _image_history_text(incoming.caption, image_description),
+                    )
+                elif incoming.kind == "audio" and working_text:
+                    # Keep audio transcripts available to a later follow-up,
+                    # just like image descriptions.
+                    self.repository.update_message_text(
+                        stored_message_ids[index],
+                        working_text,
+                    )
         except (OpenAIMediaError, ZapiError) as exc:
             await self._send_customer(
                 last,

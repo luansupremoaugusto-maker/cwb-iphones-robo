@@ -414,3 +414,60 @@ async def test_short_photo_followup_keeps_the_last_confirmed_iphone_14_not_plus(
     assert decision.image_urls == ["https://photos.example/iphone-14-blue-256.jpg"]
     assert decision.product_references == ["14-blue-256"]
     assert "IPHONE 14 PLUS" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_photo_followup_prefers_customer_image_over_wrong_assistant_product(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    iphone_13_pro = InventoryItem(
+        external_id="13-pro-silver-256",
+        name="IPHONE 13 PRO",
+        category="Celular",
+        capacity="256GB",
+        color="PRATEADO",
+        colors="PRATEADO",
+        condition="SEMINOVO",
+        availability="Disponivel para venda",
+        quantity=1,
+        price_brl=2550,
+        search_text="iphone 13 pro prateado 256 gb celular seminovo",
+        photo_urls=["https://photos.example/iphone-13-pro-256.jpg"],
+    )
+    iphone_14_plus = iphone_13_pro.model_copy(
+        update={
+            "external_id": "14-plus-blue-128",
+            "name": "IPHONE 14 PLUS",
+            "capacity": "128GB",
+            "color": "AZUL",
+            "colors": "AZUL",
+            "search_text": "iphone 14 plus azul 128 gb celular seminovo",
+            "photo_urls": ["https://photos.example/iphone-14-plus-128.jpg"],
+        }
+    )
+    cache.items = [iphone_13_pro, iphone_14_plus]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    history = [
+        {
+            "role": "user",
+            "content": "Descricao visual da imagem recebida: anuncio de iPhone 13 Pro 256GB prateado.",
+        },
+        {
+            "role": "assistant",
+            "content": "Claro! Seguem as fotos do IPHONE 14 PLUS 128GB.",
+        },
+        {"role": "user", "content": "Esta disponivel"},
+    ]
+
+    decision = await agent.respond("Mande foto ou video", history=history)
+
+    assert decision.image_urls == ["https://photos.example/iphone-13-pro-256.jpg"]
+    assert decision.product_references == ["13-pro-silver-256"]
+    assert "IPHONE 13 PRO" in decision.reply
+    assert "14 PLUS" not in decision.reply
