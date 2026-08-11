@@ -57,6 +57,12 @@ Com essas informações já podemos fazer uma avaliação prévia!!
 Só avaliamos produtos da marca Apple. Após preencher, vou encaminhar o atendimento para um atendente concluir a avaliação."""
 
 
+PURCHASE_WITHOUT_TRADE_IN_REPLY = (
+    "Entendi! Ent\u00e3o voc\u00ea quer comprar um aparelho novo. "
+    "Qual modelo ou capacidade voc\u00ea procura? Posso verificar as op\u00e7\u00f5es dispon\u00edveis."
+)
+
+
 def _normalize(value: str | None) -> str:
     plain = "".join(
         char for char in unicodedata.normalize("NFKD", value or "") if not unicodedata.combining(char)
@@ -254,6 +260,21 @@ def is_trade_in_request(text: str | None) -> bool:
                   r"aparelho|produto)\b", normalized)
         or re.search(r"\b(?:aceitam|compram|pegam)\s+(?:usado|seminovo)\b", normalized)
     )
+
+
+_PURCHASE_INTENT_RE = re.compile(
+    r"\b(?:quero|vou|preciso|pretendo|gostaria de|decidi|optei por)\s+compr\w*\b"
+    r"|\bcomprar\s+(?:um|uma|o|a)?\s*(?:aparelho|celular|iphone|ipad|macbook|novo|outro)\b",
+    re.IGNORECASE,
+)
+
+
+def is_purchase_without_trade_in_request(text: str | None) -> bool:
+    """Recognize an explicit purchase intent that does not offer a device."""
+    normalized = _normalize(text)
+    if not normalized or not _PURCHASE_INTENT_RE.search(normalized):
+        return False
+    return not is_trade_in_request(normalized)
 
 
 _FORM_EM_ANDAMENTO_MARKER = "favor preencher lista de avaliacao"
