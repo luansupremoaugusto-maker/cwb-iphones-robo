@@ -53,6 +53,8 @@ def test_trade_in_guard_does_not_capture_purchase_stock_or_payment(text):
         "da pra usar ele de entrada?",
         "quero comprar um 15 novo e dar meu celular como entrada",
         "quero vender meu iphone 13",
+        "tenho um iPhone 11 Pro Max para vender",
+        "estou vendendo meu iPhone 11 Pro Max",
     ],
 )
 def test_trade_in_guard_keeps_buyback_and_device_entry_requests(text):
@@ -196,3 +198,20 @@ async def test_trade_in_confirmation_returns_form_before_handoff(tmp_path):
 
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_for_sale_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond("Tenho um iPhone 11 Pro Max para vender.")
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "Qual modelo de iPhone?" in decision.reply

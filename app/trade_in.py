@@ -128,6 +128,17 @@ def _has_personal_device_reference(text: str) -> bool:
 
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
+    # Customers commonly state ownership before the sale intent: "tenho um
+    # iPhone 11 Pro Max para vender". Keep this ahead of the stock guard below
+    # so the model number is not routed as a catalog lookup.
+    if re.search(
+        r"\b(?:tenho|possuo|estou|estou com|to com)\b"
+        r".{0,60}\b(?:para|pra)?\s*vend(?:er|endo|o|a)\b",
+        text,
+        flags=re.IGNORECASE,
+    ) and _has_device_reference(text):
+        return True
+
     if re.search(
         r"\b(?:trade[- ]?in|retoma|retomar|troca de celular|"
         r"parte do pagamento|como entrada|de entrada|para troca|na troca)\b",
