@@ -127,3 +127,37 @@ async def test_explicit_ipad_does_not_return_iphone_or_macbook(tmp_path):
     assert "IPAD AIR" in decision.reply.upper()
     assert "IPHONE" not in decision.reply.upper()
     assert "MACBOOK" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_availability_query_with_two_models_keeps_available_second_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-12-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2200,
+            source="mercado_phone",
+            search_text="iphone 12 preto 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("iphone 11 ou 12 tem disponivel 128gb?")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-12-128"]
+    assert "IPHONE 12" in decision.reply.upper()
+    assert "128GB" in decision.reply.upper()
