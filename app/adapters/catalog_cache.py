@@ -102,13 +102,61 @@ def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
     return target
 
 
+def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int, str], ...]:
+    """Return all iPhone models joined as alternatives in a request."""
+    normalized = _score_text(value)
+    target = _requested_iphone_model_key(value)
+    if target is None:
+        return ()
+
+    matches = list(_MODEL_PATTERN.finditer(normalized))
+
+    def is_usable(match: re.Match[str]) -> bool:
+        suffix = normalized[match.end() :]
+        return not re.match(r"\s*(?:%|gb|tb|g|x)", suffix)
+
+    def key_for(match: re.Match[str]) -> tuple[int, str]:
+        variant = " ".join((match.group("variant") or "").split()).lower()
+        return int(match.group("number")), variant
+
+    explicit_iphone = [
+        match
+        for match in matches
+        if match.group(0).lower().startswith("iphone") and is_usable(match)
+    ]
+    if not explicit_iphone:
+        return (target,)
+
+    selected = [key_for(explicit_iphone[0])]
+    previous = explicit_iphone[0]
+    for match in matches:
+        if match.start() <= previous.end() or not is_usable(match):
+            continue
+        separator = normalized[previous.end() : match.start()]
+        if not re.fullmatch(
+            r"\s*(?:(?:ou|e|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?|[/,])\s*",
+            separator,
+        ):
+            continue
+        model_key = key_for(match)
+        if model_key not in selected:
+            selected.append(model_key)
+        previous = match
+
+    if len(selected) == 1:
+        return (target,)
+    if target not in selected:
+        selected.append(target)
+    return tuple(selected)
+
+
 def _matches_requested_model(query: str, item: Any) -> bool:
     if not _matches_requested_family(query, item):
         return False
-    target = _requested_iphone_model_key(query)
-    if target is None:
+    targets = _requested_iphone_model_keys(query)
+    if not targets:
         return True
-    return _is_iphone_catalog_item(item) and _model_key(getattr(item, "name", "")) == target
+    return _is_iphone_catalog_item(item) and _model_key(getattr(item, "name", "")) in targets
 
 
 def _capacity_key(value: Any) -> str | None:

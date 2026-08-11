@@ -1426,6 +1426,37 @@ class AgentService:
             return None
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
+    async def _try_unavailable_seminew_alternative(
+        self,
+        query: str,
+    ) -> AgentDecision | None:
+        if not _has_installment_product_context(query):
+            return None
+
+        if _has_sealed_reference(_normalize(query)):
+            return None
+
+        method = getattr(self.cache, "list_available_products", None)
+        if not callable(method):
+            return None
+        try:
+            result = await method()
+        except Exception:
+            return None
+
+        seminovos = result.get("seminovos") or []
+        if not seminovos:
+            return None
+        return AgentDecision(
+            reply=(
+                "No momento, n\u00e3o localizei esse produto seminovo dispon\u00edvel no sistema. "
+                "Algum outro modelo tamb\u00e9m interessaria? Para facilitar, segue a lista "
+                "dos seminovos dispon\u00edveis para voc\u00ea escolher:\n\n"
+                + _format_available_products({"seminovos": seminovos, "lacrados": []})
+            ),
+            confidence="medium",
+        )
+
     async def _try_product_availability(
         self,
         text: str,
@@ -1461,6 +1492,9 @@ class AgentService:
             ]
 
         if not public_candidates:
+            alternative = await self._try_unavailable_seminew_alternative(query)
+            if alternative is not None:
+                return alternative
             capacity_text = (
                 f" {', '.join(value.upper() for value in requested_capacities)}"
                 if requested_capacities
@@ -1477,6 +1511,9 @@ class AgentService:
         scored = [(_catalog_score(query, item), item) for item in public_candidates]
         best_score = max(score for score, _item in scored)
         if best_score <= 0:
+            alternative = await self._try_unavailable_seminew_alternative(query)
+            if alternative is not None:
+                return alternative
             return AgentDecision(
                 reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
                 confidence="medium",
@@ -1743,6 +1780,9 @@ class AgentService:
                 confidence="high",
             )
         if not result.get("ambiguo"):
+            alternative = await self._try_unavailable_seminew_alternative(query)
+            if alternative is not None:
+                return alternative
             return None
 
         candidates = result.get("candidatos") or []
@@ -1788,7 +1828,9 @@ class AgentService:
         except Exception:
             return None
         if not result.get("encontrado"):
-            return None
+            return await self._try_unavailable_seminew_alternative(
+                _installment_context_query(text, history)
+            )
         return AgentDecision(
             reply=format_installment_table(result),
             confidence="high",

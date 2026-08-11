@@ -168,3 +168,54 @@ async def test_specific_installment_keeps_selected_battery_on_short_followup(tmp
     assert "R$ 3.300,00" in decision.reply
     assert "12x de R$ 319,95" in decision.reply
     assert "R$ 3.140,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_missing_seminew_installment_offers_available_seminew_models(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    settings.openai_api_key = None
+    cache.items = [
+        InventoryItem(
+            external_id="12-128",
+            name="iPhone 12",
+            capacity="128 GB",
+            category="Celular",
+            condition="seminovo",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1600.0,
+            battery_health=88,
+            search_text="iphone 12 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="14-256",
+            name="iPhone 14",
+            capacity="256 GB",
+            category="Celular",
+            condition="seminovo",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2200.0,
+            battery_health=91,
+            search_text="iphone 14 256 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=False)
+
+    decision = await agent.respond(
+        "consegue simular com 128GB e com o de 256, por gentileza? isso ate 10x por gentileza",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Claro! O iPhone 13 pode ser de 128 GB ou 256 GB. Qual capacidade voce prefere?",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "outro modelo" in decision.reply.lower()
+    assert "seminovos dispon" in decision.reply.lower()
+    assert "iPhone 12" in decision.reply
+    assert "iPhone 14" in decision.reply
+    assert "Novos lacrados" not in decision.reply
