@@ -167,9 +167,16 @@ REGRAS OBRIGATÓRIAS:
   aprovadas no tópico taxas_link_pagamento e informe no máximo 12x. A regra de até
   18x vale somente para pagamento no cartão pela máquina física.
 - Se o produto ou capacidade for ambíguo, peça a escolha antes de calcular.
-- Se houver mais de uma correspondência, apresente no máximo três opções e peça
-  que o cliente escolha. Se a foto ou descrição for insuficiente, peça modelo,
-  capacidade, cor ou outro detalhe.
+- Para pedidos específicos ambíguos, apresente no máximo três candidatos e peça
+  modelo, capacidade, cor ou outro detalhe. Para pedidos genéricos, listas, faixa de
+  preço, orçamento ou quantidade de aparelhos, mostre todas as opções disponíveis
+  que atendam aos filtros informados, sem limitar a três. Se o cliente pedir vários
+  aparelhos, informe todas as opções compatíveis e peça que ele escolha a quantidade
+  solicitada.
+- Não defina handoff apenas porque o cliente quer comprar e retirar em outro dia.
+  Continue no atendimento automático e peça a escolha dos aparelhos e o horário;
+  só encaminhe quando houver pedido explícito de atendente ou uma confirmação de
+  visita que, pelas regras acima, precise de atendente.
 - Nunca revele custo, fornecedor, IMEI, IMEI2, número de série ou IDs internos.
 - Para endereço, horário, entrega, pagamento, garantia ou troca, use a ferramenta
   de informações da loja. Se o FAQ não tiver resposta aprovada, diga que um
@@ -206,7 +213,7 @@ def _normalize(value: str) -> str:
 
 def _has_product_reference(normalized: str) -> bool:
     return bool(
-        re.search(r"\b(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized)
+        re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
         or re.search(r"\b\d{1,2}\s*(?:e|pro|max|air|mini|plus)?\b", normalized)
     )
 
@@ -240,6 +247,10 @@ def _is_available_list_request(text: str) -> bool:
         "me manda a lista",
         "me passe a lista",
         "catalogo",
+        "tabela de preco",
+        "tabela de precos",
+        "tabela de valor",
+        "tabela de valores",
     )
     return any(phrase in normalized for phrase in phrases)
 
@@ -285,7 +296,26 @@ def _is_product_availability_request(text: str) -> bool:
         )
     ):
         return True
-    return bool(re.match(r"^(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized))
+    if re.match(r"^(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized):
+        return True
+    has_purchase_intent = any(
+        phrase in normalized
+        for phrase in (
+            "gostaria de ver",
+            "quero ver",
+            "quero comprar",
+            "preciso de",
+            "necessito de",
+        )
+    )
+    has_broad_filter = any(
+        marker in normalized
+        for marker in ("faixa de", "ate ", "orcamento", "em torno de", "cerca de", "por volta de")
+    )
+    return bool(
+        (has_purchase_intent or has_broad_filter)
+        and re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+    )
 
 
 def _requested_capacity_keys(text: str) -> tuple[str, ...]:
@@ -825,6 +855,47 @@ def _parse_brl_amount(raw_value: str) -> float | None:
     return amount if amount >= 0 else None
 
 
+def _extract_budget_limit(text: str) -> float | None:
+    """Extract a maximum price from a natural-language budget request."""
+    normalized = _normalize(text)
+    marker = re.search(
+        r"\b(?:ate|no maximo(?: de)?|maximo(?: de)?|na faixa de|faixa de|"
+        r"orcamento(?: de)?|em torno de|cerca de|por volta de)\b",
+        normalized,
+    )
+    if not marker:
+        return None
+
+    amount_match = re.search(
+        r"(?:r\$\s*)?(?P<value>\d+(?:[.,]\d+)?)(?:\s*(?P<scale>mil|k))?",
+        normalized[marker.end() :],
+    )
+    if not amount_match:
+        return None
+    amount = _parse_brl_amount(amount_match.group("value"))
+    if amount is None:
+        return None
+    if amount_match.group("scale") and amount < 1000:
+        amount *= 1000
+    return amount
+
+
+def _requested_device_quantity(text: str) -> int | None:
+    normalized = _normalize(text)
+    patterns = (
+        r"\b(?:preciso|necessito|quero|vou comprar)\s+(?:de\s+)?"
+        r"(?P<count>\d{1,2})\s+(?:aparelhos?|celulares?|telefones?|iphones?|unidades?)\b",
+        r"\b(?P<count>\d{1,2})\s+(?:aparelhos?|celulares?|telefones?|iphones?|unidades?)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            count = int(match.group("count"))
+            if count > 0:
+                return count
+    return None
+
+
 def _extract_entry_amount(text: str) -> float | None:
     normalized = _normalize(text)
     if "entrada" not in normalized and "sinal" not in normalized:
@@ -1001,7 +1072,18 @@ def _format_product_availability(items: list[Any]) -> str:
     if not items:
         return "No momento não localizei esse produto no catálogo."
 
-    model = str(getattr(items[0], "name", None) or "produto").strip()
+    model_names = [
+        str(getattr(item, "name", None) or "").strip()
+        for item in items
+        if str(getattr(item, "name", None) or "").strip()
+    ]
+    normalized_model_names = {_normalize(name) for name in model_names}
+    if len(normalized_model_names) == 1 and model_names:
+        model = model_names[0]
+    elif model_names and all("iphone" in name for name in normalized_model_names):
+        model = "iPhone"
+    else:
+        model = "produto"
     lines = [f"Sim 😊 Encontrei estas opções de {model} disponíveis:"]
     for item in items:
         color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
@@ -1467,8 +1549,10 @@ class AgentService:
         if not _is_product_availability_request(query):
             return None
 
+        requested_budget = _extract_budget_limit(query)
+        requested_quantity = _requested_device_quantity(query)
         try:
-            candidates = await self.cache.search(query, limit=30)
+            candidates = await self.cache.search(query, limit=300)
         except Exception:
             return None
 
@@ -1482,6 +1566,17 @@ class AgentService:
             )
         ]
         public_candidates = [item for item in public_candidates if _matches_requested_model(query, item)]
+        if requested_budget is not None:
+            within_budget: list[Any] = []
+            for item in public_candidates:
+                price = getattr(item, "price_brl", None)
+                try:
+                    if price is not None and float(price) <= requested_budget:
+                        within_budget.append(item)
+                except (TypeError, ValueError):
+                    continue
+            public_candidates = within_budget
+
         requested_capacities = _requested_capacity_keys(query)
         if requested_capacities:
             public_candidates = [
@@ -1492,7 +1587,9 @@ class AgentService:
             ]
 
         if not public_candidates:
-            alternative = await self._try_unavailable_seminew_alternative(query)
+            alternative = None
+            if requested_budget is None:
+                alternative = await self._try_unavailable_seminew_alternative(query)
             if alternative is not None:
                 return alternative
             capacity_text = (
@@ -1500,6 +1597,14 @@ class AgentService:
                 if requested_capacities
                 else ""
             )
+            if requested_budget is not None:
+                return AgentDecision(
+                    reply=(
+                        f"Não localizei aparelhos disponíveis até {format_brl(requested_budget)}{capacity_text}. "
+                        "Posso procurar em uma faixa maior ou em outro modelo?"
+                    ),
+                    confidence="medium",
+                )
             return AgentDecision(
                 reply=(
                     f"No momento não localizei uma opção cadastrada{capacity_text} para esse produto. "
@@ -1508,41 +1613,64 @@ class AgentService:
                 confidence="medium",
             )
 
-        scored = [(_catalog_score(query, item), item) for item in public_candidates]
-        best_score = max(score for score, _item in scored)
-        if best_score <= 0:
-            alternative = await self._try_unavailable_seminew_alternative(query)
-            if alternative is not None:
-                return alternative
-            return AgentDecision(
-                reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
-                confidence="medium",
-            )
-
-        if len(requested_capacities) > 1:
-            selected = []
-            for capacity in requested_capacities:
-                capacity_matches = [
-                    (score, item)
-                    for score, item in scored
-                    if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
-                    == capacity
-                ]
-                if not capacity_matches:
-                    continue
-                capacity_best = max(score for score, _item in capacity_matches)
-                selected.extend(
-                    item
-                    for score, item in capacity_matches
-                    if score == capacity_best
+        broad_request = requested_budget is not None or requested_quantity is not None
+        if broad_request:
+            def price_sort_key(item: Any) -> tuple[float, str, str, str]:
+                price = getattr(item, "price_brl", None)
+                try:
+                    numeric_price = float(price) if price is not None else float("inf")
+                except (TypeError, ValueError):
+                    numeric_price = float("inf")
+                return (
+                    numeric_price,
+                    _normalize(str(getattr(item, "name", "") or "")),
+                    _normalize(str(getattr(item, "capacity", "") or "")),
+                    _normalize(str(getattr(item, "color", None) or getattr(item, "colors", "") or "")),
                 )
-            selected = selected[:3]
+
+            selected = sorted(public_candidates, key=price_sort_key)
         else:
-            top_matches = [item for score, item in scored if score == best_score]
-            selected = top_matches[:3]
+            scored = [(_catalog_score(query, item), item) for item in public_candidates]
+            best_score = max(score for score, _item in scored)
+            if best_score <= 0:
+                alternative = await self._try_unavailable_seminew_alternative(query)
+                if alternative is not None:
+                    return alternative
+                return AgentDecision(
+                    reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
+                    confidence="medium",
+                )
+
+            if len(requested_capacities) > 1:
+                selected = []
+                for capacity in requested_capacities:
+                    capacity_matches = [
+                        (score, item)
+                        for score, item in scored
+                        if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                        == capacity
+                    ]
+                    if not capacity_matches:
+                        continue
+                    capacity_best = max(score for score, _item in capacity_matches)
+                    selected.extend(
+                        item
+                        for score, item in capacity_matches
+                        if score == capacity_best
+                    )
+            else:
+                top_matches = [item for score, item in scored if score == best_score]
+                selected = top_matches
+
+        reply = _format_product_availability(selected)
+        if requested_quantity is not None:
+            reply += (
+                f"\n\nComo você precisa de {requested_quantity} aparelhos, "
+                f"escolha os {requested_quantity} que prefere e depois me informe o horário desejado para retirada."
+            )
         references = [str(getattr(item, "external_id", "")) for item in selected]
         return AgentDecision(
-            reply=_format_product_availability(selected),
+            reply=reply,
             product_references=[reference for reference in references if reference],
             confidence="high",
         )
