@@ -37,7 +37,7 @@ _MODEL_PATTERN = re.compile(
 
 def _model_key(value: Any) -> tuple[int, str] | None:
     """Return the last explicit iPhone model/variant mentioned in a text."""
-    normalized = _score_text(value)
+    normalized = _normalize(value)
     matches = list(_MODEL_PATTERN.finditer(normalized))
     if not matches:
         return None
@@ -63,12 +63,12 @@ def _is_iphone_catalog_item(item: Any) -> bool:
     text = _score_text(
         f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} {getattr(item, 'search_text', '')}"
     )
-    return bool(re.search(r"\biphone\b", text))
+    return bool(re.search(r"\biphones?\b", text))
 
 
 def _catalog_family(value: Any) -> str | None:
     normalized = _score_text(value)
-    if re.search(r"\biphone\b", normalized):
+    if re.search(r"\biphones?\b", normalized):
         return "iphone"
     if re.search(r"\bipad\b", normalized):
         return "ipad"
@@ -94,6 +94,8 @@ def _matches_requested_family(query: str, item: Any) -> bool:
 
 def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
     normalized = _score_text(value)
+    if re.search(r"\biphones\b", normalized) and not re.search(r"\biphone\s+\d", normalized):
+        return None
     target = _model_key(value)
     if target is None:
         return None
@@ -104,7 +106,7 @@ def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
 
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
-    normalized = _score_text(value)
+    normalized = _normalize(value)
     target = _requested_iphone_model_key(value)
     if target is None:
         return ()
@@ -186,7 +188,7 @@ def _battery_key(value: Any) -> float | None:
 def _requested_battery_health(value: Any) -> float | None:
     normalized = _score_text(value)
     matches = re.findall(
-        r"(?:saude\s+(?:da\s+)?bateria|bateria|battery\s*health)"
+        r"(?:saude\s+(?:da\s+)?bateria|bateria|bat|battery\s*health)"
         r"\s*(?:de|em|com|:|-)?\s*(\d{1,3}(?:[.,]\d+)?)\s*%?",
         normalized,
         flags=re.IGNORECASE,
@@ -197,6 +199,12 @@ def _requested_battery_health(value: Any) -> float | None:
 def _catalog_score(query: str, item: Any) -> int:
     score = score_item(query, item)
     normalized_query = _score_text(query)
+    query_family = _catalog_family(query)
+    item_family = _catalog_family(
+        f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} {getattr(item, 'search_text', '')}"
+    )
+    if query_family and query_family == item_family:
+        score += 40
     query_tokens = set(normalized_query.split())
     model_phrase = _score_text(item.name)
     model_tokens = model_phrase.split()
