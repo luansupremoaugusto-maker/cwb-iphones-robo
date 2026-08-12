@@ -49,6 +49,16 @@ def _image_history_text(caption: str | None, description: str | None) -> str:
     return "\n".join(parts)
 
 
+def _remove_sent_image_urls(text: str, image_urls: list[str] | None) -> str:
+    """Avoid repeating image attachments as clickable links in the text."""
+    cleaned = text or ""
+    for image_url in dict.fromkeys(image_urls or []):
+        if isinstance(image_url, str) and image_url:
+            cleaned = cleaned.replace(image_url, "")
+    cleaned = "\n".join(line.strip() for line in cleaned.splitlines() if line.strip())
+    return cleaned or "Seguem as fotos."
+
+
 def _handoff_title(reason: str, context: str) -> str:
     combined = _fold_text(f"{reason} {context}")
     if any(marker in combined for marker in ("trade", "usado", "parte do pagamento", "avaliacao")):
@@ -347,6 +357,7 @@ class MessageProcessor:
         text: str,
         image_urls: list[str] | None = None,
     ) -> None:
+        text = _remove_sent_image_urls(text, image_urls)
         await self._send_phone(incoming.phone, text, reply_to=incoming.message_id)
         for index, image_url in enumerate(image_urls or []):
             normalized_url = image_url

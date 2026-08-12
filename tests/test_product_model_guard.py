@@ -295,3 +295,72 @@ async def test_availability_query_with_two_models_keeps_available_second_model(t
     assert decision.product_references == ["iphone-12-128"]
     assert "IPHONE 12" in decision.reply.upper()
     assert "128GB" in decision.reply.upper()
+
+
+def _watch_seminovo() -> InventoryItem:
+    return InventoryItem(
+        external_id="watch-se2-seminovo",
+        name="Apple Watch SE 2",
+        category="Celular",
+        capacity="40MM",
+        color="ESTELAR",
+        source="mercado_phone",
+        condition="SEMINOVO",
+        availability="Disponivel para venda",
+        quantity=1,
+        price_brl=1800,
+        search_text="apple watch se 2 40mm estelar celular seminovo",
+        photo_urls=["https://photos.example/apple-watch-se2.jpg"],
+    )
+
+
+def _watch_sealed_catalog() -> SealedCatalog:
+    catalog = SealedCatalog()
+    catalog.items = [
+        _sealed_item("watch-series-11", "Apple Watch Series 11", "46MM", 2700),
+        _sealed_item("watch-se3", "Apple Watch SE 3", "40MM", 2000),
+    ]
+    return catalog
+
+
+def _build_watch_agent(tmp_path, *, seminovos: list[InventoryItem], sealed: SealedCatalog) -> AgentService:
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = seminovos
+    cache.last_refresh = time.time()
+    return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+
+@pytest.mark.asyncio
+async def test_seminovo_request_does_not_fallback_to_sealed_catalog(tmp_path):
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[],
+        sealed=_watch_sealed_catalog(),
+    )
+
+    decision = await agent.respond("Voces tem algum Apple Watch semi novo disponivel?")
+
+    assert decision.product_references == []
+    assert "NOVO LACRADO" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_seminovo_request_excludes_sealed_matches_when_both_conditions_exist(tmp_path):
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[_watch_seminovo()],
+        sealed=_watch_sealed_catalog(),
+    )
+
+    decision = await agent.respond("Voces tem algum Apple Watch semi novo disponivel?")
+
+    assert decision.product_references == ["watch-se2-seminovo"]
+    assert "APPLE WATCH SE 2" in decision.reply.upper()
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" not in decision.reply.upper()

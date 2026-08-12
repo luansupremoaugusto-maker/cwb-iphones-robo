@@ -471,3 +471,141 @@ async def test_photo_followup_prefers_customer_image_over_wrong_assistant_produc
     assert decision.product_references == ["13-pro-silver-256"]
     assert "IPHONE 13 PRO" in decision.reply
     assert "14 PLUS" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_photo_followup_keeps_customer_seminovo_condition_after_wrong_assistant_reply(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class SealedWatchCatalog:
+        def __init__(self):
+            self.items = [
+                InventoryItem(
+                    external_id="sheet:watch-se3",
+                    name="Apple Watch SE 3",
+                    category="Novo lacrado",
+                    capacity="40MM",
+                    source="google_sheets",
+                    condition="novo lacrado",
+                    price_brl=2100,
+                    search_text="apple watch se 3 40mm novo lacrado",
+                )
+            ]
+
+        async def ensure_fresh(self):
+            return None
+
+        async def search(self, query: str, limit: int = 5):
+            return self.items[:limit]
+
+        async def get(self, product_id: str):
+            return next((item for item in self.items if item.external_id == product_id), None)
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedWatchCatalog(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="watch-se2-seminovo",
+            name="Apple Watch SE 2",
+            category="Celular",
+            capacity="40MM",
+            color="ESTELAR",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            search_text="apple watch se 2 40mm estelar celular seminovo",
+            photo_urls=["https://photos.example/apple-watch-se2.jpg"],
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    history = [
+        {"role": "user", "content": "Vi que voces postaram um Apple Watch SE 2 semi novo."},
+        {
+            "role": "assistant",
+            "content": "Encontrei Apple Watch Series 11 e Apple Watch SE 3 - NOVO LACRADO - R$ 2.700,00.",
+        },
+    ]
+
+    decision = await agent.respond("Pode me mandar foto por favor", history=history)
+
+    assert decision.image_urls == ["https://photos.example/apple-watch-se2.jpg"]
+    assert decision.product_references == ["watch-se2-seminovo"]
+
+
+@pytest.mark.asyncio
+async def test_photo_followup_after_iphone_14_plus_confirmation_uses_that_product(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class SealedPriceCache:
+        def __init__(self):
+            self.items = [
+                InventoryItem(
+                    external_id="sheet:iphone-17",
+                    name="iPhone 17",
+                    category="Celular",
+                    capacity="256 GB",
+                    source="google_sheets",
+                    condition="novo lacrado",
+                    search_text="iphone 17 256 gb novo lacrado",
+                )
+            ]
+
+        async def ensure_fresh(self):
+            return None
+
+        async def search(self, query: str, limit: int = 5):
+            return self.items[:limit]
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedPriceCache(),
+    )
+    iphone_14_plus = InventoryItem(
+        external_id="14-plus-blue-128",
+        name="IPHONE 14 PLUS",
+        category="Celular",
+        capacity="128GB",
+        color="AZUL",
+        colors="AZUL",
+        source="mercado_phone",
+        condition="SEMINOVO",
+        availability="Disponivel para venda",
+        quantity=1,
+        price_brl=2310,
+        battery_health=97,
+        search_text="iphone 14 plus azul 128gb celular seminovo",
+        photo_urls=["https://photos.example/iphone-14-plus-blue-128.jpg"],
+    )
+    cache.items = [iphone_14_plus]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    history = [
+        {"role": "user", "content": "Queria saber se voces ainda tem esse iPhone disponivel."},
+        {
+            "role": "assistant",
+            "content": "Encontrei estas opcoes de iPhone: iPhone 17 - NOVO LACRADO - R$ 8.000,00.",
+        },
+        {"role": "user", "content": "O iPhone 14 plus azul"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim. O iPhone 14 Plus azul, 128 GB, esta disponivel por R$ 2.310,00. "
+                "Bateria com 97% de saude. Acompanha cabo e fonte novos."
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Tem a foto dele?", history=history)
+
+    assert decision.image_urls == ["https://photos.example/iphone-14-plus-blue-128.jpg"]
+    assert decision.product_references == ["14-plus-blue-128"]
