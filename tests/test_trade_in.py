@@ -24,6 +24,20 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
     assert not is_trade_in_request("Quero trocar a película do meu iPhone")
 
 
+def test_new_phone_payment_split_is_not_trade_in():
+    text = (
+        "Tenho interesse no iPhone 17 Pro Max. Fazer uma parte do pagamento "
+        "a vista e parcelar o restante no cartao."
+    )
+    history = [
+        {"role": "user", "content": "Quanto esta o iPhone 17 Pro Max?"},
+        {"role": "assistant", "content": "iPhone 17 Pro Max 256 GB: R$ 7.800"},
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+
 @pytest.mark.parametrize(
     "text",
     [
