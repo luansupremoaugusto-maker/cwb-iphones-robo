@@ -663,7 +663,7 @@ def _has_sealed_reference(normalized: str) -> bool:
 
 
 def _has_seminovo_reference(normalized: str) -> bool:
-    return any(marker in normalized for marker in ("seminovo", "seminovos", "usado", "usados"))
+    return any(marker in normalized for marker in ("seminovo", "seminovos", "semi novo", "semi novos", "usado", "usados"))
 
 
 def _is_photo_retry_request(text: str) -> bool:
@@ -1018,15 +1018,20 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
     )
 
     parts: list[str] = []
-    for index, role, content in entries:
-        if index >= anchor_index and role == "user" and content not in parts:
-            parts.append(content)
     if not image_anchor:
         for index, role, content in reversed(entries):
             if index >= anchor_index and role == "assistant" and is_specific_product_answer(content):
-                if content not in parts:
-                    parts.append(content)
+                context_content = re.sub(
+                    r"\b(?:pelicula|capa|capinha|case|fonte|cabo|carregador|protetor|suporte)s?\b",
+                    " ",
+                    _normalize(content),
+                ).strip()
+                if context_content and context_content not in parts:
+                    parts.append(context_content)
                 break
+    for index, role, content in entries:
+        if index >= anchor_index and role == "user" and content not in parts:
+            parts.append(content)
     parts.append(current)
     return "\n".join(parts[-6:]).strip()
 

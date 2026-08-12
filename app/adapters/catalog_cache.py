@@ -326,6 +326,8 @@ def _requested_photo_condition(value: Any) -> str | None:
         ("encomendas", "sealed"),
         ("seminovo", "used"),
         ("seminovos", "used"),
+        ("semi novo", "used"),
+        ("semi novos", "used"),
         ("usado", "used"),
         ("usados", "used"),
     )
@@ -444,6 +446,12 @@ class StoreCatalogCache(InventoryCache):
             and (getattr(item, "source", "") != "mercado_phone" or _is_available_item(item))
         ]
         candidates = [item for item in candidates if _matches_requested_model(query, item)]
+        requested_condition = _requested_photo_condition(query)
+        candidates = [
+            item
+            for item in candidates
+            if _matches_photo_condition(item, requested_condition)
+        ]
 
         ranked = sorted(
             candidates,
