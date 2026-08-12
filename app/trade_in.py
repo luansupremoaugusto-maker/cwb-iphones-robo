@@ -144,10 +144,7 @@ def _has_device_offer(text: str) -> bool:
         r"parte do pagamento|como entrada|de entrada|para troca|na troca)\b",
         text,
         flags=re.IGNORECASE,
-    ) and (
-        _has_personal_device_reference(text)
-        or re.search(r"\b(?:meu|minha|celular|iphone|aparelho|usado|ele|ela)\b", text)
-    ):
+    ) and _has_personal_device_reference(text):
         return True
 
     if re.search(
