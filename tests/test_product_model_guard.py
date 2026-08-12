@@ -364,3 +364,32 @@ async def test_seminovo_request_excludes_sealed_matches_when_both_conditions_exi
     assert "APPLE WATCH SE 2" in decision.reply.upper()
     assert "SEMINOVO" in decision.reply.upper()
     assert "NOVO LACRADO" not in decision.reply.upper()
+
+@pytest.mark.asyncio
+async def test_multi_category_availability_request_lists_each_requested_category(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class MultiCategoryCatalog(SealedCatalog):
+        def __init__(self):
+            self.items = [
+                _sealed_item("watch-series-11", "Apple Watch Series 11", "46MM", 2700),
+                _sealed_item("ipad-11", "iPad 11", "128 GB", 3000),
+                _sealed_item("macbook-air", "MacBook Air", "512 GB", 8500),
+            ]
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=MultiCategoryCatalog(),
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Bom dia!!! Vc poderia passar o que vc tem disponivel Apple Watch, iPad e MacBook"
+    )
+
+    assert "Apple Watch Series 11" in decision.reply
+    assert "iPad 11" in decision.reply
+    assert "MacBook Air" in decision.reply

@@ -238,6 +238,8 @@ def _is_available_list_request(text: str) -> bool:
         return False
     phrases = (
         "o que tem disponivel",
+        "o que voce tem",
+        "o que vc tem",
         "o que voces tem",
         "o que a loja tem",
         "quais modelos",
