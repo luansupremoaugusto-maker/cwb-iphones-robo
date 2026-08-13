@@ -26,6 +26,8 @@ from app.installments import (
     format_installment_rates,
     format_installment_result,
     format_installment_table,
+    format_link_installment_result,
+    format_link_installment_table,
 )
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision
@@ -134,6 +136,10 @@ REGRAS OBRIGATÓRIAS:
   Só considere seminovos marcados como “Disponível para venda” no Mercado Phone;
   nunca mostre Laboratório, teste ou outro status não comercial. Se algum detalhe
   não estiver cadastrado, diga isso. Não envie somente alguns exemplos.
+- Quando o cliente pedir preço ou valores de um modelo sem especificar a condição,
+  se houver opção seminova em estoque e opção nova lacrada, envie as duas, separadas
+  e identificadas. Só envie uma condição quando o cliente pedir explicitamente
+  seminovo/usado ou lacrado/por encomenda.
 - Quando o cliente pedir fotos, use get_product_photos. Só envie image_urls que
   vierem do catálogo ou da lista aprovada de fotos; nunca invente links ou use
   fotos de outro modelo. Se não houver foto cadastrada, informe isso sem prometer
@@ -160,12 +166,17 @@ REGRAS OBRIGATÓRIAS:
 - Se o cliente perguntar sobre nota fiscal, informe que podemos emitir nota fiscal
   para todos os produtos, sejam seminovos ou lacrados.
 - O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar.
-- Só mencione link de pagamento se o cliente perguntar explicitamente sobre ele. Não
-  ofereça nem sugira link nas respostas gerais; preferimos o pagamento pela máquina
-  física. Se o cliente perguntar se fazemos link, responda que sim e que ele é uma
-  segunda opção. Se perguntar qual é a taxa ou o parcelamento do link, use as taxas
-  aprovadas no tópico taxas_link_pagamento e informe no máximo 12x. A regra de até
-  18x vale somente para pagamento no cartão pela máquina física.
+- Só mencione link de pagamento se o cliente perguntar explicitamente sobre ele. Uma
+  pergunta sobre pagar com cartão de crédito online, à distância ou pela internet é
+  também uma pergunta sobre link de pagamento: explique que o cartão online é pago
+  por link e não encaminhe automaticamente para um atendente. Não ofereça nem sugira
+  link nas respostas gerais; preferimos o pagamento pela máquina física. Se o cliente
+  perguntar se fazemos link, responda que sim e que ele é uma segunda opção. Se
+  perguntar qual é a taxa ou o parcelamento do link, use as taxas aprovadas no tópico
+  taxas_link_pagamento e informe no máximo 12x. A regra de até 18x vale somente para
+  pagamento no cartão pela máquina física. Se o cliente já tiver identificado o produto,
+  use simulate_all_link_installments ou simulate_link_installments para enviar a
+  simulação, sem encaminhar automaticamente para um atendente.
 - Se o produto ou capacidade for ambíguo, peça a escolha antes de calcular.
 - Para pedidos específicos ambíguos, apresente no máximo três candidatos e peça
   modelo, capacidade, cor ou outro detalhe. Para pedidos genéricos, listas, faixa de
@@ -208,13 +219,17 @@ def _normalize(value: str) -> str:
         char for char in unicodedata.normalize("NFKD", value or "") if not unicodedata.combining(char)
     )
     normalized = re.sub(r"\s+", " ", without_accents).strip().lower()
-    return re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    return re.sub(r"\bpromax\b", "pro max", normalized)
 
 
 def _has_product_reference(normalized: str) -> bool:
+    # A bare number is not enough to identify a product: values such as
+    # "1k" (entry) and "18x" (installments) are common in the same chat.
+    # Keep numeric shorthand only when it carries a model variant.
     return bool(
         re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
-        or re.search(r"\b\d{1,2}\s*(?:e|pro|max|air|mini|plus)?\b", normalized)
+        or re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", normalized)
     )
 
 
@@ -286,6 +301,7 @@ def _is_product_availability_request(text: str) -> bool:
         phrase in normalized
         for phrase in (
             "tem ",
+            "teria",
             "disponivel",
             "disponibilidade",
             "em estoque",
@@ -744,8 +760,9 @@ SEALED_PHOTO_REPLY = (
 
 
 PAYMENT_LINK_REPLY = (
-    "Sim, fazemos link de pagamento quando necessário. Preferimos o pagamento pela "
-    "máquina física; o link fica como segunda opção."
+    "Sim. O pagamento por cartão de crédito online é feito por link de pagamento "
+    "quando necessário. Preferimos o pagamento pela máquina física; o link fica "
+    "como segunda opção."
 )
 
 
@@ -775,6 +792,21 @@ def _is_payment_link_request(text: str) -> bool:
         "mandar um link",
         "criar link",
         "criar um link",
+        "cartao de credito online",
+        "cartao online",
+        "pagamento online",
+        "cartao por pagamento online",
+        "passar cartao por pagamento online",
+        "passar cartao online",
+        "credito online",
+        "pagamento online por cartao",
+        "pagamento online com cartao",
+        "pagar online com cartao",
+        "pagar com cartao online",
+        "pagar por cartao online",
+        "cartao de credito pela internet",
+        "cartao pela internet",
+        "pagamento pela internet",
     )
     return any(phrase in normalized for phrase in phrases)
 
@@ -1038,6 +1070,25 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
     return "\n".join(parts[-6:]).strip()
 
 
+def _is_standalone_photo_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if normalized not in {"foto", "fotos", "imagem", "imagens"}:
+        return False
+    if not history:
+        return False
+    query = _product_context_query(text, history)
+    has_product_context = _has_product_reference(_normalize(query))
+    has_photo_offer = any(
+        entry.get("role") == "assistant"
+        and any(word in _normalize(entry.get("content", "")) for word in ("foto", "imagem"))
+        for entry in history
+    )
+    return has_product_context and has_photo_offer
+
+
 def _has_photo_request_in_history(history: list[dict[str, str]] | None) -> bool:
     photo_words = ("foto", "fotos", "imagem", "imagens")
     return any(
@@ -1248,6 +1299,28 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
         return json.dumps(result, ensure_ascii=False)
 
     @function_tool
+    async def simulate_all_link_installments(product_query: str) -> str:
+        """Calcula todas as parcelas de 1x a 12x usando as taxas do link."""
+        method = getattr(cache, "simulate_all_link_installments", None)
+        if not callable(method):
+            return json.dumps({"encontrado": False, "motivo": "Tabela do link indisponivel"})
+        result = await method(product_query)
+        if result.get("encontrado"):
+            result["mensagem_pronta"] = format_link_installment_table(result)
+        return json.dumps(result, ensure_ascii=False)
+
+    @function_tool
+    async def simulate_link_installments(product_query: str, installments: int) -> str:
+        """Simula uma quantidade de 1x a 12x usando as taxas do link."""
+        method = getattr(cache, "simulate_link_installment", None)
+        if not callable(method):
+            return json.dumps({"encontrado": False, "motivo": "Calculo do link indisponivel"})
+        result = await method(product_query, installments)
+        if result.get("encontrado"):
+            result["mensagem_pronta"] = format_link_installment_result(result)
+        return json.dumps(result, ensure_ascii=False)
+
+    @function_tool
     async def simulate_all_installments_with_entry(product_query: str, entry_amount_brl: float) -> str:
         """Calcula 1x a 18x sobre o saldo que sobra depois de uma entrada à vista."""
         method = getattr(cache, "simulate_all_installments_with_entry", None)
@@ -1302,8 +1375,10 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
             list_available_products,
             get_product_photos,
             simulate_all_installments,
+            simulate_all_link_installments,
             simulate_all_installments_with_entry,
             simulate_installments,
+            simulate_link_installments,
             simulate_installment_with_entry,
             get_store_information,
         ],
@@ -1356,7 +1431,7 @@ class AgentService:
                 confidence="high",
             )
 
-        payment_link_decision = self._try_payment_link(text)
+        payment_link_decision = await self._try_payment_link(text, history)
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
 
@@ -1488,9 +1563,40 @@ class AgentService:
             return specific
         return await self._try_full_installment_table(text, history)
 
-    def _try_payment_link(self, text: str) -> AgentDecision | None:
+    async def _try_payment_link(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
         if not _is_payment_link_request(text):
             return None
+        query = _installment_context_query(text, history)
+        if _has_installment_product_context(query):
+            requested = _requested_installments(text)
+            if requested is not None and requested <= 12:
+                method_name = "simulate_link_installment"
+                method_args = (query, requested)
+                formatter = format_link_installment_result
+            else:
+                method_name = "simulate_all_link_installments"
+                method_args = (query,)
+                formatter = format_link_installment_table
+
+            method = getattr(self.cache, method_name, None)
+            if callable(method):
+                try:
+                    result = await method(*method_args)
+                except Exception:
+                    result = None
+                if result and result.get("encontrado"):
+                    intro = (
+                        "Para pagamento online, o cart\u00e3o \u00e9 passado pelo link de pagamento. "
+                        "Segue a simula\u00e7\u00e3o do parcelamento pelo link (at\u00e9 12x):"
+                    )
+                    return AgentDecision(
+                        reply=f"{intro}\n\n{formatter(result)}",
+                        confidence="high",
+                    )
         if _is_payment_link_rate_request(text):
             rates = self.faq.get("taxas_link_pagamento")
             if rates:
@@ -1648,6 +1754,34 @@ class AgentService:
                     confidence="medium",
                 )
 
+            def best_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
+                positive = [(score, item) for score, item in scored_items if score > 0]
+                if not positive:
+                    return []
+                best = max(score for score, _item in positive)
+                return [item for score, item in positive if score == best]
+
+            condition_was_requested = _has_sealed_reference(_normalize(query)) or _has_seminovo_reference(
+                _normalize(query)
+            )
+
+            def select_best_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
+                if condition_was_requested:
+                    return best_matches(scored_items)
+
+                grouped: dict[str, list[tuple[int, Any]]] = {
+                    "seminovo": [],
+                    "lacrado": [],
+                }
+                for score, item in scored_items:
+                    condition = "lacrado" if _is_sealed_item(item) else "seminovo"
+                    grouped[condition].append((score, item))
+
+                selected_by_condition: list[Any] = []
+                for condition in ("seminovo", "lacrado"):
+                    selected_by_condition.extend(best_matches(grouped[condition]))
+                return selected_by_condition or best_matches(scored_items)
+
             if len(requested_capacities) > 1:
                 selected = []
                 for capacity in requested_capacities:
@@ -1659,15 +1793,9 @@ class AgentService:
                     ]
                     if not capacity_matches:
                         continue
-                    capacity_best = max(score for score, _item in capacity_matches)
-                    selected.extend(
-                        item
-                        for score, item in capacity_matches
-                        if score == capacity_best
-                    )
+                    selected.extend(select_best_matches(capacity_matches))
             else:
-                top_matches = [item for score, item in scored if score == best_score]
-                selected = top_matches
+                selected = select_best_matches(scored)
 
         reply = _format_product_availability(selected)
         if requested_quantity is not None:
@@ -1810,7 +1938,7 @@ class AgentService:
         *,
         image_description: str | None = None,
     ) -> AgentDecision | None:
-        if not _is_photo_request(text):
+        if not _is_photo_request(text) and not _is_standalone_photo_followup(text, history):
             return None
         if _is_photo_retry_request(text) and not _has_photo_request_in_history(history):
             return None
