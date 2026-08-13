@@ -277,9 +277,30 @@ _PURCHASE_INTENT_RE = re.compile(
 )
 
 
+_PURCHASE_PICKUP_PAYMENT_RE = re.compile(
+    r"\b(?:pix|dinheiro|cartao|credito|debito|a vista|avista)\b"
+    r".{0,45}\b(?:buscar|retirar|retirada|levar)\b"
+    r"|\b(?:buscar|retirar|retirada|levar)\b"
+    r".{0,45}\b(?:pix|dinheiro|cartao|credito|debito|a vista|avista)\b",
+    re.IGNORECASE,
+)
+_MONEY_AMOUNT_RE = re.compile(
+    r"(?:\br\$\s*\d[\d.,]*|\b\d[\d.,]*\s*(?:mil|k|reais)\b)",
+    re.IGNORECASE,
+)
+
+
 def is_purchase_without_trade_in_request(text: str | None) -> bool:
-    """Recognize an explicit purchase intent that does not offer a device."""
+    """Recognize a purchase or catalog payment request without a device offer."""
     normalized = _normalize(text)
+    if (
+        normalized
+        and _MONEY_AMOUNT_RE.search(normalized)
+        and _PURCHASE_PICKUP_PAYMENT_RE.search(normalized)
+        and _has_device_reference(normalized)
+    ):
+        return not is_trade_in_request(normalized)
+
     if not normalized or not _PURCHASE_INTENT_RE.search(normalized):
         return False
     return not is_trade_in_request(normalized)
