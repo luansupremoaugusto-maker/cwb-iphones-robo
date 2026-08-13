@@ -402,3 +402,10 @@ def is_trade_in_context_request(
         if entry.get("content")
     )
     return bool(_APPLE_PRODUCT_RE.search(recent_context))
+
+
+CONDITION_HANDOFF_REPLY = (
+    "N\u00e3o consigo confirmar marcas de uso ou amassados somente pelas fotos. "
+    "Vou encaminhar sua pergunta para um atendente verificar o estado do aparelho."
+)
+CONDITION_HANDOFF_REASON = "D\u00favida sobre marcas de uso ou estado f\u00edsico do aparelho"

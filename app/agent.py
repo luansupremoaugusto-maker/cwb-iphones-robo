@@ -12,9 +12,12 @@ from agents.tracing import set_tracing_disabled
 
 from app.adapters.catalog_cache import (
     _catalog_score,
+    _catalog_family,
     _is_available_item,
     _is_device_item,
     _matches_requested_model,
+    _model_key,
+    _requested_iphone_model_keys,
     _requested_photo_condition,
 )
 from app.adapters.mercado_phone import InventoryCache
@@ -32,6 +35,8 @@ from app.installments import (
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision
 from app.trade_in import (
+    CONDITION_HANDOFF_REASON,
+    CONDITION_HANDOFF_REPLY,
     PURCHASE_WITHOUT_TRADE_IN_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
@@ -88,6 +93,11 @@ REGRAS OBRIGATÓRIAS:
 - Os preços de produtos novos lacrados vêm da aba BOT da planilha aprovada e podem
   mudar semanalmente. Quando um resultado indicar preço de lacrado, use esse preço
   e deixe claro que é para aparelho novo lacrado. A planilha não comprova estoque.
+- A aba BOT e a fonte exclusiva para quais modelos novos lacrados podem
+  ser oferecidos. Nunca ofereca, confirme valor ou diga que vai consultar um
+  lacrado que nao aparece nela. Se o lacrado pedido nao estiver na aba,
+  informe isso e ofereca as alternativas retornadas pelo catalogo, sem
+  encaminhar automaticamente para um atendente.
 - Para aparelhos novos lacrados, informe que trabalhamos por encomenda, com prazo
   de entrega de 1 semana e pagamento somente na hora da entrega. Essa regra
   específica prevalece sobre a regra geral de entrega; consulte o FAQ no tópico
@@ -247,6 +257,30 @@ def _current_catalog_context(text: str, image_description: str | None = None) ->
     return "\n".join(parts).strip()
 
 
+def _is_catalog_followup(text: str) -> bool:
+    """Recognize a short price/condition follow-up for a prior product."""
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "lacrado",
+            "encomenda",
+            "seminovo",
+            "semi novo",
+            "usado",
+            "valor",
+            "valores",
+            "preco",
+            "precos",
+            "disponivel",
+            "disponibilidade",
+            "estoque",
+        )
+    )
+
+
 def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -318,6 +352,10 @@ def _is_product_availability_request(text: str) -> bool:
             "possui",
             "quanto custa",
             "qual o preco",
+            "valor",
+            "valores",
+            "preco",
+            "precos",
         )
     ):
         return True
@@ -1478,6 +1516,7 @@ class AgentService:
 
         product_availability_decision = await self._try_product_availability(
             text,
+            history=history,
             image_description=image_description,
         )
         if product_availability_decision is not None:
@@ -1628,6 +1667,91 @@ class AgentService:
             return None
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
+    async def _try_unavailable_lacrado_alternative(
+        self,
+        query: str,
+        *,
+        requested_budget: float | None = None,
+    ) -> AgentDecision | None:
+        normalized_query = _normalize(query)
+        if not _has_sealed_reference(normalized_query):
+            return None
+
+        method = getattr(self.cache, "list_available_products", None)
+        if not callable(method):
+            return None
+        try:
+            result = await method()
+        except Exception:
+            return None
+
+        seminovos = result.get("seminovos") or []
+        lacrados = result.get("lacrados") or []
+        requested_family = _catalog_family(query)
+        requested_models = _requested_iphone_model_keys(query)
+
+        def entry_text(entry: dict[str, Any]) -> str:
+            return " ".join(
+                str(entry.get(field) or "")
+                for field in ("nome", "capacidade", "cor", "condicao")
+            )
+
+        def same_family(entry: dict[str, Any]) -> bool:
+            return requested_family is None or _catalog_family(entry_text(entry)) == requested_family
+
+        def same_requested_model(entry: dict[str, Any]) -> bool:
+            if not requested_models or not same_family(entry):
+                return False
+            return _catalog_family(entry_text(entry)) == "iphone" and _model_key(
+                entry.get("nome", "")
+            ) in requested_models
+
+        def within_budget(entry: dict[str, Any]) -> bool:
+            if requested_budget is None:
+                return True
+            prices = entry.get("precos_brl") or []
+            if not isinstance(prices, (list, tuple)):
+                prices = [prices]
+            for price in prices:
+                try:
+                    if float(price) <= requested_budget:
+                        return True
+                except (TypeError, ValueError):
+                    continue
+            return False
+
+        available_seminovos = [entry for entry in seminovos if same_family(entry) and within_budget(entry)]
+        matching_seminovos = [entry for entry in available_seminovos if same_requested_model(entry)]
+        other_seminovos = [entry for entry in available_seminovos if not same_requested_model(entry)]
+        other_lacrados = [
+            entry
+            for entry in lacrados
+            if same_family(entry) and not same_requested_model(entry) and within_budget(entry)
+        ]
+        alternatives = {
+            "seminovos": [*matching_seminovos, *other_seminovos],
+            "lacrados": other_lacrados,
+        }
+        if not alternatives["seminovos"] and not alternatives["lacrados"]:
+            return AgentDecision(
+                reply=(
+                    "N\u00e3o localizei esse modelo novo lacrado na tabela de lacrados. "
+                    "Tamb\u00e9m n\u00e3o encontrei outra op\u00e7\u00e3o cadastrada para sugerir agora. "
+                    "Se quiser, me diga outro modelo ou capacidade."
+                ),
+                confidence="medium",
+            )
+
+        return AgentDecision(
+            reply=(
+                "N\u00e3o localizei esse modelo novo lacrado na tabela de lacrados. "
+                "Para voc\u00ea escolher outra op\u00e7\u00e3o, seguem alternativas cadastradas:\n\n"
+                + _format_available_products(alternatives)
+            ),
+            confidence="high",
+        )
+
+
     async def _try_unavailable_seminew_alternative(
         self,
         query: str,
@@ -1662,10 +1786,18 @@ class AgentService:
     async def _try_product_availability(
         self,
         text: str,
+        history: list[dict[str, str]] | None = None,
         *,
         image_description: str | None = None,
     ) -> AgentDecision | None:
-        query = _current_catalog_context(text, image_description)
+        current_query = _current_catalog_context(text, image_description)
+        query = current_query
+        if (
+            history
+            and not _has_product_reference(_normalize(current_query))
+            and _is_catalog_followup(current_query)
+        ):
+            query = _product_context_query(current_query, history)
         if not _is_product_availability_request(query):
             return None
 
@@ -1674,6 +1806,11 @@ class AgentService:
         try:
             candidates = await self.cache.search(query, limit=300)
         except Exception:
+            alternative = await self._try_unavailable_lacrado_alternative(
+                query, requested_budget=requested_budget
+            )
+            if alternative is not None:
+                return alternative
             return None
 
         public_candidates = [
@@ -1707,11 +1844,15 @@ class AgentService:
             ]
 
         if not public_candidates:
-            alternative = None
-            if requested_budget is None:
-                alternative = await self._try_unavailable_seminew_alternative(query)
+            alternative = await self._try_unavailable_lacrado_alternative(
+                query, requested_budget=requested_budget
+            )
             if alternative is not None:
                 return alternative
+            if requested_budget is None:
+                alternative = await self._try_unavailable_seminew_alternative(query)
+                if alternative is not None:
+                    return alternative
             capacity_text = (
                 f" {', '.join(value.upper() for value in requested_capacities)}"
                 if requested_capacities
@@ -1757,9 +1898,15 @@ class AgentService:
             scored = [(_catalog_score(query, item), item) for item in public_candidates]
             best_score = max(score for score, _item in scored)
             if best_score <= 0:
-                alternative = await self._try_unavailable_seminew_alternative(query)
+                alternative = await self._try_unavailable_lacrado_alternative(
+                    query, requested_budget=requested_budget
+                )
                 if alternative is not None:
                     return alternative
+                if requested_budget is None:
+                    alternative = await self._try_unavailable_seminew_alternative(query)
+                    if alternative is not None:
+                        return alternative
                 return AgentDecision(
                     reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
                     confidence="medium",
@@ -2190,6 +2337,17 @@ class AgentService:
         return AgentDecision(reply="Encontrei estas opções:\n" + "\n".join(lines), confidence="medium")
 
 
+def _is_device_condition_question(text: str | None) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        re.search(
+            r"\b(?:marcas?\s+de\s+uso|amassad\w*|riscos?\w*|"
+            r"arranh\w*|defeit\w*|quebrad\w*)\b",
+            normalized,
+        )
+    )
+
+
 def _looks_like_trade_in_handoff(decision: AgentDecision) -> bool:
     normalized = _normalize(f"{decision.reply} {decision.handoff_reason}")
     has_device = re.search(
@@ -2236,6 +2394,18 @@ def _ensure_trade_in_form_before_handoff(
         )
     if not decision.handoff or trade_in_em_andamento(history):
         return decision
+
+    if _is_device_condition_question(request_context) and not is_trade_in_context_request(
+        request_context, history
+    ):
+        return decision.model_copy(
+            update={
+                "reply": CONDITION_HANDOFF_REPLY,
+                "handoff": True,
+                "handoff_reason": CONDITION_HANDOFF_REASON,
+                "confidence": "high",
+            }
+        )
 
     request_context = " ".join(
         part.strip()
