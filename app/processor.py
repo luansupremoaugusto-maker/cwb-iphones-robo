@@ -15,6 +15,7 @@ from app.storage.database import Repository
 
 ADMIN_COMMAND_RE = re.compile(r"^#(assumir|retomar|fechar)\s+(\d{10,15})\s*$", re.IGNORECASE)
 ADMIN_BULK_COMMAND_RE = re.compile(r"^#(retomar_todos|liberar_todos)\s*$", re.IGNORECASE)
+HTTP_URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
 
 def _fold_text(value: str | None) -> str:
@@ -52,9 +53,14 @@ def _image_history_text(caption: str | None, description: str | None) -> str:
 def _remove_sent_image_urls(text: str, image_urls: list[str] | None) -> str:
     """Avoid repeating image attachments as clickable links in the text."""
     cleaned = text or ""
-    for image_url in dict.fromkeys(image_urls or []):
-        if isinstance(image_url, str) and image_url:
-            cleaned = cleaned.replace(image_url, "")
+    sent_urls = [url for url in dict.fromkeys(image_urls or []) if isinstance(url, str) and url]
+    if sent_urls:
+        # A model/provider may format the same photo URL with a query string,
+        # punctuation, or another URL variant. Once the media is being sent,
+        # no raw HTTP link should remain in the accompanying text.
+        cleaned = HTTP_URL_RE.sub("", cleaned)
+    for image_url in sent_urls:
+        cleaned = cleaned.replace(image_url, "")
     cleaned = "\n".join(line.strip() for line in cleaned.splitlines() if line.strip())
     return cleaned or "Seguem as fotos."
 

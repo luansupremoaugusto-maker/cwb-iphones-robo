@@ -8,6 +8,8 @@ from app.adapters.mercado_phone import InventoryCache, score_item
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS, extract_file_urls, list_product_files
 from app.config import Settings
 from app.installments import (
+    simulate_link_installment,
+    simulate_link_installment_table,
     simulate_installment,
     simulate_installment_table,
     simulate_installment_table_with_entry,
@@ -20,7 +22,8 @@ def _normalize(value: str) -> str:
         char for char in unicodedata.normalize("NFKD", value or "") if not unicodedata.combining(char)
     )
     normalized = re.sub(r"\s+", " ", without_accents).strip().lower()
-    return re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    return re.sub(r"\bpromax\b", "pro max", normalized)
 
 
 def _score_text(value: Any) -> str:
@@ -94,7 +97,7 @@ def _matches_requested_family(query: str, item: Any) -> bool:
 
 def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
     normalized = _score_text(value)
-    if re.search(r"\biphones\b", normalized) and not re.search(r"\biphone\s+\d", normalized):
+    if re.search(r"\biphones?\b", normalized) and not re.search(r"\biphones?\s+\d", normalized):
         return None
     target = _model_key(value)
     if target is None:
@@ -126,12 +129,19 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int, str], ...]:
         for match in matches
         if match.group(0).lower().startswith("iphone") and is_usable(match)
     ]
-    if not explicit_iphone:
-        return (target,)
+    if explicit_iphone:
+        selected = [key_for(explicit_iphone[0])]
+        previous = explicit_iphone[0]
+        candidate_matches = matches
+    else:
+        usable_matches = [match for match in matches if is_usable(match)]
+        if not usable_matches:
+            return (target,)
+        selected = [key_for(usable_matches[0])]
+        previous = usable_matches[0]
+        candidate_matches = usable_matches[1:]
 
-    selected = [key_for(explicit_iphone[0])]
-    previous = explicit_iphone[0]
-    for match in matches:
+    for match in candidate_matches:
         if match.start() <= previous.end() or not is_usable(match):
             continue
         separator = normalized[previous.end() : match.start()]
@@ -291,7 +301,7 @@ def _is_device_item(item: Any) -> bool:
 def _is_excluded_query(query: str) -> bool:
     normalized = _normalize(query)
     return any(
-        marker in normalized
+        re.search(rf"\b{re.escape(marker)}\b", normalized) is not None
         for marker in ("pelicula", "capa", "capinha", "case", "fonte", "cabo", "carregador", "protetor", "suporte")
     )
 
@@ -638,6 +648,20 @@ class StoreCatalogCache(InventoryCache):
         if error:
             return error
         result = simulate_installment_table(item)
+        return self._add_price_source(result, item)
+
+    async def simulate_link_installment(self, query: str, installments: int) -> dict[str, Any]:
+        item, error = await self._select_priced_candidate(query)
+        if error:
+            return error
+        result = simulate_link_installment(item, int(installments))
+        return self._add_price_source(result, item)
+
+    async def simulate_all_link_installments(self, query: str) -> dict[str, Any]:
+        item, error = await self._select_priced_candidate(query)
+        if error:
+            return error
+        result = simulate_link_installment_table(item)
         return self._add_price_source(result, item)
 
     async def simulate_installment_with_entry(

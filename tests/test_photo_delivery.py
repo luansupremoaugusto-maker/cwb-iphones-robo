@@ -96,3 +96,33 @@ async def test_processor_does_not_repeat_photo_urls_in_text_when_sending_images(
 
     assert zapi.text_calls[0]["message"] == "Claro! Seguem as fotos do Apple Watch."
     assert [call["image"] for call in zapi.image_calls] == urls
+
+
+@pytest.mark.asyncio
+async def test_processor_removes_photo_url_variants_from_text_when_sending_images():
+    settings = Settings(outbound_mode="live")
+    repository = _RepositoryStub()
+    zapi = _ZapiStub()
+    processor = MessageProcessor(settings, repository, zapi, agent=None)
+    incoming = IncomingMessage(
+        event_id="event-3",
+        message_id="message-3",
+        phone="5541999999999",
+        kind="text",
+        text="Pode mandar as fotos do iPhone 12",
+    )
+    photo_url = (
+        "https://app.mercadophone.tech/files/arquivos/8bd39eae38511daad6152e84545e504d/"
+        "1/277e38a6-0f21-4ab9-88d7-54832cfe7cbf.jpg"
+    )
+
+    await processor._send_customer(
+        incoming,
+        "Claro! Seguem as fotos do iPhone 12.\n"
+        + photo_url
+        + "?download=1",
+        image_urls=[photo_url],
+    )
+
+    assert zapi.text_calls[0]["message"] == "Claro! Seguem as fotos do iPhone 12."
+    assert [call["image"] for call in zapi.image_calls] == [photo_url]

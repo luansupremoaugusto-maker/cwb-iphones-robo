@@ -21,7 +21,7 @@ topics:
   retirada: "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
   entrega: "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser antecipado antes do despacho. Taxa e prazo devem ser cotados com um atendente."
   lacrado: "Trabalhamos com aparelhos novos lacrados por encomenda. O prazo de entrega é de 1 semana e o pagamento pode ser feito somente na hora da entrega. Eles acompanham apenas o cabo original que já vem dentro da caixa."
-  link_pagamento: "Sim, fazemos link de pagamento quando necessário. Preferimos o pagamento pela máquina física; o link fica como segunda opção."
+  link_pagamento: "Sim. O pagamento por cartão de crédito online é feito por link de pagamento quando necessário. Preferimos o pagamento pela máquina física; o link fica como segunda opção."
   taxas_link_pagamento: |
     Taxas do link de pagamento:
     Pix: grátis

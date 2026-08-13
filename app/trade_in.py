@@ -179,7 +179,7 @@ def _has_device_offer(text: str) -> bool:
         r"celular|iphone|aparelho|usado|ele|ela)\b",
         text,
         flags=re.IGNORECASE,
-    ):
+    ) and _has_device_reference(text):
         return True
 
     # Pronoun-only phrasing from voice messages: "pega ele como pagamento?"

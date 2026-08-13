@@ -609,3 +609,75 @@ async def test_photo_followup_after_iphone_14_plus_confirmation_uses_that_produc
 
     assert decision.image_urls == ["https://photos.example/iphone-14-plus-blue-128.jpg"]
     assert decision.product_references == ["14-plus-blue-128"]
+
+@pytest.mark.asyncio
+async def test_standalone_photo_followup_keeps_seminovo_context_after_entry_message(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class SealedPriceCache:
+        items = [
+            InventoryItem(
+                external_id="sheet:iphone-16e",
+                name="IPHONE 16 E",
+                category="Celular",
+                capacity="128GB",
+                source="google_sheets",
+                condition="novo lacrado",
+                search_text="iphone 16 e 128gb novo lacrado",
+            )
+        ]
+
+        async def ensure_fresh(self):
+            return None
+
+        async def search(self, query: str, limit: int = 5):
+            return self.items[:limit]
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedPriceCache(),
+    )
+    seminevo = InventoryItem(
+        external_id="16e-black-seminovo",
+        name="IPHONE 16 E",
+        category="Celular",
+        capacity="128GB",
+        color="PRETO",
+        colors="PRETO",
+        source="mercado_phone",
+        condition="SEMINOVO",
+        availability="Disponivel para venda",
+        quantity=1,
+        price_brl=2660,
+        battery_health=92,
+        search_text="iphone 16 e preto 128 gb celular seminovo",
+        photo_urls=["https://photos.example/iphone-16e-black.jpg"],
+    )
+    cache.items = [seminevo]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    history = [
+        {"role": "user", "content": "Voce ainda ta com aquele iPhone 16e?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim, temos um iPhone 16e seminovo disponivel: 128GB, preto, "
+                "bateria com 92% de saude, por R$ 2.660. Quer mais detalhes ou fotos?"
+            ),
+        },
+        {"role": "user", "content": "Quero sim por favor"},
+        {
+            "role": "assistant",
+            "content": "Voce quer receber as fotos ou mais detalhes do iPhone 16e?",
+        },
+        {"role": "user", "content": "Eu te dando 1k de entrada e parcelando o restante vc nao faz um preco melhor nele?"},
+    ]
+
+    decision = await agent.respond("Fotos", history=history)
+
+    assert decision.image_urls == ["https://photos.example/iphone-16e-black.jpg"]
+    assert decision.product_references == ["16e-black-seminovo"]
+    assert "lacrados" not in decision.reply.lower()
