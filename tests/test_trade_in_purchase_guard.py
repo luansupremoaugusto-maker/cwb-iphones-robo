@@ -40,3 +40,26 @@ def test_purchase_context_cannot_be_rewritten_as_trade_in_handoff():
 
     assert decision.reply == PURCHASE_WITHOUT_TRADE_IN_REPLY
     assert decision.handoff is False
+
+
+def test_pix_pickup_price_offer_cannot_be_rewritten_as_trade_in_handoff():
+    text = "Faz 3mil no Pix pra buscar?"
+    image_description = "Imagem de um iPhone 14 Pro Max 128 GB anunciado pela loja"
+    request_context = f"{text} {image_description}"
+
+    assert is_purchase_without_trade_in_request(request_context) is True
+    assert is_trade_in_request(request_context) is False
+
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        [],
+        image_description=image_description,
+    )
+
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM

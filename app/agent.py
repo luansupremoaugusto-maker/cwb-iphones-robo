@@ -272,6 +272,13 @@ def _is_available_list_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def _is_broad_airpods_request(text: str) -> bool:
+    """Recognize a family-level AirPods query that should show every option."""
+    normalized = _normalize(text)
+    if not re.search(r"\bairpods?\b|\bair pods\b", normalized):
+        return False
+    return not re.search(r"\b(?:pro|anc|max|mini|plus|\d+)\b", normalized)
+
 def _is_product_availability_request(text: str) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
@@ -1726,7 +1733,11 @@ class AgentService:
                 confidence="medium",
             )
 
-        broad_request = requested_budget is not None or requested_quantity is not None
+        broad_request = (
+            requested_budget is not None
+            or requested_quantity is not None
+            or _is_broad_airpods_request(query)
+        )
         if broad_request:
             def price_sort_key(item: Any) -> tuple[float, str, str, str]:
                 price = getattr(item, "price_brl", None)
@@ -2204,9 +2215,15 @@ def _ensure_trade_in_form_before_handoff(
     image_description: str | None = None,
 ) -> AgentDecision:
     """Never transfer a trade-in conversation without first sending its form."""
+    request_context = " ".join(
+        part.strip()
+        for part in (text, image_description)
+        if part and part.strip()
+    )
+
     if (
         not trade_in_em_andamento(history)
-        and is_purchase_without_trade_in_request(text)
+        and is_purchase_without_trade_in_request(request_context)
         and _looks_like_trade_in_handoff(decision)
     ):
         return decision.model_copy(

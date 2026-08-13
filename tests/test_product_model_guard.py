@@ -510,3 +510,48 @@ async def test_two_standalone_pro_models_with_capacity_are_both_matched(tmp_path
     assert "iPhone 16 Pro" in decision.reply
     assert "iPhone 15 Pro" in decision.reply
     assert "nao localizei" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_generic_airpods_request_lists_all_available_models_and_conditions(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("airpods-4-sem-anc", "AirPods 4 sem ANC", "-", 1100),
+        _sealed_item("airpods-4-com-anc", "AirPods 4 com ANC", "-", 1500),
+        _sealed_item("airpods-pro-3-lacrado", "AirPods Pro 3", "-", 1800),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="airpods-pro-3-seminovo",
+            name="AIRPODS PRO 3",
+            category="Celular",
+            condition="SEMINOVO COM GARANTIA APPLE",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1290,
+            search_text="airpods pro 3 celular seminovo com garantia apple",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Veja se o Luan tem AirPod")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "airpods-4-sem-anc",
+        "airpods-4-com-anc",
+        "airpods-pro-3-lacrado",
+        "airpods-pro-3-seminovo",
+    }
+    for expected in ("AirPods 4 sem ANC", "AirPods 4 com ANC", "AirPods Pro 3"):
+        assert expected in decision.reply
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
