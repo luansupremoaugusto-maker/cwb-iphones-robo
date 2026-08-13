@@ -118,6 +118,24 @@ async def test_visit_followup_with_day_and_time_is_forwarded(tmp_path):
     assert "agendamento" in (decision.handoff_reason or "").lower()
 
 
+@pytest.mark.asyncio
+async def test_visit_followup_with_compact_hour_is_forwarded(tmp_path):
+    agent = build_agent(tmp_path)
+    initial = await agent.respond("Quero marcar uma visita a loja.")
+
+    decision = await agent.respond(
+        "Amanha, 15h pode ser",
+        history=[
+            {"role": "user", "content": "Quero marcar uma visita a loja."},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "encaminhar para um atendente" in decision.reply.lower()
+    assert "agendamento" in (decision.handoff_reason or "").lower()
+
+
 
 
 

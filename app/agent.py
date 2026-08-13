@@ -529,7 +529,7 @@ def _has_visit_time_reference(text: str) -> bool:
             r"\b(?:as)\s*(?:[01]?\d|2[0-3])(?:\s*(?::|h)\s*[0-5]\d)?\s*(?:h|horas)?\b",
             normalized,
         )
-        or re.search(r"\b(?:[01]?\d|2[0-3])\s*(?::\s*[0-5]\d|h\s*[0-5]\d|horas)\b", normalized)
+        or re.search(r"\b(?:[01]?\d|2[0-3])\s*(?::\s*[0-5]\d|h(?:\s*[0-5]\d)?|horas)\b", normalized)
     )
 
 
