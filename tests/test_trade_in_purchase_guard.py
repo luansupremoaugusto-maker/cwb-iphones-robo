@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.agent import _ensure_trade_in_form_before_handoff
 from app.schemas import AgentDecision
 from app.trade_in import (
+    CONDITION_HANDOFF_REPLY,
     PURCHASE_WITHOUT_TRADE_IN_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_REASON,
@@ -63,3 +64,43 @@ def test_pix_pickup_price_offer_cannot_be_rewritten_as_trade_in_handoff():
 
     assert decision.handoff is False
     assert decision.reply != TRADE_IN_FORM
+
+
+def test_condition_question_with_product_photo_keeps_generic_handoff():
+    text = "O que e esse amassado no canto?\nMarcas de uso?"
+    image_description = "Descricao visual da imagem recebida: iPhone 13 Pro seminovo"
+    candidate_reply = "A avaliacao do iPhone depende do estado. Vou encaminhar para um atendente."
+
+    assert is_trade_in_request(f"{text} {image_description}") is False
+
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=candidate_reply,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        [],
+        image_description=image_description,
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == CONDITION_HANDOFF_REPLY
+
+
+def test_trade_in_offer_with_condition_details_still_uses_evaluation_form():
+    text = "Quero vender meu iPhone 13, mas ele tem marcas de uso."
+
+    assert is_trade_in_request(text) is True
+
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply="A avaliação do iPhone depende do estado. Vou encaminhar para um atendente.",
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        [],
+    )
+
+    assert decision.reply == TRADE_IN_FORM
