@@ -61,6 +61,10 @@ PURCHASE_WITHOUT_TRADE_IN_REPLY = (
     "Entendi! Ent\u00e3o voc\u00ea quer comprar um aparelho novo. "
     "Qual modelo ou capacidade voc\u00ea procura? Posso verificar as op\u00e7\u00f5es dispon\u00edveis."
 )
+PARTS_BUYBACK_REPLY = (
+    "N\u00e3o compramos pe\u00e7as avulsas. Compramos somente produtos completos da Apple, "
+    "mediante avalia\u00e7\u00e3o."
+)
 
 
 def _normalize(value: str | None) -> str:
@@ -99,6 +103,16 @@ _STOCK_QUERY_RE = re.compile(
     r"\b(?:tem|possui|disponivel|estoque|vende)\b.{0,35}\b"
     r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|aparelho|"
     r"usado|seminovo)\b",
+    re.IGNORECASE,
+)
+_PARTS_RE = re.compile(
+    r"\b(?:pecas?|tela|bateria|display|vidro|conector|camera|"
+    r"carca\u00e7a|carcaca|microfone|alto\s+falante|chip|flex|placa|componente[s]?)\b",
+    re.IGNORECASE,
+)
+_BUYBACK_VERB_RE = re.compile(
+    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos)|aceit(?:a|am|amos)|"
+    r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
 
@@ -217,6 +231,27 @@ def _is_store_buyback_question(text: str) -> bool:
     return bool((store_subject or verb_first) and _has_device_reference(text)) or bool(
         re.search(r"\b(?:vocês|voces|vcs|loja)\b.{0,35}\baceitam\s+usado\b", text, re.IGNORECASE)
     )
+
+
+def is_parts_buyback_request(text: str | None) -> bool:
+    """Recognize a question about the shop buying repair parts."""
+    normalized = _normalize(text)
+    if not normalized or not _PARTS_RE.search(normalized):
+        return False
+    store_subject = re.search(
+        r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}"
+        + _BUYBACK_VERB_RE.pattern,
+        normalized,
+    )
+    verb_first = re.search(
+        _BUYBACK_VERB_RE.pattern + r".{0,45}" + _PARTS_RE.pattern,
+        normalized,
+    )
+    parts_first = re.search(
+        _PARTS_RE.pattern + r".{0,45}" + _BUYBACK_VERB_RE.pattern,
+        normalized,
+    )
+    return bool(store_subject or verb_first or parts_first)
 
 
 def is_trade_in_request(text: str | None) -> bool:
