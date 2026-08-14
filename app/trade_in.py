@@ -230,8 +230,13 @@ def is_trade_in_request(text: str | None) -> bool:
     if not normalized or normalized.startswith("[foto:"):
         return False
 
-    if re.search(r"\b(?:trocar|troca)\s+(?:a|o|uma|um)?\s*"
-                 r"(?:pelicula|capa|case|tela|chip|numero|linha|cor)\b", normalized):
+    if re.search(
+        r"\b(?:troca\w*|substitu\w*|consert\w*|repar\w*|manuten\w*|arrum\w*)\s+"
+        r"(?:a|o|uma|um|de|do|da)?\s*"
+        r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
+        r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
+        normalized,
+    ):
         return False
     if _NEGATION_RE.search(normalized):
         return False

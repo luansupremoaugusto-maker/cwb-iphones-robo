@@ -50,6 +50,12 @@ from app.trade_in import (
 
 
 STORE_TIMEZONE = "America/Sao_Paulo"
+TECHNICAL_ASSISTANCE_REPLY = (
+    "A assistência técnica, incluindo troca de bateria, tela e outros reparos, "
+    "é tratada por um atendente. Vou encaminhar sua mensagem para ele confirmar "
+    "valores e disponibilidade."
+)
+TECHNICAL_ASSISTANCE_REASON = "Solicitação de assistência técnica ou reparo"
 WEEKDAY_LABELS = (
     "segunda-feira",
     "terça-feira",
@@ -742,6 +748,27 @@ def _reservation_reply(faq: FAQStore) -> str:
 def _is_warranty_request(text: str) -> bool:
     normalized = _normalize(text)
     return bool(normalized and "garantia" in normalized)
+
+
+def _is_technical_assistance_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    if re.search(r"\bassistencia\s+tecnica\b", normalized):
+        return True
+
+    component = r"(?:bateria|tela|display|vidro|conector|camera|carcaca|microfone|alto\s+falante)"
+    action = r"(?:troca\w*|substitu\w*|consert\w*|repar\w*|manuten\w*|arrum\w*)"
+    damaged = r"(?:quebrad\w*|trincad\w*|danificad\w*|defeit\w*)"
+    device = r"(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|smartphone|telefone)"
+    repair_action = r"(?:consert\w*|repar\w*|manuten\w*|arrum\w*)"
+    return bool(
+        re.search(rf"\b{action}\b.{{0,35}}\b{component}\b", normalized)
+        or re.search(rf"\b{component}\b.{{0,35}}\b{action}\b", normalized)
+        or re.search(rf"\b{component}\b.{{0,35}}\b{damaged}\b", normalized)
+        or re.search(rf"\b{repair_action}\b.{{0,35}}\b{device}\b", normalized)
+        or re.search(rf"\b{device}\b.{{0,35}}\b{repair_action}\b", normalized)
+    )
 
 
 def _has_sealed_reference(normalized: str) -> bool:
@@ -1503,6 +1530,16 @@ class AgentService:
                 handoff=True,
                 handoff_reason=TRADE_IN_REASON,
                 confidence="high",
+            )
+
+        if _is_technical_assistance_request(combined_request):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=TECHNICAL_ASSISTANCE_REPLY,
+                    handoff=True,
+                    handoff_reason=TECHNICAL_ASSISTANCE_REASON,
+                    confidence="high",
+                )
             )
 
         payment_link_decision = await self._try_payment_link(text, history)
