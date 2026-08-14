@@ -14,7 +14,9 @@ from app.adapters.catalog_cache import (
     _catalog_score,
     _catalog_family,
     _is_available_item,
+    _is_accessory_catalog_query,
     _is_device_item,
+    _is_sealed_accessory_item,
     _matches_requested_model,
     _model_key,
     _requested_iphone_model_keys,
@@ -182,6 +184,10 @@ REGRAS OBRIGATÓRIAS:
   o preço vem do catálogo do Mercado Phone.
 - Se o cliente perguntar sobre nota fiscal, informe que podemos emitir nota fiscal
   para todos os produtos, sejam seminovos ou lacrados.
+- Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. PIX, dinheiro e
+  cartão de débito têm pagamento integral à vista, sem taxas. O cliente pode usar
+  mais de um cartão de crédito na mesma compra e completar o valor com PIX,
+  dinheiro ou cartão de débito.
 - O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar.
 - Só mencione link de pagamento se o cliente perguntar explicitamente sobre ele. Uma
   pergunta sobre pagar com cartão de crédito online, à distância ou pela internet é
@@ -284,6 +290,8 @@ def _is_catalog_followup(text: str) -> bool:
             "disponivel",
             "disponibilidade",
             "estoque",
+            "fonte",
+            "carregador",
         )
     )
 
@@ -360,7 +368,8 @@ def _is_broad_airpods_request(text: str) -> bool:
 def _is_product_availability_request(text: str) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
-    if not normalized or not _has_product_reference(normalized):
+    accessory_request = _is_accessory_catalog_request(normalized)
+    if not normalized or (not _has_product_reference(normalized) and not accessory_request):
         return False
     if _is_available_list_request(text):
         return False
@@ -382,6 +391,8 @@ def _is_product_availability_request(text: str) -> bool:
         )
     ):
         return False
+    if accessory_request:
+        return True
     if any(
         phrase in normalized
         for phrase in (
@@ -422,6 +433,34 @@ def _is_product_availability_request(text: str) -> bool:
     return bool(
         (has_purchase_intent or has_broad_filter)
         and re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+    )
+
+
+def _is_accessory_catalog_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not _is_accessory_catalog_query(normalized):
+        return False
+    if any(
+        marker in normalized
+        for marker in (
+            "nao funciona",
+            "quebrad",
+            "defeit",
+            "problema",
+            "consert",
+            "assistencia",
+            "acompanha",
+            "vem com",
+            "vem na caixa",
+            "inclus",
+        )
+    ):
+        return False
+    return normalized in {"fonte", "carregador"} or bool(
+        re.search(
+            r"\b(?:tem|vende|possui|disponivel|estoque|a venda|valor|preco|custa|original|tipo|usb|20w)\b",
+            normalized,
+        )
     )
 
 
@@ -876,6 +915,52 @@ PAYMENT_LINK_REPLY = (
     "quando necessário. Preferimos o pagamento pela máquina física; o link fica "
     "como segunda opção."
 )
+
+
+PAYMENT_METHODS_REPLY = (
+    "Sim 😊 Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. "
+    "PIX, dinheiro e cartão de débito têm pagamento integral à vista, sem taxas. "
+    "O cartão de crédito pode ser parcelado em até 18 vezes na máquina física."
+)
+
+
+def _is_payment_methods_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or _is_payment_link_request(text):
+        return False
+    has_cash_method = bool(re.search(r"\b(?:pix|dinheiro|debito)\b", normalized))
+    if any(
+        marker in normalized
+        for marker in (
+            "simulacao",
+            "simular",
+            "quanto fica",
+            "em quantas",
+        )
+    ):
+        return False
+    if "parcel" in normalized and not has_cash_method:
+        return False
+    has_method = bool(re.search(r"\b(?:pix|dinheiro|debito|credito|cartao|cartoes)\b", normalized))
+    if not has_method:
+        return False
+    if has_cash_method and any(marker in normalized for marker in ("taxa", "taxas", "tarifa", "juros", "parcel")):
+        return True
+    has_request = any(
+        phrase in normalized
+        for phrase in (
+            "forma de pagamento",
+            "formas de pagamento",
+            "aceita",
+            "aceitam",
+            "posso pagar",
+            "pagar com",
+            "pagamento",
+            "completar o valor",
+            "dar o valor",
+        )
+    )
+    return has_request or normalized in {"pix", "dinheiro", "debito", "cartao", "cartao de debito"}
 
 
 def _is_payment_link_request(text: str) -> bool:
@@ -1561,6 +1646,10 @@ class AgentService:
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
 
+        payment_methods_decision = self._try_payment_methods(text)
+        if payment_methods_decision is not None:
+            return protect_customer_decision(payment_methods_decision)
+
         if _is_handoff_confirmation(text, history):
             return protect_customer_decision(
                 AgentDecision(
@@ -1739,6 +1828,19 @@ class AgentService:
                     confidence="high",
                 )
         reply = self.faq.get("link_pagamento") or PAYMENT_LINK_REPLY
+        return AgentDecision(reply=reply, confidence="high")
+
+    def _try_payment_methods(self, text: str) -> AgentDecision | None:
+        if not _is_payment_methods_question(text):
+            return None
+
+        reply = self.faq.get("pagamento") or PAYMENT_METHODS_REPLY
+        normalized = _normalize(text)
+        if re.search(r"\b(?:dois|duas)\s+cartoes?\s+de\s+credito\b", normalized) or "mais de um cartao" in normalized:
+            reply = (
+                "Sim 😊 Você pode usar dois cartões de crédito na mesma compra e completar o valor "
+                f"com PIX, dinheiro ou cartão de débito. {reply}"
+            )
         return AgentDecision(reply=reply, confidence="high")
 
     async def _try_available_products(self, text: str) -> AgentDecision | None:
@@ -1948,11 +2050,12 @@ class AgentService:
         public_candidates = [
             item
             for item in candidates
-            if _is_device_item(item)
-            and (
-                getattr(item, "source", None) != "mercado_phone"
-                or _is_available_item(item)
+            if (
+                _is_sealed_accessory_item(item)
+                if _is_accessory_catalog_request(query)
+                else _is_device_item(item)
             )
+            and (getattr(item, "source", None) != "mercado_phone" or _is_available_item(item))
         ]
         public_candidates = [item for item in public_candidates if _matches_requested_model(query, item)]
         if requested_budget is not None:

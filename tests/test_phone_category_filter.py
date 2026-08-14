@@ -51,7 +51,7 @@ class MixedSealedCache:
                 source="google_sheets",
                 condition="novo lacrado",
                 price_brl=150,
-                search_text="fonte tipo c novo lacrado",
+                search_text="fonte tipo c 20w original carregador novo lacrado",
             ),
         ]
 
@@ -133,3 +133,13 @@ async def test_search_and_direct_availability_never_return_non_cellular_categori
     assert [item.name for item in await cache.search("AirPods", limit=5)] == ["AirPods Pro 3"]
     assert await cache.get("case") is None
     assert (await cache.get("airpods")).name == "AirPods Pro 3"
+
+
+@pytest.mark.asyncio
+async def test_sealed_source_is_searchable_as_fonte_or_carregador(tmp_path):
+    cache = build_cache(tmp_path)
+
+    for query in ("fonte tipo c 20w", "carregador"):
+        matches = await cache.search(query, limit=5)
+
+        assert [item.name for item in matches] == ["Fonte Tipo-C 20W original"]

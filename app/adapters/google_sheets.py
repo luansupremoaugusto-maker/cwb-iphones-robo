@@ -105,8 +105,14 @@ def parse_catalog_rows(values: list[list[Any]]) -> list[InventoryItem]:
         capacity = str(_cell(row, capacity_col) or "-").strip()
         colors = str(_cell(row, colors_col) or "-").replace("\n", " ").strip()
         description = f"{model} {capacity}".strip()
+        normalized_model = normalize_sheet_text(model)
+        accessory_aliases = ""
+        if re.search(r"\b(?:fonte|carregador)\b", normalized_model):
+            accessory_aliases = " fonte carregador"
+            if "20w" in normalized_model:
+                accessory_aliases += " usb c tipo c 20w"
         search_text = normalize_sheet_text(
-            f"{model} {capacity} {colors} novo lacrado lacrado {row_number}"
+            f"{model} {capacity} {colors} {accessory_aliases} novo lacrado lacrado {row_number}"
         )
         products.append(
             InventoryItem(

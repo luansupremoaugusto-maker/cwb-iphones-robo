@@ -43,6 +43,18 @@ def test_sheet_values_parse_brazilian_prices_and_rates():
     assert rates == {1: 0.0495, 18: 0.192}
 
 
+def test_source_row_has_a_carregador_alias_for_catalog_lookup():
+    values = [
+        BOT_VALUES[0],
+        ["Fonte Tipo-C 20W original", "-", "-", "R$ 150", "R$ 10,31"],
+    ]
+
+    product = parse_catalog_rows(values)[0]
+
+    assert "fonte" in product.search_text
+    assert "carregador" in product.search_text
+
+
 class FakeSheetsClient:
     configured = True
 
