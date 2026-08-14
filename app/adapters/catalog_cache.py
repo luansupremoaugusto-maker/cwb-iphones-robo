@@ -18,8 +18,11 @@ from app.installments import (
 
 
 def _normalize(value: str) -> str:
+    # Keep the Portuguese copula in phrases such as "15 é original" from
+    # becoming the model alias "15 e" during accent removal.
+    value = re.sub(r"(?<=\d)\s+é\b", " __copula__ ", value or "", flags=re.IGNORECASE)
     without_accents = "".join(
-        char for char in unicodedata.normalize("NFKD", value or "") if not unicodedata.combining(char)
+        char for char in unicodedata.normalize("NFKD", value) if not unicodedata.combining(char)
     )
     normalized = re.sub(r"\s+", " ", without_accents).strip().lower()
     normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)

@@ -238,8 +238,11 @@ O campo reply deve ser exatamente a mensagem que será enviada ao cliente.
 
 
 def _normalize(value: str) -> str:
+    # Keep the Portuguese copula in phrases such as "15 é original" from
+    # becoming the model alias "15 e" during accent removal.
+    value = re.sub(r"(?<=\d)\s+é\b", " __copula__ ", value or "", flags=re.IGNORECASE)
     without_accents = "".join(
-        char for char in unicodedata.normalize("NFKD", value or "") if not unicodedata.combining(char)
+        char for char in unicodedata.normalize("NFKD", value) if not unicodedata.combining(char)
     )
     normalized = re.sub(r"\s+", " ", without_accents).strip().lower()
     normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
@@ -292,6 +295,18 @@ def _is_catalog_followup(text: str) -> bool:
             "estoque",
             "fonte",
             "carregador",
+        )
+    )
+
+
+def _is_battery_detail_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or "bateria" not in normalized:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:original|originais?|trocad\w*|substitu\w*|saude|percentual|porcentagem|boa|ruim)\b",
+            normalized,
         )
     )
 
@@ -358,6 +373,22 @@ def _is_available_list_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def _is_sealed_catalog_list_request(text: str) -> bool:
+    """Recognize a category-level request for all sealed catalog prices."""
+    normalized = _normalize(text)
+    if not normalized or _has_product_reference(normalized):
+        return False
+    if not re.search(r"\blacrados\b", normalized):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:quanto|qual|quais|preco|precos|valor|valores|lista|tabela|"
+            r"tem|vende|possui|disponivel|disponibilidade|estoque)\b",
+            normalized,
+        )
+    )
+
+
 def _is_broad_airpods_request(text: str) -> bool:
     """Recognize a family-level AirPods query that should show every option."""
     normalized = _normalize(text)
@@ -371,7 +402,7 @@ def _is_product_availability_request(text: str) -> bool:
     accessory_request = _is_accessory_catalog_request(normalized)
     if not normalized or (not _has_product_reference(normalized) and not accessory_request):
         return False
-    if _is_available_list_request(text):
+    if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
     if any(
         marker in normalized
@@ -393,26 +424,24 @@ def _is_product_availability_request(text: str) -> bool:
         return False
     if accessory_request:
         return True
-    if any(
-        phrase in normalized
-        for phrase in (
-            "tem ",
-            "teria",
-            "disponivel",
-            "disponibilidade",
-            "em estoque",
-            "estoque",
-            "a venda",
-            "vende",
-            "possui",
-            "quanto custa",
-            "qual o preco",
-            "valor",
-            "valores",
-            "preco",
-            "precos",
-        )
-    ):
+    availability_phrases = (
+        "tem",
+        "teria",
+        "disponivel",
+        "disponibilidade",
+        "em estoque",
+        "estoque",
+        "a venda",
+        "vende",
+        "possui",
+        "quanto custa",
+        "qual o preco",
+        "valor",
+        "valores",
+        "preco",
+        "precos",
+    )
+    if any(re.search(rf"\b{re.escape(phrase)}\b", normalized) for phrase in availability_phrases):
         return True
     if re.match(r"^(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized):
         return True
@@ -679,6 +708,7 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
         _is_current_date_request(text)
         or _is_today_store_status_request(text)
         or _is_available_list_request(text)
+        or _is_sealed_catalog_list_request(text)
         or _is_product_availability_request(text)
         or _is_physical_store_request(text)
     ):
@@ -1270,6 +1300,47 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
     return "\n".join(parts[-6:]).strip()
 
 
+def _extract_bare_catalog_model_reference(text: str) -> str | None:
+    """Turn follow-ups such as "a bateria do 15" into an explicit model."""
+    pattern = re.compile(
+        r"\b(?:do|da|dos|das|de|no|na|o|a)\s+"
+        r"(?P<number>\d{1,2})"
+        r"(?P<variant>\s*(?:e|pro\s+max|pro|max|plus|mini|air))?\b",
+        flags=re.IGNORECASE,
+    )
+    matches = list(pattern.finditer(text or ""))
+    if not matches:
+        return None
+    match = matches[-1]
+    number = match.group("number")
+    variant = " ".join((match.group("variant") or "").split()).lower()
+    if variant == "e":
+        return f"iPhone {number}e"
+    if variant:
+        return f"iPhone {number} {variant}"
+    return f"iPhone {number}"
+
+
+def _battery_detail_context_query(text: str, history: list[dict[str, str]] | None) -> str | None:
+    normalized = _normalize(text)
+    model_reference = _extract_bare_catalog_model_reference(text)
+    has_explicit_family = bool(
+        re.search(r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b", normalized)
+    )
+    if model_reference is None and not has_explicit_family:
+        return None
+
+    user_context = [
+        entry.get("content", "").strip()
+        for entry in (history or [])
+        if entry.get("role") == "user" and entry.get("content", "").strip()
+    ]
+    parts = [*user_context[-4:], text.strip()]
+    if model_reference:
+        parts.append(model_reference)
+    return "\n".join(part for part in parts if part).strip()
+
+
 def _is_standalone_photo_followup(
     text: str,
     history: list[dict[str, str]] | None,
@@ -1687,6 +1758,10 @@ class AgentService:
         if catalog_product_decision is not None:
             return protect_customer_decision(catalog_product_decision)
 
+        battery_detail_decision = await self._try_battery_detail(text, history)
+        if battery_detail_decision is not None:
+            return protect_customer_decision(battery_detail_decision)
+
         availability_decision = await self._try_available_products(text)
         if availability_decision is not None:
             return protect_customer_decision(availability_decision)
@@ -1844,7 +1919,8 @@ class AgentService:
         return AgentDecision(reply=reply, confidence="high")
 
     async def _try_available_products(self, text: str) -> AgentDecision | None:
-        if not _is_available_list_request(text):
+        sealed_only = _is_sealed_catalog_list_request(text)
+        if not (_is_available_list_request(text) or sealed_only):
             return None
         method = getattr(self.cache, "list_available_products", None)
         if not callable(method):
@@ -1855,7 +1931,67 @@ class AgentService:
             return None
         if not result.get("encontrado"):
             return None
+        if sealed_only:
+            lacrados = result.get("lacrados") or []
+            if not lacrados:
+                return None
+            result = {"encontrado": True, "seminovos": [], "lacrados": lacrados}
         return AgentDecision(reply=_format_available_products(result), confidence="high")
+
+    async def _try_battery_detail(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not _is_battery_detail_request(text):
+            return None
+        query = _battery_detail_context_query(text, history)
+        if not query:
+            return None
+        try:
+            candidates = await self.cache.search(query, limit=300)
+        except Exception:
+            return None
+
+        candidates = [
+            item
+            for item in candidates
+            if _is_device_item(item)
+            and (getattr(item, "source", None) != "mercado_phone" or _is_available_item(item))
+            and not _is_sealed_item(item)
+        ]
+        if not candidates:
+            return None
+
+        selected = max(
+            candidates,
+            key=lambda item: (
+                _catalog_score(query, item),
+                _normalize(str(getattr(item, "name", "") or "")),
+                _normalize(str(getattr(item, "capacity", "") or "")),
+            ),
+        )
+        label_parts = [str(getattr(selected, "name", "produto") or "produto")]
+        for value in (
+            getattr(selected, "capacity", None),
+            getattr(selected, "color", None) or getattr(selected, "colors", None),
+        ):
+            if value and str(value).strip() not in label_parts:
+                label_parts.append(str(value).strip())
+        label = " ".join(label_parts)
+        battery = getattr(selected, "battery_health", None)
+        if battery is None:
+            battery_reply = "A saúde da bateria não está informada no cadastro."
+        else:
+            battery_reply = f"A saúde cadastrada da bateria é {_format_battery(battery)}."
+        return AgentDecision(
+            reply=(
+                f"Sobre o {label}: {battery_reply} O cadastro não informa se a bateria é original "
+                "ou se já foi trocada, então não consigo confirmar essa parte por aqui."
+            ),
+            product_references=[str(getattr(selected, "external_id", ""))],
+            confidence="high",
+        )
 
     async def _try_catalog_product_reference(
         self,
