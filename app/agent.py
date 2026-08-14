@@ -39,6 +39,7 @@ from app.schemas import AgentDecision
 from app.trade_in import (
     CONDITION_HANDOFF_REASON,
     CONDITION_HANDOFF_REPLY,
+    PARTS_BUYBACK_REPLY,
     PURCHASE_WITHOUT_TRADE_IN_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
@@ -46,6 +47,7 @@ from app.trade_in import (
     is_trade_in_negotiation,
     is_trade_in_context_request,
     is_photo_offer_confirmation,
+    is_parts_buyback_request,
     trade_in_em_andamento,
     is_purchase_without_trade_in_request,
 )
@@ -1685,6 +1687,8 @@ class AgentService:
         image_description: str | None = None,
     ) -> AgentDecision:
         combined_request = " ".join(part for part in (text, image_description) if part)
+        if is_parts_buyback_request(combined_request):
+            return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
         if (
             not is_purchase_without_trade_in_request(combined_request)
             and is_trade_in_context_request(combined_request, history)
