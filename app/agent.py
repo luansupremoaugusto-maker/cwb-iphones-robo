@@ -310,6 +310,21 @@ def _is_catalog_availability_confirmation(
         return has_consultation_prompt and has_availability_marker and not has_other_flow
     return False
 
+
+def _extract_catalog_product_id(text: str) -> str | None:
+    """Extract the stock item id from a Mercado Phone catalog message."""
+    normalized = _normalize(text)
+    url_match = re.search(r"[?&]\s*produto_id\s*=\s*(\d+)", normalized)
+    if url_match:
+        return url_match.group(1)
+
+    code_match = re.search(
+        r"\bcodigo\s*(?:\(\s*estoque\s*\)|estoque)?\s*[:#-]\s*(\d{4,})\b",
+        normalized,
+    )
+    return code_match.group(1) if code_match else None
+
+
 def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -1576,6 +1591,13 @@ class AgentService:
         if rate_followup_decision is not None:
             return protect_customer_decision(rate_followup_decision)
 
+        catalog_product_decision = await self._try_catalog_product_reference(
+            text,
+            image_description=image_description,
+        )
+        if catalog_product_decision is not None:
+            return protect_customer_decision(catalog_product_decision)
+
         availability_decision = await self._try_available_products(text)
         if availability_decision is not None:
             return protect_customer_decision(availability_decision)
@@ -1732,6 +1754,47 @@ class AgentService:
         if not result.get("encontrado"):
             return None
         return AgentDecision(reply=_format_available_products(result), confidence="high")
+
+    async def _try_catalog_product_reference(
+        self,
+        text: str,
+        *,
+        image_description: str | None = None,
+    ) -> AgentDecision | None:
+        product_id = _extract_catalog_product_id(_current_catalog_context(text, image_description))
+        if product_id is None:
+            return None
+
+        method = getattr(self.cache, "get", None)
+        if not callable(method):
+            return AgentDecision(
+                reply="Vou encaminhar esse link do catálogo para um atendente confirmar o aparelho.",
+                handoff=True,
+                handoff_reason="Consulta do produto do catálogo indisponível",
+                confidence="low",
+            )
+
+        try:
+            item = await method(product_id)
+        except Exception:
+            return AgentDecision(
+                reply="Não consegui consultar esse aparelho agora. Vou encaminhar sua mensagem para um atendente confirmar.",
+                handoff=True,
+                handoff_reason="Falha ao consultar produto do catálogo",
+                confidence="low",
+            )
+
+        if item is None:
+            return AgentDecision(
+                reply="Não localizei o aparelho indicado por esse link do catálogo. Pode confirmar o link ou o código do estoque?",
+                confidence="medium",
+            )
+
+        return AgentDecision(
+            reply=_format_product_availability([item]),
+            product_references=[product_id],
+            confidence="high",
+        )
 
     async def _try_unavailable_lacrado_alternative(
         self,
