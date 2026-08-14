@@ -681,3 +681,56 @@ async def test_standalone_photo_followup_keeps_seminovo_context_after_entry_mess
     assert decision.image_urls == ["https://photos.example/iphone-16e-black.jpg"]
     assert decision.product_references == ["16e-black-seminovo"]
     assert "lacrados" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_affirmative_photo_confirmation_does_not_send_evaluation_form(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    iphone_12 = InventoryItem(
+        external_id="iphone-12-blue-128",
+        name="IPHONE 12",
+        category="Celular",
+        capacity="128GB",
+        color="AZUL",
+        colors="AZUL",
+        source="mercado_phone",
+        condition="SEMINOVO",
+        availability="Disponivel para venda",
+        quantity=1,
+        battery_health=80,
+        search_text="iphone 12 azul 128gb celular seminovo",
+        photo_urls=["https://photos.example/iphone-12-blue-128.jpg"],
+    )
+    cache.items = [iphone_12]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Sim",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos apenas 1 iPhone 12 disponivel: azul, 128GB, seminovo, "
+                    "bateria 80%, por R$ 1.210,00."
+                ),
+            },
+            {"role": "user", "content": "Mais o azul tem muita marca de uso?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "No cadastro nao consta o nivel de marcas de uso dele. "
+                    "E um iPhone 12 azul, 128GB, seminovo. "
+                    "Posso enviar as fotos cadastradas para voce avaliar melhor."
+                ),
+            },
+        ],
+    )
+    assert decision.handoff is False
+    assert decision.image_urls == ["https://photos.example/iphone-12-blue-128.jpg"]
+    assert "lista de avaliacao" not in decision.reply.lower()

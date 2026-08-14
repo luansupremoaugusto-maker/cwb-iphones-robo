@@ -555,3 +555,110 @@ async def test_generic_airpods_request_lists_all_available_models_and_conditions
         assert expected in decision.reply
     assert "SEMINOVO" in decision.reply.upper()
     assert "NOVO LACRADO" in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_explicit_iphone_xr_availability_does_not_append_unrelated_sealed_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedCatalog(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-xr-white-64",
+            name="IPHONE XR",
+            category="Celular",
+            capacity="64GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=500,
+            search_text="iphone xr branco 64gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("O iphone xr por 500 ainda está disponível")
+
+    assert decision.product_references == ["iphone-xr-white-64"]
+    assert "IPHONE XR" in decision.reply.upper()
+    assert "IPHONE 17" not in decision.reply.upper()
+    assert "NOVO LACRADO" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_availability_confirmation_uses_last_product_clarification(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-black-128",
+            name="IPHONE 16 PRO",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4500,
+            battery_health=90,
+            search_text="iphone 16 pro preto 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-natural-256",
+            name="IPHONE 16 PRO",
+            category="Celular",
+            capacity="256GB",
+            color="TITANIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4800,
+            battery_health=92,
+            search_text="iphone 16 pro titanio natural 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Sim",
+        history=[
+            {"role": "user", "content": "16"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos sim o iPhone 16: seminovo, ultramarino, 128 GB, "
+                    "bateria 78%, por R$ 3.660,00."
+                ),
+            },
+            {"role": "user", "content": "PRO?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Você quer saber sobre o iPhone 16 Pro, certo? Vou consultar "
+                    "a disponibilidade e os valores dessa versão 😊"
+                ),
+            },
+        ],
+    )
+
+    assert set(decision.product_references) == {
+        "iphone-16-pro-black-128",
+        "iphone-16-pro-natural-256",
+    }
+    assert "IPHONE 16 PRO" in decision.reply.upper()
+    assert "NÃO LOCALIZEI" not in decision.reply.upper()
