@@ -117,6 +117,53 @@ async def test_missing_explicit_lacrado_offers_other_catalog_models_without_hand
     assert decision.reply.count("NOVO LACRADO") == 1
 
 
+@pytest.mark.asyncio
+async def test_plural_lacrado_price_followup_lists_complete_sealed_catalog(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4000),
+        _sealed_item("iphone-16e-lacrado", "iPhone 16e", "128 GB", 4200),
+        _sealed_item("iphone-16-plus-lacrado", "iPhone 16 Plus", "256 GB", 4800),
+        _sealed_item("iphone-16-pro-max-lacrado", "iPhone 16 Pro Max", "256 GB", 5500),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quanto estão os lacrados?",
+        history=[
+            {"role": "user", "content": "Qual o valor do iPhone 15?"},
+            {
+                "role": "assistant",
+                "content": "Temos o iPhone 15, 128 GB, seminovo por R$ 2.830,00.",
+            },
+            {"role": "user", "content": "Do treze pra cima"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Do iPhone 13 pra cima, com bateria de 90% ou mais, temos: "
+                    "iPhone 13 Pro Max; iPhone 16e; iPhone 16 Plus; iPhone 16 Pro Max. "
+                    "Também temos modelos lacrados do iPhone 15 em diante, mas neles a bateria não se aplica."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    for model in ("iPhone 15", "iPhone 16e", "iPhone 16 Plus", "iPhone 16 Pro Max"):
+        assert model in decision.reply
+    assert decision.reply.count("NOVO LACRADO") == 4
+    assert "SEMINOVO" not in decision.reply.upper()
+
+
 def build_accessory_agent(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()

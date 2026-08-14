@@ -143,6 +143,77 @@ async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path)
     assert "4.600,00" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_battery_origin_followup_reuses_iphone_15_from_previous_list(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4000)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-preto-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2920,
+            battery_health=83,
+            search_text="iphone 15 128gb preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16e-preto-128",
+            name="iPhone 16e",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2660,
+            battery_health=92,
+            search_text="iphone 16e 128gb preto celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "A bateria do 15 é original?",
+        history=[
+            {"role": "user", "content": "Quais vc tem no preto?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "No preto, temos estas opções: "
+                    "iPhone 15 128GB — seminovo — R$ 2.920 — bateria 83%; "
+                    "iPhone 15 128GB — novo lacrado — R$ 4.000 (por encomenda); "
+                    "iPhone 16e 128GB — seminovo — R$ 2.660 — bateria 92%; "
+                    "iPhone 16 128GB — novo lacrado — R$ 4.600 (por encomenda); "
+                    "iPhone 17 256GB — novo lacrado — R$ 5.500 (por encomenda); "
+                    "iPhone 17e 256GB — novo lacrado — R$ 4.500 (por encomenda)."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-preto-128"]
+    assert "83%" in decision.reply
+    assert "original" in decision.reply.lower()
+    assert "não localizei" not in decision.reply.lower()
+    assert "iPhone 16e" not in decision.reply
+
+
 def test_availability_lines_identify_each_model_when_candidates_differ():
     reply = _format_product_availability(
         [
