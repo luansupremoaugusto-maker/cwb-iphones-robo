@@ -115,3 +115,50 @@ async def test_missing_explicit_lacrado_offers_other_catalog_models_without_hand
     assert "iPhone 16" in decision.reply
     assert "NOVO LACRADO" in decision.reply
     assert decision.reply.count("NOVO LACRADO") == 1
+
+
+def build_accessory_agent(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("sheet:bot:8", "Fonte Tipo-C 20W original", "-", 150),
+    ]
+    sealed.items[0].search_text = "fonte tipo c 20w original carregador novo lacrado"
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = []
+    cache.last_refresh = time.time()
+    return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+
+@pytest.mark.asyncio
+async def test_source_question_uses_the_sealed_catalog_without_handoff(tmp_path):
+    agent = build_accessory_agent(tmp_path)
+
+    decision = await agent.respond("Vc vende apenas a fonte original do iPhone?")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:bot:8"]
+    assert "Fonte Tipo-C 20W original" in decision.reply
+    assert "NOVO LACRADO" in decision.reply
+    assert "R$ 150,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_carregador_followup_uses_the_sealed_catalog(tmp_path):
+    agent = build_accessory_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Carregador",
+        history=[
+            {"role": "user", "content": "Vc vende apenas a fonte original do iPhone?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:bot:8"]
+    assert "Fonte Tipo-C 20W original" in decision.reply

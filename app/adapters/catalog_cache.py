@@ -90,7 +90,7 @@ def _catalog_family(value: Any) -> str | None:
 
 def _matches_requested_family(query: str, item: Any) -> bool:
     requested_family = _catalog_family(query)
-    if requested_family is None:
+    if requested_family is None or _is_accessory_catalog_query(query):
         return True
     item_text = (
         f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} "
@@ -172,6 +172,8 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
 
 
 def _matches_requested_model(query: str, item: Any) -> bool:
+    if _is_accessory_catalog_query(query):
+        return _is_sealed_accessory_item(item)
     if not _matches_requested_family(query, item):
         return False
     targets = _requested_iphone_model_keys(query)
@@ -305,6 +307,20 @@ def _is_device_item(item: Any) -> bool:
     return category == "celular" or category.startswith("celular ") or any(
         marker in name for marker in ("iphone", "ipad", "macbook", "apple watch", "airpods")
     )
+
+
+def _is_accessory_catalog_query(value: Any) -> bool:
+    normalized = _score_text(value)
+    return any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in ("fonte", "carregador"))
+
+
+def _is_sealed_accessory_item(item: Any) -> bool:
+    if getattr(item, "source", "") != "google_sheets":
+        return False
+    item_text = _score_text(
+        f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} {getattr(item, 'search_text', '')}"
+    )
+    return _is_accessory_catalog_query(item_text)
 
 
 def _is_excluded_query(query: str) -> bool:
@@ -453,7 +469,8 @@ class StoreCatalogCache(InventoryCache):
         return item.model_copy(update={"photo_urls": urls}) if urls else item
 
     async def search(self, query: str, limit: int = 5):
-        if _is_excluded_query(query):
+        accessory_query = _is_accessory_catalog_query(query)
+        if _is_excluded_query(query) and not accessory_query:
             return []
         # Fetch enough candidates before re-ranking so an exact base model is
         # not discarded by a close Pro/Max variant. Unavailable Mercado Phone
@@ -461,7 +478,7 @@ class StoreCatalogCache(InventoryCache):
         candidates = [
             item
             for item in await super().search(query, limit=max(limit, 300))
-            if _is_device_item(item)
+            if (_is_device_item(item) or (accessory_query and _is_sealed_accessory_item(item)))
             and (getattr(item, "source", "") != "mercado_phone" or _is_available_item(item))
         ]
         candidates = [item for item in candidates if _matches_requested_model(query, item)]

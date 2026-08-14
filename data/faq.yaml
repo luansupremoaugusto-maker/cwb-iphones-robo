@@ -5,7 +5,7 @@ physical_store: "Sim, temos loja física na Avenida Nossa Senhora da Luz, 1341 -
 hours: "Segunda a sexta, das 09:00 às 18:00. Sábados, domingos e feriados: fechado."
 delivery: "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser antecipado antes do despacho. Taxa e prazo devem ser cotados com um atendente."
 pickup: "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
-payment: "Aceitamos PIX, dinheiro e cartão. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
+payment: "Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. PIX, dinheiro e cartão de débito têm pagamento integral à vista, sem taxas. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
 warranty: "Produtos seminovos têm garantia de 90 dias. Produtos novos e lacrados têm garantia de 1 ano pela Apple."
 invoice: "Podemos emitir nota fiscal para todos os produtos, sejam seminovos ou lacrados."
 returns: "Trocas e devoluções devem ser verificadas com um atendente."
@@ -37,10 +37,10 @@ topics:
     10x: 15,06%
     11x: 15,87%
     12x: 16,66%
-  pagamento: "Aceitamos PIX, dinheiro e cartão. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
-  cartoes: "Se desejar, o cliente pode pagar a mesma compra usando mais de um cartão de crédito."
-  parcelamento: "Parcelamos no cartão de crédito em até 18 vezes. Se desejar, o cliente pode pagar a mesma compra usando mais de um cartão de crédito. Não parcelamos no boleto ou PIX."
-  desconto_pix: "Não há desconto no PIX; os preços já são para pagamento à vista."
+  pagamento: "Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. PIX, dinheiro e cartão de débito têm pagamento integral à vista, sem taxas. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
+  cartoes: "Aceitamos cartão de débito para pagamento integral à vista, sem taxas. No cartão de crédito, o cliente pode pagar a mesma compra usando mais de um cartão, se desejar."
+  parcelamento: "Parcelamos no cartão de crédito em até 18 vezes. Se desejar, o cliente pode pagar a mesma compra usando mais de um cartão de crédito. PIX, dinheiro e cartão de débito são pagamentos integrais à vista, sem taxas. Não parcelamos no boleto ou PIX."
+  desconto_pix: "Não há desconto no PIX; PIX, dinheiro e cartão de débito têm pagamento integral à vista, sem taxas."
   produtos: "Vendemos produtos de toda a linha Apple, conforme disponibilidade no estoque."
   condicao: "Trabalhamos com produtos seminovos e produtos novos, lacrados."
   seminovos: "Aparelhos seminovos acompanham cabo e fonte novos, homologados pela Anatel. Se quiser, conseguimos capinha, película e protetor de câmera por R$ 10,00 cada."
