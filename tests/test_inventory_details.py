@@ -6,7 +6,7 @@ import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.adapters.mercado_phone import normalize_inventory_item
-from app.agent import AgentService
+from app.agent import AgentService, _extract_catalog_product_id
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -358,6 +358,63 @@ async def test_specific_availability_without_capacity_lists_exact_model_rows(tmp
     assert "AZUL — 256GB — SEMINOVO" in decision.reply
     assert "AMARELO — 128GB — SEMINOVO" in decision.reply
     assert "14 PRO" not in decision.reply
+
+
+def test_catalog_message_extracts_stock_code_without_url():
+    assert _extract_catalog_product_id("Produto de c\u00f3digo (estoque): 9445935") == "9445935"
+
+
+@pytest.mark.asyncio
+async def test_catalog_link_message_returns_only_the_referenced_stock_item(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    referenced = InventoryItem(
+        external_id="9445935",
+        name="IPHONE 15 PRO MAX",
+        category="Celular",
+        capacity="256GB",
+        color="TIT\u00c2NIO NATURAL",
+        colors="TIT\u00c2NIO NATURAL",
+        condition="SEMINOVO",
+        availability="Dispon\u00edvel para venda",
+        quantity=1,
+        price_brl=6490,
+        battery_health=100,
+        search_text="iphone 15 pro max 256 gb titanio natural celular seminovo",
+    )
+    unrelated = referenced.model_copy(
+        update={
+            "external_id": "iphone-12-blue",
+            "name": "IPHONE 12",
+            "capacity": "128GB",
+            "color": "AZUL",
+            "colors": "AZUL",
+            "search_text": "iphone 12 128 gb azul celular seminovo",
+        }
+    )
+    cache.items = [referenced, unrelated]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    message = (
+        "Ol\u00e1, entro em contato para saber mais informa\u00e7\u00f5es sobre o produto "
+        "IPHONE 15 PRO MAX 256gb TIT\u00c2NIO NATURAL de c\u00f3digo (estoque): 9445935 "
+        "visto no cat\u00e1logo online https://app.mercadophone.tech/index.php?"
+        "class=CatalogoProdutoView&tag=cwbiphones&produto_id=9445935&catalogo_produto_id=0"
+    )
+
+    assert _extract_catalog_product_id(message) == "9445935"
+    decision = await agent.respond(message)
+
+    assert decision.product_references == ["9445935"]
+    assert "IPHONE 15 PRO MAX" in decision.reply
+    assert "TIT\u00c2NIO NATURAL \u2014 256GB \u2014 SEMINOVO" in decision.reply
+    assert "Lista completa" not in decision.reply
+    assert "IPHONE 12" not in decision.reply
 
 
 @pytest.mark.asyncio
