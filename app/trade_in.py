@@ -309,6 +309,43 @@ def is_purchase_without_trade_in_request(text: str | None) -> bool:
 _FORM_EM_ANDAMENTO_MARKER = "favor preencher lista de avaliacao"
 
 
+_SHORT_CONFIRMATION_REPLIES = frozenset(("sim", "sim por favor", "sim pfv", "pode", "pode sim", "claro", "ok", "okay", "beleza"))
+
+
+def _is_photo_offer_message(content: str) -> bool:
+    normalized = _normalize(content)
+    return bool(
+        _FORM_EM_ANDAMENTO_MARKER not in normalized
+        and re.search(r"\b(?:foto|fotos|imagem|imagens)\b", normalized)
+        and re.search(r"\b(?:posso|pode|vou|vamos|enviar|envia|mande|mandar|mostrar|mostra)\b", normalized)
+        and not re.search(
+            r"\b(?:parte do pagamento|como entrada|para troca|trade[- ]?in|"
+            r"vender|compramos|aceitam meu|pegam meu|dar meu|usar meu)\b",
+            normalized,
+        )
+    )
+
+
+def is_photo_offer_confirmation(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if normalized not in _SHORT_CONFIRMATION_REPLIES or not history:
+        return False
+    if any(
+        entry.get("role") == "user"
+        and is_trade_in_request(entry.get("content"))
+        for entry in history[-8:]
+    ):
+        return False
+    for entry in reversed(history[-8:]):
+        if entry.get("role") != "assistant" or not entry.get("content"):
+            continue
+        return _is_photo_offer_message(entry.get("content", ""))
+    return False
+
+
 def trade_in_em_andamento(historico: list[dict[str, str]] | None) -> bool:
     """Return True when the bot already sent the evaluation form."""
     for message in historico or []:
@@ -347,6 +384,8 @@ def is_trade_in_context_request(
     if not normalized or not history:
         return False
 
+    if is_photo_offer_confirmation(text, history):
+        return False
     recent_assistant_messages = [
         _normalize(entry.get("content", ""))
         for entry in reversed(history[-8:])

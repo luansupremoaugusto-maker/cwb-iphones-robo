@@ -32,13 +32,14 @@ def _score_text(value: Any) -> str:
 
 
 _MODEL_PATTERN = re.compile(
-    r"\b(?:iphone\s*)?(?P<number>\d{1,2})"
-    r"(?:\s*(?P<variant>pro\s+max|pro|max|plus|mini|air|e))?\b",
+    r"\b(?:iphone\s*)?(?:(?P<number>\d{1,2})"
+    r"(?:\s*(?P<variant>pro\s+max|pro|max|plus|mini|air|e))?|"
+    r"(?P<legacy>xr))\b",
     flags=re.IGNORECASE,
 )
 
 
-def _model_key(value: Any) -> tuple[int, str] | None:
+def _model_key(value: Any) -> tuple[int | str, str] | None:
     """Return the last explicit iPhone model/variant mentioned in a text."""
     normalized = _normalize(value)
     matches = list(_MODEL_PATTERN.finditer(normalized))
@@ -58,6 +59,9 @@ def _model_key(value: Any) -> tuple[int, str] | None:
         if match.group(0).lower().startswith("iphone") and is_usable(match)
     ]
     match = (explicit_iphone or [match for match in matches if is_usable(match)])[-1]
+    legacy = match.group("legacy")
+    if legacy:
+        return legacy.lower(), ""
     variant = " ".join((match.group("variant") or "").split()).lower()
     return int(match.group("number")), variant
 
@@ -95,9 +99,11 @@ def _matches_requested_family(query: str, item: Any) -> bool:
     return _catalog_family(item_text) == requested_family
 
 
-def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
+def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
     normalized = _score_text(value)
-    if re.search(r"\biphones?\b", normalized) and not re.search(r"\biphones?\s+\d", normalized):
+    if re.search(r"\biphones?\b", normalized) and not re.search(
+        r"\biphones?\s+(?:\d{1,2}\b|xr\b)", normalized
+    ):
         return None
     target = _model_key(value)
     if target is None:
@@ -107,7 +113,7 @@ def _requested_iphone_model_key(value: Any) -> tuple[int, str] | None:
     return target
 
 
-def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int, str], ...]:
+def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
     normalized = _normalize(value)
     target = _requested_iphone_model_key(value)
@@ -120,7 +126,10 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int, str], ...]:
         suffix = normalized[match.end() :]
         return not re.match(r"\s*(?:%|gb|tb|g|x)", suffix)
 
-    def key_for(match: re.Match[str]) -> tuple[int, str]:
+    def key_for(match: re.Match[str]) -> tuple[int | str, str]:
+        legacy = match.group("legacy")
+        if legacy:
+            return legacy.lower(), ""
         variant = " ".join((match.group("variant") or "").split()).lower()
         return int(match.group("number")), variant
 

@@ -43,6 +43,7 @@ from app.trade_in import (
     TRADE_IN_REASON,
     is_trade_in_negotiation,
     is_trade_in_context_request,
+    is_photo_offer_confirmation,
     trade_in_em_andamento,
     is_purchase_without_trade_in_request,
 )
@@ -279,6 +280,29 @@ def _is_catalog_followup(text: str) -> bool:
             "estoque",
         )
     )
+
+
+def _is_catalog_availability_confirmation(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a short confirmation after an explicit availability prompt."""
+    normalized = re.sub(r"[^\w\s]", " ", _normalize(text), flags=re.UNICODE)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if normalized not in {"sim", "sim por favor", "pode", "pode sim", "claro", "ok", "okay", "beleza"}:
+        return False
+
+    for entry in reversed(history or []):
+        if entry.get("role") != "assistant" or not entry.get("content"):
+            continue
+        answer = _normalize(entry.get("content", ""))
+        if not _has_product_reference(answer):
+            return False
+        has_consultation_prompt = bool(re.search(r"\b(?:consultar|verificar|confirmar)\b", answer))
+        has_availability_marker = bool(re.search(r"\b(?:disponibilidade|disponivel|estoque)\b", answer))
+        has_other_flow = any(marker in answer for marker in ("foto", "imagem", "atendente", "encaminhar"))
+        return has_consultation_prompt and has_availability_marker and not has_other_flow
+    return False
 
 
 def _is_available_list_request(text: str) -> bool:
@@ -755,7 +779,9 @@ def _is_photo_request(text: str) -> bool:
         return False
     if _is_photo_retry_request(text):
         return True
-    if not any(word in normalized for word in ("foto", "fotos", "imagem", "imagens")):
+    has_photo_word = any(word in normalized for word in ("foto", "fotos", "imagem", "imagens"))
+    has_photo_abbreviation = bool(re.search(r"\bfts?\b", normalized))
+    if not has_photo_word and not has_photo_abbreviation:
         return False
     if any(
         phrase in normalized
@@ -1075,7 +1101,10 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
         answer = _normalize(content)
         return bool(
             _has_product_reference(answer)
-            and any(marker in answer for marker in ("r$", "bateria", "disponivel", "capacidade", "gb"))
+            and any(
+                marker in answer
+                for marker in ("r$", "bateria", "disponivel", "disponibilidade", "capacidade", "gb")
+            )
             and not any(marker in answer for marker in ("lista completa", "novos lacrados por encomenda"))
         )
 
@@ -1120,13 +1149,14 @@ def _is_standalone_photo_followup(
     history: list[dict[str, str]] | None,
 ) -> bool:
     normalized = _normalize(text)
-    if normalized not in {"foto", "fotos", "imagem", "imagens"}:
+    photo_confirmation = is_photo_offer_confirmation(text, history)
+    if normalized not in {"foto", "fotos", "imagem", "imagens"} and not photo_confirmation:
         return False
     if not history:
         return False
     query = _product_context_query(text, history)
     has_product_context = _has_product_reference(_normalize(query))
-    has_photo_offer = any(
+    has_photo_offer = photo_confirmation or any(
         entry.get("role") == "assistant"
         and any(word in _normalize(entry.get("content", "")) for word in ("foto", "imagem"))
         for entry in history
@@ -1795,7 +1825,10 @@ class AgentService:
         if (
             history
             and not _has_product_reference(_normalize(current_query))
-            and _is_catalog_followup(current_query)
+            and (
+                _is_catalog_followup(current_query)
+                or _is_catalog_availability_confirmation(current_query, history)
+            )
         ):
             query = _product_context_query(current_query, history)
         if not _is_product_availability_request(query):
