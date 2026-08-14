@@ -304,7 +304,6 @@ def _is_catalog_availability_confirmation(
         return has_consultation_prompt and has_availability_marker and not has_other_flow
     return False
 
-
 def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
