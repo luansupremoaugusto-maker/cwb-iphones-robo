@@ -168,19 +168,18 @@ REGRAS OBRIGATÓRIAS:
 - Quando o cliente perguntar se a loja compra algum produto, responda que sim,
   somente produtos da marca Apple, envie o formulário de avaliação aprovado e
   defina handoff=true.
-- Quando o cliente perguntar como fica o parcelamento, quanto fica parcelado,
-  quais são as parcelas ou pedir uma simulação sem indicar uma quantidade específica,
-  use simulate_all_installments e envie a tabela completa de 1x até 18x. Não
-  pergunte em quantas vezes o cliente quer parcelar nesse caso. Se a pergunta mencionar
-  pagamento por link, informe no máximo 12x e não use a tabela de 18x.
-- Se o cliente pedir uma quantidade específica, como 12x ou 18x, use
-  simulate_installments para informar aquela opção.
+- Sempre que o cliente perguntar como fica o parcelamento, quanto fica parcelado,
+  quais são as parcelas ou pedir uma simulação, use simulate_all_installments e
+  envie a tabela completa de 1x até 18x. Isso vale mesmo quando ele mencionar
+  uma quantidade específica, como 5x, 6x, 12x ou 18x: a quantidade é uma
+  referência para a dúvida, não um filtro para esconder as demais opções.
+  Não pergunte em quantas vezes o cliente quer parcelar. Se a pergunta mencionar
+  pagamento por link, use a tabela completa do link, limitada a 12x.
 - Se o cliente informar uma entrada à vista ou um sinal e quiser parcelar o
   restante, subtraia a entrada do preço total e use somente o saldo restante
-  como base do cálculo. Sem quantidade específica, use
-  simulate_all_installments_with_entry; com 12x ou 18x, use
-  simulate_installment_with_entry. Nunca aplique as taxas sobre o preço cheio
-  depois que uma entrada tiver sido informada.
+  como base do cálculo. Use sempre simulate_all_installments_with_entry para
+  enviar a tabela completa de 1x até 18x sobre o saldo. Nunca aplique as taxas
+  sobre o preço cheio depois que uma entrada tiver sido informada.
 - As taxas fixas aprovadas valem para qualquer produto da loja, desde que exista
   preço confirmado. Para lacrados, o preço vem da aba BOT; para os demais produtos,
   o preço vem do catálogo do Mercado Phone.
@@ -200,8 +199,8 @@ REGRAS OBRIGATÓRIAS:
   perguntar qual é a taxa ou o parcelamento do link, use as taxas aprovadas no tópico
   taxas_link_pagamento e informe no máximo 12x. A regra de até 18x vale somente para
   pagamento no cartão pela máquina física. Se o cliente já tiver identificado o produto,
-  use simulate_all_link_installments ou simulate_link_installments para enviar a
-  simulação, sem encaminhar automaticamente para um atendente.
+  use simulate_all_link_installments para enviar a tabela completa até 12x, sem
+  encaminhar automaticamente para um atendente.
 - Se o produto ou capacidade for ambíguo, peça a escolha antes de calcular.
 - Para pedidos específicos ambíguos, apresente no máximo três candidatos e peça
   modelo, capacidade, cor ou outro detalhe. Para pedidos genéricos, listas, faixa de
@@ -307,7 +306,8 @@ def _is_battery_detail_request(text: str) -> bool:
         return False
     return bool(
         re.search(
-            r"\b(?:original|originais?|trocad\w*|substitu\w*|saude|percentual|porcentagem|boa|ruim)\b",
+            r"\b(?:original|originais?|trocad\w*|substitu\w*|saude|percentual|porcentagem|"
+            r"quanto|qto|boa|ruim)\b",
             normalized,
         )
     )
@@ -1310,7 +1310,13 @@ def _installment_context_query(
     *,
     strip_assistant_constraints: bool = False,
 ) -> str:
+    # An explicit product in the current message is the strongest context.
+    # Do not append an older catalog answer: its last listed model can make a
+    # follow-up such as "Do iPhone 12" inherit an unrelated iPhone XR.
     current = text.strip()
+    if _has_product_reference(_normalize(current)):
+        return current
+
     for item in reversed(history or []):
         if item.get("role") == "assistant" and any(
             marker in _normalize(item.get("content", "")) for marker in ("iphone", "ipad", "produto")
@@ -1391,7 +1397,7 @@ def _product_context_query(
 def _extract_bare_catalog_model_reference(text: str) -> str | None:
     """Turn follow-ups such as "a bateria do 15" into an explicit model."""
     pattern = re.compile(
-        r"\b(?:do|da|dos|das|de|no|na|o|a)\s+"
+        r"\b(?:do|da|dos|das|de|no|na|o|a|esse|essa|este|esta)\s+"
         r"(?P<number>\d{1,2})"
         r"(?P<variant>\s*(?:e|pro\s+max|pro|max|plus|mini|air))?\b",
         flags=re.IGNORECASE,
@@ -1737,9 +1743,6 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
             simulate_all_installments,
             simulate_all_link_installments,
             simulate_all_installments_with_entry,
-            simulate_installments,
-            simulate_link_installments,
-            simulate_installment_with_entry,
             get_store_information,
         ],
         output_type=AgentDecision,
@@ -1964,15 +1967,9 @@ class AgentService:
             return None
         query = _installment_context_query(text, history)
         if _has_installment_product_context(query):
-            requested = _requested_installments(text)
-            if requested is not None and requested <= 12:
-                method_name = "simulate_link_installment"
-                method_args = (query, requested)
-                formatter = format_link_installment_result
-            else:
-                method_name = "simulate_all_link_installments"
-                method_args = (query,)
-                formatter = format_link_installment_table
+            method_name = "simulate_all_link_installments"
+            method_args = (query,)
+            formatter = format_link_installment_table
 
             method = getattr(self.cache, method_name, None)
             if callable(method):
@@ -2087,7 +2084,20 @@ class AgentService:
             and not _is_sealed_item(item)
         ]
         if not candidates:
-            return None
+            alternative = await self._try_unavailable_seminew_alternative(
+                query,
+                requested_label=_extract_bare_catalog_model_reference(text),
+            )
+            if alternative is not None:
+                return alternative
+            requested_label = _extract_bare_catalog_model_reference(text) or "esse aparelho"
+            return AgentDecision(
+                reply=(
+                    f"Não localizei o {requested_label} disponível no estoque no momento. "
+                    "Não consigo confirmar a saúde da bateria sem uma unidade cadastrada."
+                ),
+                confidence="medium",
+            )
 
         selected = max(
             candidates,
@@ -2248,6 +2258,8 @@ class AgentService:
     async def _try_unavailable_seminew_alternative(
         self,
         query: str,
+        *,
+        requested_label: str | None = None,
     ) -> AgentDecision | None:
         if not _has_installment_product_context(query):
             return None
@@ -2266,9 +2278,14 @@ class AgentService:
         seminovos = result.get("seminovos") or []
         if not seminovos:
             return None
+        unavailable_reply = (
+            f"No momento, n\u00e3o localizei o {requested_label} dispon\u00edvel no estoque."
+            if requested_label
+            else "No momento, n\u00e3o localizei esse produto seminovo dispon\u00edvel no sistema."
+        )
         return AgentDecision(
             reply=(
-                "No momento, n\u00e3o localizei esse produto seminovo dispon\u00edvel no sistema. "
+                unavailable_reply + " "
                 "Algum outro modelo tamb\u00e9m interessaria? Para facilitar, segue a lista "
                 "dos seminovos dispon\u00edveis para voc\u00ea escolher:\n\n"
                 + _format_available_products({"seminovos": seminovos, "lacrados": []})
@@ -2711,16 +2728,16 @@ class AgentService:
         query = _installment_context_query(text, history)
         if not _has_installment_product_context(query):
             return None
-        method = getattr(self.cache, "simulate_installment", None)
+        method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
             return None
         try:
-            result = await method(query, installments)
+            result = await method(query)
         except Exception:
             return None
         if result.get("encontrado"):
             return AgentDecision(
-                reply=format_installment_result(result),
+                reply=format_installment_table(result),
                 confidence="high",
             )
         if not result.get("ambiguo"):
@@ -2790,20 +2807,7 @@ class AgentService:
             return None
 
         query = _installment_context_query(text, history)
-        installments = _requested_installments(text)
         try:
-            if installments is not None:
-                method = getattr(self.cache, "simulate_installment_with_entry", None)
-                if not callable(method):
-                    return None
-                result = await method(query, entry_amount, installments)
-                if result.get("encontrado"):
-                    return AgentDecision(
-                        reply=format_installment_result(result),
-                        confidence="high",
-                    )
-                return None
-
             method = getattr(self.cache, "simulate_all_installments_with_entry", None)
             if not callable(method):
                 return None

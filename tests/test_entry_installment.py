@@ -97,6 +97,37 @@ async def test_agent_returns_remaining_balance_simulation(tmp_path):
     assert "18x de R$ 323,16" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_agent_returns_full_entry_comparison_table_when_quantity_is_requested(tmp_path):
+    settings = Settings(
+        google_sheets_enabled=True,
+        mercado_cache_ttl_seconds=60,
+    )
+    cache = StoreCatalogCache(
+        FakeMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=FakeSealedCache(),
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quero dar uma entrada à vista de R$ 1.000 e parcelar o restante em 12x",
+        history=[
+            {
+                "role": "assistant",
+                "content": "O iPhone 17 256 GB novo lacrado custa R$ 5.700.",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "1x de" in decision.reply
+    assert "12x de" in decision.reply
+    assert "18x de" in decision.reply
+
+
 def test_faq_allows_payment_with_multiple_cards():
     faq = FAQStore("data/faq.yaml")
 

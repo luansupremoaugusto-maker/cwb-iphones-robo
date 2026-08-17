@@ -40,6 +40,33 @@ def test_parts_buyback_detector_keeps_part_as_the_buyback_target(text):
     assert is_parts_buyback_request(text) is True
 
 
+def test_parts_buyback_detector_ignores_part_details_in_upgrade_request():
+    text = (
+        "Olá, tudo bem? 😊 Gostaria de consultar a possibilidade de fazer um upgrade para o "
+        "iPhone 17 Pro Max, 256 GB, na cor laranja-cósmico. Tenho um iPhone 16 Pro Max, "
+        "256 GB, branco, em estado impecável, sou a única dona. O aparelho está com 90% "
+        "de saúde da bateria e possui película na parte frontal, traseira e nas lentes das "
+        "câmeras. Gostaria de saber quanto vocês avaliam o meu aparelho na troca e qual seria "
+        "a diferença a pagar no upgrade. Obrigada! 😊"
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
+def test_parts_buyback_detector_ignores_complete_device_details_after_buyback_question():
+    text = (
+        "Queria saber se vcs pegam iPhone 17\n"
+        "17 com caixa 2 meses de uso\n"
+        "256gb 100% bateria\n"
+        "Impecável\n"
+        "Quanto vcs pagam?"
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
 def test_credit_limit_is_not_a_device_sale_offer():
     assert is_trade_in_request("To vendo meu limite") is False
 
@@ -163,6 +190,29 @@ async def test_abbreviated_pegm_trade_in_question_returns_evaluation_form(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_upgrade_request_with_battery_and_camera_details_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Olá, tudo bem? 😊 Gostaria de consultar a possibilidade de fazer um upgrade para o "
+        "iPhone 17 Pro Max, 256 GB, na cor laranja-cósmico. Tenho um iPhone 16 Pro Max, "
+        "256 GB, branco, em estado impecável, sou a única dona. O aparelho está com 90% "
+        "de saúde da bateria e possui película na parte frontal, traseira e nas lentes das "
+        "câmeras. Gostaria de saber quanto vocês avaliam o meu aparelho na troca e qual seria "
+        "a diferença a pagar no upgrade. Obrigada! 😊"
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_two_iphone_buyback_listing_is_not_classified_as_parts(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
@@ -176,6 +226,33 @@ async def test_two_iphone_buyback_listing_is_not_classified_as_parts(tmp_path):
         "Bom dia estou vendendo 2 iphones, vocês compram para revenda?\n"
         "15 128gb preto - sem nenhum detalhe, bateria 100% original e garantia apple até 31/11/2026 - possui caixinha\n"
         "14 128gb azul - unico detalhe é um pequeno trinco parte inferior esquerda traseira, bateria 79% - não possui caixinha"
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "Não compramos peças avulsas" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_complete_device_offer_with_photo_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Queria saber se vcs pegam iPhone 17\n"
+        "17 com caixa 2 meses de uso\n"
+        "256gb 100% bateria\n"
+        "Impecável\n"
+        "Quanto vcs pagam?"
+    )
+
+    decision = await service.respond(
+        text,
+        image_description="Foto de um iPhone 17 completo dentro da caixa.",
     )
 
     assert decision.handoff is True
