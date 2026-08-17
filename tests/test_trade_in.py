@@ -75,6 +75,12 @@ def test_credit_limit_is_not_a_device_sale_offer():
     assert is_trade_in_request("To vendo meu limite") is False
 
 
+def test_catalog_price_recall_is_not_a_device_sale_offer():
+    text = "Minha irmã estava vendo um celular contigo, não lembro o número, era 1200"
+
+    assert is_trade_in_request(text) is False
+
+
 def test_new_phone_payment_split_is_not_trade_in():
     text = (
         "Tenho interesse no iPhone 17 Pro Max. Fazer uma parte do pagamento "

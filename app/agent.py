@@ -48,6 +48,7 @@ from app.trade_in import (
     is_trade_in_context_request,
     is_photo_offer_confirmation,
     is_parts_buyback_request,
+    catalog_price_recall_amount,
     trade_in_em_andamento,
     is_purchase_without_trade_in_request,
 )
@@ -1797,6 +1798,22 @@ class AgentService:
         combined_request = " ".join(part for part in (text, image_description) if part)
         if is_parts_buyback_request(combined_request):
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
+        catalog_price_recall_decision = await self._try_catalog_price_recall(combined_request)
+        if catalog_price_recall_decision is not None:
+            return protect_customer_decision(catalog_price_recall_decision)
+        if (
+            _is_device_condition_question(combined_request)
+            and not trade_in_em_andamento(history)
+            and not is_trade_in_context_request(combined_request, history)
+        ):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CONDITION_HANDOFF_REPLY,
+                    handoff=True,
+                    handoff_reason=CONDITION_HANDOFF_REASON,
+                    confidence="high",
+                )
+            )
         if (
             not is_purchase_without_trade_in_request(combined_request)
             and is_trade_in_context_request(combined_request, history)
@@ -2310,6 +2327,52 @@ class AgentService:
                 + _format_available_products({"seminovos": seminovos, "lacrados": []})
             ),
             confidence="medium",
+        )
+
+    async def _try_catalog_price_recall(self, text: str) -> AgentDecision | None:
+        remembered_price = catalog_price_recall_amount(text)
+        if remembered_price is None:
+            return None
+
+        try:
+            candidates = await self.cache.search("iphone", limit=300)
+        except Exception:
+            return None
+
+        priced_candidates: list[tuple[float, Any]] = []
+        for item in candidates:
+            if not _is_device_item(item):
+                continue
+            if getattr(item, "source", None) == "mercado_phone" and not _is_available_item(item):
+                continue
+            try:
+                price = float(getattr(item, "price_brl", None))
+            except (TypeError, ValueError):
+                continue
+            priced_candidates.append((price, item))
+
+        if not priced_candidates:
+            return None
+
+        distance, selected = min(
+            (
+                (abs(price - remembered_price), item)
+                for price, item in priced_candidates
+            ),
+            key=lambda pair: (
+                pair[0],
+                -_catalog_score("iphone", pair[1]),
+                _normalize(str(getattr(pair[1], "name", "") or "")),
+            ),
+        )
+        if distance > max(100.0, remembered_price * 0.10):
+            return None
+
+        reference = str(getattr(selected, "external_id", "") or "")
+        return AgentDecision(
+            reply=_format_product_availability([selected]),
+            product_references=[reference] if reference else [],
+            confidence="high",
         )
 
     async def _try_product_availability(
@@ -2889,10 +2952,20 @@ class AgentService:
 
 def _is_device_condition_question(text: str | None) -> bool:
     normalized = _normalize(text)
+    if not normalized:
+        return False
+    if re.search(
+        r"\b(?:marcas?\s+de\s+uso|amassad\w*|riscos?\w*|"
+        r"arranh\w*|defeit\w*|quebrad\w*)\b",
+        normalized,
+    ):
+        return True
     return bool(
-        re.search(
-            r"\b(?:marcas?\s+de\s+uso|amassad\w*|riscos?\w*|"
-            r"arranh\w*|defeit\w*|quebrad\w*)\b",
+        re.search(r"\b(?:o\s+que|que)\s+(?:seria|e|significa)\b", normalized)
+        and re.search(r"\b(?:branc\w*|pret\w*|manch\w*|pont\w*|marc\w*|suj\w*)\b", normalized)
+        and re.search(
+            r"\b(?:perto|proxim\w*|entrada\s+(?:do|da)\s+carregador|"
+            r"conector|porta\s+(?:do|da|de)\s+carregador)\b",
             normalized,
         )
     )
