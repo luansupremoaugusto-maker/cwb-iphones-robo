@@ -127,6 +127,47 @@ _BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_CATALOG_PRICE_RECALL_CONTEXT_RE = re.compile(
+    r"\b(?:estava|tava)\s+vendo\b.{0,50}\b(?:celular|aparelho|iphone)\b"
+    r".{0,50}\b(?:contigo|com\s+(?:voces|vcs)|na\s+loja)\b",
+    re.IGNORECASE,
+)
+_CATALOG_PRICE_RECALL_AMOUNT_RE = re.compile(
+    r"\b(?:era|foi|custava|custou|estava\s+por|por)\s+(?:r\$\s*)?"
+    r"(?P<amount>(?:\d{1,3}(?:[.,]\d{3})+|\d{3,5})(?:[.,]\d{1,2})?)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_catalog_price_amount(value: str) -> float | None:
+    normalized = value.strip()
+    if "," in normalized and "." in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    elif "," in normalized:
+        integer, fraction = normalized.rsplit(",", 1)
+        normalized = normalized.replace(",", "") if len(fraction) == 3 else f"{integer}.{fraction}"
+    elif "." in normalized:
+        integer, fraction = normalized.rsplit(".", 1)
+        normalized = normalized.replace(".", "") if len(fraction) == 3 else f"{integer}.{fraction}"
+    try:
+        amount = float(normalized)
+    except ValueError:
+        return None
+    return amount if amount > 0 else None
+
+
+def catalog_price_recall_amount(text: str | None) -> float | None:
+    """Extract a remembered catalog price from an informal product reference."""
+    normalized = _normalize(text)
+    if not normalized or not _CATALOG_PRICE_RECALL_CONTEXT_RE.search(normalized):
+        return None
+    match = _CATALOG_PRICE_RECALL_AMOUNT_RE.search(normalized)
+    return _parse_catalog_price_amount(match.group("amount")) if match else None
+
+
+def is_catalog_price_recall_request(text: str | None) -> bool:
+    """Recognize a remembered store product, not an offer of the customer's device."""
+    return catalog_price_recall_amount(text) is not None
 
 
 def _has_device_reference(text: str) -> bool:
@@ -357,6 +398,8 @@ def is_trade_in_request(text: str | None) -> bool:
     normalized = _normalize(text)
     if not normalized or normalized.startswith("[foto:"):
         return False
+    if is_catalog_price_recall_request(normalized):
+        return False
 
     if re.search(
         r"\b(?:troca\w*|substitu\w*|consert\w*|repar\w*|manuten\w*|arrum\w*)\s+"
@@ -577,7 +620,7 @@ def is_trade_in_context_request(
 
 
 CONDITION_HANDOFF_REPLY = (
-    "N\u00e3o consigo confirmar marcas de uso ou amassados somente pelas fotos. "
+    "N\u00e3o consigo confirmar esse detalhe f\u00edsico somente pelas fotos. "
     "Vou encaminhar sua pergunta para um atendente verificar o estado do aparelho."
 )
 CONDITION_HANDOFF_REASON = "D\u00favida sobre marcas de uso ou estado f\u00edsico do aparelho"

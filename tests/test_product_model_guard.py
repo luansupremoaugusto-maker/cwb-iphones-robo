@@ -632,6 +632,57 @@ async def test_availability_query_with_two_models_keeps_available_second_model(t
 
 
 @pytest.mark.asyncio
+async def test_catalog_price_recall_returns_available_iphone_instead_of_evaluation_form(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-12-blue-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1210,
+            battery_health=80,
+            search_text="iphone 12 azul 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Minha irmã estava vendo um celular contigo, não lembro o número, era 1200",
+        history=[
+            {"role": "user", "content": "Boa tarde! Estão abertos?"},
+            {
+                "role": "assistant",
+                "content": "Boa tarde! Funcionamos de segunda a sexta, das 9h às 18h.",
+            },
+            {"role": "user", "content": "Beleza, obrigada!"},
+            {"role": "assistant", "content": "Por nada! 😊"},
+            {
+                "role": "assistant",
+                "content": "Bom dia, tudo bem? Teria interesse em algum produto específico?",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-12-blue-128"]
+    assert "IPHONE 12" in decision.reply.upper()
+    assert "1.210,00" in decision.reply
+    assert "lista de avaliacao" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_batched_availability_query_keeps_all_three_requested_models(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

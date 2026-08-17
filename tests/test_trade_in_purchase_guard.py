@@ -88,6 +88,29 @@ def test_condition_question_with_product_photo_keeps_generic_handoff():
     assert decision.reply == CONDITION_HANDOFF_REPLY
 
 
+def test_visual_port_question_does_not_keep_an_evaluation_form_from_the_model():
+    text = "O que seria esse branco perto da entrada do carregador?"
+    image_description = (
+        "Descrição visual da imagem recebida: há um ponto branco perto da entrada "
+        "do carregador de um aparelho Apple."
+    )
+
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        [],
+        image_description=image_description,
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == CONDITION_HANDOFF_REPLY
+    assert "lista de avaliação" not in decision.reply.lower()
+
+
 def test_trade_in_offer_with_condition_details_still_uses_evaluation_form():
     text = "Quero vender meu iPhone 13, mas ele tem marcas de uso."
 
