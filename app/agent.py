@@ -253,10 +253,16 @@ def _normalize(value: str) -> str:
 def _has_product_reference(normalized: str) -> bool:
     # A bare number is not enough to identify a product: values such as
     # "1k" (entry) and "18x" (installments) are common in the same chat.
-    # Keep numeric shorthand only when it carries a model variant.
+    # Keep numeric shorthand only when it carries a model variant or an
+    # explicit catalog condition, such as "16 novo" or "16 lacrado".
     return bool(
         re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
         or re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", normalized)
+        or re.search(
+            r"\b\d{1,2}\s+(?:novo|nova|lacrado|lacrados|encomenda|"
+            r"seminovo|seminovos|usado|usados)\b",
+            normalized,
+        )
     )
 
 
@@ -284,6 +290,7 @@ def _is_catalog_followup(text: str) -> bool:
         for marker in (
             "lacrado",
             "encomenda",
+            "novo",
             "seminovo",
             "semi novo",
             "usado",
@@ -294,6 +301,9 @@ def _is_catalog_followup(text: str) -> bool:
             "disponivel",
             "disponibilidade",
             "estoque",
+            "tem no",
+            "tem na",
+            "tem em",
             "fonte",
             "carregador",
         )
@@ -442,6 +452,15 @@ def _is_product_availability_request(text: str) -> bool:
         "valores",
         "preco",
         "precos",
+        "novo",
+        "nova",
+        "lacrado",
+        "lacrados",
+        "encomenda",
+        "seminovo",
+        "seminovos",
+        "usado",
+        "usados",
     )
     if any(re.search(rf"\b{re.escape(phrase)}\b", normalized) for phrase in availability_phrases):
         return True

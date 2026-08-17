@@ -240,6 +240,85 @@ async def test_generic_availability_followup_does_not_inherit_prior_sealed_offer
 
 
 @pytest.mark.asyncio
+async def test_bare_model_switch_does_not_reuse_previous_pro_max_context(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 4600)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-max-seminovo",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4130,
+            battery_health=83,
+            search_text="iphone 15 pro max titanio natural 256 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "16 lacrado",
+        history=[
+            {"role": "user", "content": "Qual é o valor do iPhone 15 pro Max?"},
+            {
+                "role": "assistant",
+                "content": "iPhone 15 Pro Max — Titânio Natural — 256GB — seminovo — R$ 4.130,00.",
+            },
+            {"role": "user", "content": "novo não tem?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Novo iPhone 15 Pro Max não temos disponível na lista de lacrados "
+                    "por encomenda."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-lacrado"]
+    assert "iPhone 16" in decision.reply
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "iPhone 15 Pro Max" not in decision.reply
+
+    followup_history = [
+        {"role": "user", "content": "Qual é o valor do iPhone 15 pro Max?"},
+        {
+            "role": "assistant",
+            "content": "iPhone 15 Pro Max — Titânio Natural — 256GB — seminovo — R$ 4.130,00.",
+        },
+        {"role": "user", "content": "novo não tem?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Novo iPhone 15 Pro Max não temos disponível na lista de lacrados "
+                "por encomenda."
+            ),
+        },
+        {"role": "user", "content": "16 lacrado"},
+        {"role": "assistant", "content": decision.reply},
+    ]
+    color_followup = await agent.respond("tem no branco?", history=followup_history)
+
+    assert color_followup.product_references == ["iphone-16-lacrado"]
+    assert "iPhone 16" in color_followup.reply
+    assert "iPhone 15 Pro Max" not in color_followup.reply
+
+
+@pytest.mark.asyncio
 async def test_bare_model_after_generic_intro_lists_both_conditions(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
