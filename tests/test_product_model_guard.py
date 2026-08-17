@@ -144,6 +144,151 @@ async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_model_information_request_lists_seminovo_and_sealed_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4100)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3500,
+            search_text="iphone 15 128 gb preto celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Gostaria de informações sobre o iPhone 15",
+        history=[
+            {"role": "user", "content": "Boa tarde"},
+            {"role": "assistant", "content": "Boa tarde! 😊 Como posso ajudar?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"iphone-15-seminovo", "iphone-15-lacrado"}
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "3.500,00" in decision.reply
+    assert "4.100,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_generic_availability_followup_does_not_inherit_prior_sealed_offer(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 4700)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-seminovo",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL ULTRAMARINO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3820,
+            search_text="iphone 16 128 gb azul ultramarino celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Eu vi um no Instagram por 3820\nEle está disponível?",
+        history=[
+            {"role": "user", "content": "16"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontramos o iPhone 16 novo lacrado, 128 GB, por R$ 4.700. "
+                    "Trabalhamos por encomenda, com entrega em 1 semana."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"iphone-16-seminovo", "iphone-16-lacrado"}
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "3.820,00" in decision.reply
+    assert "4.700,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_bare_model_after_generic_intro_lists_both_conditions(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 4700)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-seminovo",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL ULTRAMARINO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3820,
+            search_text="iphone 16 128 gb azul ultramarino celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "16",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Olá! 😊 Temos vários iPhones seminovos disponíveis e modelos novos "
+                    "lacrados por encomenda. Você procura algum modelo específico?"
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "3.820,00" in decision.reply
+    assert "4.700,00" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_battery_origin_followup_reuses_iphone_15_from_previous_list(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
@@ -407,6 +552,47 @@ async def test_availability_query_with_two_models_keeps_available_second_model(t
     assert "128GB" in decision.reply.upper()
 
 
+@pytest.mark.asyncio
+async def test_batched_availability_query_keeps_all_three_requested_models(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id=f"iphone-{number}-128",
+            name=f"IPHONE {number}",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2000 + number * 10,
+            source="mercado_phone",
+            search_text=f"iphone {number} preto 128gb celular seminovo",
+        )
+        for number in (13, 14, 15)
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Gostaria de saber se tem iphone 13/14 disponível\nOu o iphone 15"
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-13-128",
+        "iphone-14-128",
+        "iphone-15-128",
+    }
+    for expected in ("IPHONE 13", "IPHONE 14", "IPHONE 15"):
+        assert expected in decision.reply.upper()
+
+
 def _watch_seminovo() -> InventoryItem:
     return InventoryItem(
         external_id="watch-se2-seminovo",
@@ -581,6 +767,62 @@ async def test_two_standalone_pro_models_with_capacity_are_both_matched(tmp_path
     assert "iPhone 16 Pro" in decision.reply
     assert "iPhone 15 Pro" in decision.reply
     assert "nao localizei" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-max-256",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4130,
+            search_text="iphone 15 pro max titanio natural 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5200,
+            search_text="iphone 16 pro max preto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Teria iphone 15 pro max ou 16 pro max ?",
+        history=[
+            {"role": "user", "content": "Ola boa tarde"},
+            {"role": "assistant", "content": "Olá, boa tarde! Como posso ajudar? 😊"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-15-pro-max-256",
+        "iphone-16-pro-max-256",
+    }
+    assert "iPhone 15 Pro Max" in decision.reply
+    assert "iPhone 16 Pro Max" in decision.reply
 
 
 @pytest.mark.asyncio
