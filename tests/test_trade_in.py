@@ -25,6 +25,10 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
     assert not is_trade_in_request("Quero trocar a película do meu iPhone")
 
 
+def test_bare_model_trade_in_guard_does_not_capture_non_apple_device():
+    assert is_trade_in_request("Xiaomi 13 Pro para troca, 90% bateria, com caixa") is False
+
+
 def test_parts_buyback_detector_does_not_capture_customer_purchase_of_a_part():
     assert is_parts_buyback_request("Quero comprar uma tela para meu iPhone") is False
 
@@ -183,6 +187,68 @@ async def test_abbreviated_pegm_trade_in_question_returns_evaluation_form(tmp_pa
 
     decision = await service.respond(
         "Oii qual valor vcs pegM na troca, iPhone 13 pro max, 128gb 83% bateria?"
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_abbreviated_exchange_model_with_condition_details_returns_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Olá!\n"
+        "17 pro max, qual valor e condições de pagamento?\n"
+        "13 Pro max para troca. Comprado novo. Sem manutenção, nunca aberto, "
+        "sem defeitos, 128gb, 78% Saúde bateria, com caixa, grafite.",
+        image_description="Descrição visual da imagem recebida: iPhone 13 Pro Max seminovo",
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_batched_exchange_battery_detail_returns_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "iPhone 14\n128 Hb\nNa troca\nBonito\n78 de bateria",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Valores para pagamento no cartão de crédito pela máquina física.",
+            }
+        ],
     )
 
     assert decision.handoff is True

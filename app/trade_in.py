@@ -119,7 +119,12 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"\b(?:caixa|caixinha|mes(?:es)?\s+de\s+uso|uso|impecavel|perfeito|"
     r"estado|saude\s+(?:da\s+)?bateria)\b"
     r"|\b\d{1,3}\s*%\s*(?:de\s*)?bateria\b"
+    r"|\b\d{1,3}\s+(?:de\s+)?bateria\b"
     r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%|boa|ruim)\b",
+    re.IGNORECASE,
+)
+_BARE_IPHONE_MODEL_RE = re.compile(
+    r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
 
@@ -165,7 +170,14 @@ def _has_device_offer(text: str) -> bool:
         r"parte do pagamento|como entrada|de entrada|para troca|na troca)\b",
         text,
         flags=re.IGNORECASE,
-    ) and _has_personal_device_reference(text):
+    ) and (
+        _has_personal_device_reference(text)
+        or (
+            (_BARE_IPHONE_MODEL_RE.search(text) or _has_device_reference(text))
+            and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+            and not _NON_APPLE_RE.search(text)
+        )
+    ):
         return True
 
     if re.search(
