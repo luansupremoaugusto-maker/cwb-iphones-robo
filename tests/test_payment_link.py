@@ -143,3 +143,43 @@ async def test_online_card_followup_returns_link_installment_table_for_product(t
     assert "12x de R$ 547,96" in reply
     assert "18x" not in reply
 
+
+@pytest.mark.asyncio
+async def test_online_card_specific_quantity_returns_full_link_comparison_table(tmp_path):
+    settings = Settings(
+        mercado_cache_ttl_seconds=60,
+        faq_path="data/faq.yaml",
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="16-pro-max-512",
+            name="iPhone 16 Pro Max",
+            capacity="512 GB",
+            category="Celular",
+            price_brl=5480.0,
+            quantity=1,
+            availability="Disponivel para venda",
+            condition="seminovo",
+            battery_health=100,
+            search_text="iphone 16 pro max 512 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quero pagar pelo link o iPhone 16 Pro Max 512 GB em 6x",
+    )
+
+    reply = decision.reply
+    assert decision.handoff is False
+    assert "1x de" in reply
+    assert "6x de" in reply
+    assert "12x de" in reply
+    assert "18x" not in reply
+

@@ -5,7 +5,7 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService
+from app.agent import AgentService, _installment_context_query
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -110,6 +110,149 @@ async def test_contextual_installment_question_returns_full_table(tmp_path):
     assert "1x de" in decision.reply
     assert "18x de" in decision.reply
     assert "em quantas vezes" not in decision.reply.lower()
+
+
+def test_installment_context_prefers_explicit_current_model_over_stale_catalog_answer():
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Seminovos disponíveis:\n"
+                "- iPhone XR 64 GB - BRANCO - SEMINOVO — R$ 500,00"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Taxas do cartão na máquina física:\n"
+                "1x: 4,95%\n"
+                "2x: 5,62%\n"
+                "Qual modelo e capacidade você gostaria de simular?"
+            ),
+        },
+    ]
+
+    query = _installment_context_query("Do iPhone 12", history)
+
+    assert query == "Do iPhone 12"
+
+
+@pytest.mark.asyncio
+async def test_rate_followup_simulates_the_current_model_after_an_xr_catalog_answer(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-xr-64",
+            name="iPhone XR",
+            category="Celular Apple",
+            capacity="64 GB",
+            condition="SEMINOVO",
+            availability="Disponível",
+            quantity=1,
+            price_brl=500.0,
+            search_text="iphone xr 64 gb branco seminovo celular apple",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128",
+            name="iPhone 12",
+            category="Celular Apple",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponível",
+            quantity=1,
+            price_brl=2200.0,
+            search_text="iphone 12 128 gb seminovo celular apple",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Do iPhone 12",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Seminovos disponíveis:\n"
+                    "- iPhone XR 64 GB - BRANCO - SEMINOVO — R$ 500,00"
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Taxas do cartão na máquina física:\n"
+                    "1x: 4,95%\n"
+                    "2x: 5,62%\n"
+                    "Qual modelo e capacidade você gostaria de simular?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 12 128 GB" in decision.reply
+    assert "Preço à vista: R$ 2.200,00" in decision.reply
+    assert "Parcelamento do iPhone XR" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_specific_installment_request_returns_full_comparison_table(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60, faq_path="data/faq.yaml")
+    cache = StoreCatalogCache(
+        FakeMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-max-256-green",
+            name="iPhone 13 Pro Max",
+            capacity="256 GB",
+            color="Verde Alpino",
+            category="Celular",
+            condition="seminovo",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3160.0,
+            battery_health=90,
+            search_text=(
+                "iphone 13 pro max 256 gb verde alpino celular seminovo "
+                "bateria 90"
+            ),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quanto fica em 5 ou 6 X",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "O iPhone 13 Pro Max 512 GB Grafite do anúncio não está disponível. "
+                    "Temos esta opção: iPhone 13 Pro Max 256 GB Verde Alpino — "
+                    "seminovo, bateria 90%, R$ 3.160."
+                ),
+            },
+            {"role": "user", "content": "só tem verde?"},
+            {"role": "user", "content": "Tem outras opções?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "No momento, para o iPhone 13 Pro Max, temos apenas esta opção "
+                    "disponível: iPhone 13 Pro Max 256 GB Verde Alpino — seminovo, "
+                    "bateria 90%, R$ 3.160."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "1x de" in decision.reply
+    assert "5x de" in decision.reply
+    assert "6x de" in decision.reply
+    assert "18x de" in decision.reply
 
 
 @pytest.mark.asyncio

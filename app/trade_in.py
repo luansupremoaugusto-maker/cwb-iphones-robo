@@ -115,6 +115,13 @@ _BUYBACK_VERB_RE = re.compile(
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
+_COMPLETE_DEVICE_DETAIL_RE = re.compile(
+    r"\b(?:caixa|caixinha|mes(?:es)?\s+de\s+uso|uso|impecavel|perfeito|"
+    r"estado|saude\s+(?:da\s+)?bateria)\b"
+    r"|\b\d{1,3}\s*%\s*(?:de\s*)?bateria\b"
+    r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%|boa|ruim)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_device_reference(text: str) -> bool:
@@ -235,6 +242,23 @@ def _is_store_buyback_question(text: str) -> bool:
 
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
+    if _has_complete_device_reference(text) and _BUYBACK_VERB_RE.search(text):
+        return True
+
+    # A customer may identify the complete device directly after the buyback
+    # verb ("vocês pegam iPhone 17") and send its condition in later
+    # fragments. In that case, terms such as "bateria" are specifications,
+    # not a request to sell a loose battery.
+    for verb_match in _BUYBACK_VERB_RE.finditer(text):
+        window = text[verb_match.end() : verb_match.end() + 55]
+        device_match = _APPLE_PRODUCT_RE.search(window)
+        if not device_match:
+            continue
+        if _PARTS_RE.search(window[: device_match.start()]):
+            continue
+        if _COMPLETE_DEVICE_DETAIL_RE.search(text[verb_match.end() :]):
+            return True
+
     for verb_match in _BUYBACK_VERB_RE.finditer(text):
         window = text[verb_match.end() : verb_match.end() + 60]
         part_match = _PARTS_RE.search(window)
@@ -266,6 +290,26 @@ def _has_complete_device_listing(text: str) -> bool:
         re.search(r"\b\d{1,2}\s+\d+(?:[.,]\d+)?\s*(?:gb|tb)\b", text)
     )
     return has_sale_language and has_model_capacity and _has_device_reference(text)
+
+
+_COMPLETE_DEVICE_REFERENCE_RE = re.compile(
+    r"\b(?:"
+    r"(?:tenho|possuo|estou com|to com)\s+(?:um|uma)?\s*"
+    r"|(?:meu|minha|meus|minhas)\s+"
+    r")(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|"
+    r"aparelho|smartphone|telefone)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_complete_device_reference(text: str) -> bool:
+    """Recognize an owned complete device, not a part followed by its model."""
+    for match in _COMPLETE_DEVICE_REFERENCE_RE.finditer(text):
+        prefix = text[max(0, match.start() - 35) : match.start()]
+        if re.search(_PARTS_RE.pattern + r"\s+(?:de|do|da)\s*$", prefix):
+            continue
+        return True
+    return False
 
 
 def is_parts_buyback_request(text: str | None) -> bool:

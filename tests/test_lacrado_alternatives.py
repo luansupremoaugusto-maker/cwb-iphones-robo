@@ -105,6 +105,44 @@ async def test_missing_lacrado_followup_offers_catalog_alternatives_without_hand
 
 
 @pytest.mark.asyncio
+async def test_battery_followup_for_unavailable_model_reports_stock_and_alternatives(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        _seminovo_item("iphone-15-rosa", "iPhone 15", "128 GB", 2920),
+        _seminovo_item("iphone-16e-rosa", "iPhone 16e", "128 GB", 2660),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Esse 15 plus, está quanto de bateria?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "• iPhone 15 128gb: R$ 2.920,00 (18x de R$ 200,77)\n"
+                    "• iPhone 15 Plus 128gb: R$ 2.830,00 (18x de R$ 194,58)\n"
+                    "Qual você prefere?"
+                ),
+            }
+        ],
+    )
+
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert "vou confirmar" not in normalized
+    assert "nao localizei" in normalized
+    assert "iphone 15 plus" in normalized
+    assert "iphone 16 e" in normalized
+
+
+@pytest.mark.asyncio
 async def test_missing_explicit_lacrado_offers_other_catalog_models_without_handoff(tmp_path):
     agent = build_agent(tmp_path)
 
