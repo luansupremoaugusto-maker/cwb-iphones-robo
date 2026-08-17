@@ -451,6 +451,7 @@ def _is_product_availability_request(text: str) -> bool:
         phrase in normalized
         for phrase in (
             "gostaria de ver",
+            "gostaria de informacoes sobre",
             "quero ver",
             "quero comprar",
             "preciso de",
@@ -550,6 +551,47 @@ def _is_physical_store_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def _is_delivery_or_pickup_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or _has_sealed_reference(normalized):
+        return False
+    has_delivery = bool(re.search(r"\b(?:entrega|entregam|entregas)\b", normalized))
+    has_pickup = bool(
+        re.search(r"\bretirad\w*\b", normalized)
+        or "retirar na loja" in normalized
+        or "buscar na loja" in normalized
+        or "pegar na loja" in normalized
+    )
+    return has_delivery or has_pickup
+
+
+def _is_explicit_human_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        re.search(r"\b(?:atendente|humano|pessoa|reclamacao)\b", normalized)
+        or "quero falar com" in normalized
+        or "falar com um atendente" in normalized
+    )
+
+
+def _delivery_or_pickup_reply(faq: FAQStore, text: str) -> str:
+    normalized = _normalize(text)
+    replies: list[str] = []
+    if re.search(r"\b(?:entrega|entregam|entregas)\b", normalized):
+        replies.append(
+            faq.get("entrega")
+            or "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
+        )
+    if re.search(r"\bretirad\w*\b", normalized) or any(
+        phrase in normalized for phrase in ("buscar na loja", "pegar na loja")
+    ):
+        replies.append(
+            faq.get("retirada")
+            or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
+        )
+    return "\n\n".join(reply for reply in replies if reply)
+
+
 def _is_current_date_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -630,7 +672,15 @@ def _is_visit_request(text: str) -> bool:
         "comparecer hoje",
     )
     return any(phrase in normalized for phrase in phrases) or bool(
-        re.search(r"\b(?:posso|consigo|gostaria de)\s+(?:ir|visitar|passar|comparecer)\b", normalized)
+        re.search(
+            r"\b(?:posso|consigo|da para|da pra|gostaria de)\s+"
+            r"(?:ir|visitar|passar|comparecer)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:posso|consigo)\s+(?:te\s+)?entreg\w*\b.{0,60}\bhoje\b",
+            normalized,
+        )
     )
 
 
@@ -696,6 +746,14 @@ def _has_appointment_prompt(history: list[dict[str, str]] | None) -> bool:
     )
 
 
+def _has_today_visit_offer(history: list[dict[str, str]] | None) -> bool:
+    return any(
+        entry.get("role") == "assistant"
+        and "visita para hoje" in _normalize(entry.get("content", ""))
+        for entry in (history or [])
+    )
+
+
 def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) -> bool:
     """Use appointment history only when the current message looks like a reply to it."""
     if not _has_appointment_prompt(history):
@@ -719,7 +777,9 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
     if _has_visit_date_reference(text) or _has_visit_time_reference(text):
         return True
 
-    return normalized in {
+    short_reply = re.sub(r"[^\w\s]", " ", normalized, flags=re.UNICODE)
+    short_reply = re.sub(r"\s+", " ", short_reply).strip()
+    return short_reply in {
         "sim",
         "pode",
         "pode ser",
@@ -729,6 +789,7 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
         "esse horario",
         "esse horario serve",
         "esse horario esta bom",
+        "agora tem como",
     }
 
 
@@ -1233,13 +1294,31 @@ def _is_rate_model_followup(text: str, history: list[dict[str, str]] | None) -> 
     return _has_installment_product_context(text)
 
 
-def _installment_context_query(text: str, history: list[dict[str, str]] | None) -> str:
+def _strip_catalog_history_constraints(value: str) -> str:
+    cleaned = re.sub(
+        r"\b(?:lacrados?|encomendas?|seminovos?|usados?|entregas?|pagamentos?|"
+        r"parcel\w*|taxas?|juros|garantia|reserv\w*|endereco|horario|nota\s+fiscal)\b",
+        " ",
+        _normalize(value),
+    )
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _installment_context_query(
+    text: str,
+    history: list[dict[str, str]] | None,
+    *,
+    strip_assistant_constraints: bool = False,
+) -> str:
     current = text.strip()
     for item in reversed(history or []):
         if item.get("role") == "assistant" and any(
             marker in _normalize(item.get("content", "")) for marker in ("iphone", "ipad", "produto")
         ):
-            return f"{item.get('content', '')}\n{current}".strip()
+            assistant_context = item.get("content", "")
+            if strip_assistant_constraints:
+                assistant_context = _strip_catalog_history_constraints(assistant_context)
+            return f"{assistant_context}\n{current}".strip()
     previous_user_text = [
         item.get("content", "").strip()
         for item in (history or [])
@@ -1248,8 +1327,13 @@ def _installment_context_query(text: str, history: list[dict[str, str]] | None) 
     return "\n".join([*previous_user_text[-4:], current]).strip()
 
 
-def _product_context_query(text: str, history: list[dict[str, str]] | None) -> str:
-    """Preserva a referência explícita do produto atual ao procurar fotos."""
+def _product_context_query(
+    text: str,
+    history: list[dict[str, str]] | None,
+    *,
+    strip_assistant_constraints: bool = False,
+) -> str:
+    """Preserva a referência do produto atual ao consultar o histórico."""
     current = text.strip()
     normalized = _normalize(current)
     if _has_product_reference(normalized):
@@ -1292,6 +1376,8 @@ def _product_context_query(text: str, history: list[dict[str, str]] | None) -> s
                     " ",
                     _normalize(content),
                 ).strip()
+                if strip_assistant_constraints:
+                    context_content = _strip_catalog_history_constraints(context_content)
                 if context_content and context_content not in parts:
                     parts.append(context_content)
                 break
@@ -1725,6 +1811,10 @@ class AgentService:
         if payment_methods_decision is not None:
             return protect_customer_decision(payment_methods_decision)
 
+        delivery_pickup_decision = self._try_delivery_or_pickup(text)
+        if delivery_pickup_decision is not None:
+            return protect_customer_decision(delivery_pickup_decision)
+
         if _is_handoff_confirmation(text, history):
             return protect_customer_decision(
                 AgentDecision(
@@ -1896,18 +1986,27 @@ class AgentService:
                         "Segue a simula\u00e7\u00e3o do parcelamento pelo link (at\u00e9 12x):"
                     )
                     return AgentDecision(
-                        reply=f"{intro}\n\n{formatter(result)}",
+                        reply=self._append_delivery_or_pickup_info(
+                            f"{intro}\n\n{formatter(result)}",
+                            text,
+                        ),
                         confidence="high",
                     )
         if _is_payment_link_rate_request(text):
             rates = self.faq.get("taxas_link_pagamento")
             if rates:
                 return AgentDecision(
-                    reply=f"{PAYMENT_LINK_REPLY}\n\n{rates}",
+                    reply=self._append_delivery_or_pickup_info(
+                        f"{PAYMENT_LINK_REPLY}\n\n{rates}",
+                        text,
+                    ),
                     confidence="high",
                 )
         reply = self.faq.get("link_pagamento") or PAYMENT_LINK_REPLY
-        return AgentDecision(reply=reply, confidence="high")
+        return AgentDecision(
+            reply=self._append_delivery_or_pickup_info(reply, text),
+            confidence="high",
+        )
 
     def _try_payment_methods(self, text: str) -> AgentDecision | None:
         if not _is_payment_methods_question(text):
@@ -1920,6 +2019,29 @@ class AgentService:
                 "Sim 😊 Você pode usar dois cartões de crédito na mesma compra e completar o valor "
                 f"com PIX, dinheiro ou cartão de débito. {reply}"
             )
+        return AgentDecision(
+            reply=self._append_delivery_or_pickup_info(reply, text),
+            confidence="high",
+        )
+
+    def _append_delivery_or_pickup_info(self, reply: str, text: str) -> str:
+        if not _is_delivery_or_pickup_request(text):
+            return reply
+        information = _delivery_or_pickup_reply(self.faq, text)
+        if not information:
+            return reply
+        return f"{reply}\n\n{information}"
+
+    def _try_delivery_or_pickup(self, text: str) -> AgentDecision | None:
+        if (
+            not _is_delivery_or_pickup_request(text)
+            or _is_explicit_human_request(text)
+            or _is_physical_store_request(text)
+        ):
+            return None
+        reply = _delivery_or_pickup_reply(self.faq, text)
+        if not reply:
+            return None
         return AgentDecision(reply=reply, confidence="high")
 
     async def _try_available_products(self, text: str) -> AgentDecision | None:
@@ -2171,7 +2293,11 @@ class AgentService:
                 or _is_catalog_availability_confirmation(current_query, history)
             )
         ):
-            query = _product_context_query(current_query, history)
+            query = _product_context_query(
+                current_query,
+                history,
+                strip_assistant_constraints=True,
+            )
         if not _is_product_availability_request(query):
             return None
 
@@ -2210,6 +2336,7 @@ class AgentService:
             public_candidates = within_budget
 
         requested_capacities = _requested_capacity_keys(query)
+        requested_models = _requested_iphone_model_keys(query)
         if requested_capacities:
             public_candidates = [
                 item
@@ -2315,6 +2442,20 @@ class AgentService:
                     selected_by_condition.extend(best_matches(grouped[condition]))
                 return selected_by_condition or best_matches(scored_items)
 
+            def select_requested_model_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
+                if len(requested_models) <= 1:
+                    return select_best_matches(scored_items)
+
+                selected_by_model: list[Any] = []
+                for requested_model in requested_models:
+                    model_matches = [
+                        (score, item)
+                        for score, item in scored_items
+                        if _model_key(getattr(item, "name", "")) == requested_model
+                    ]
+                    selected_by_model.extend(select_best_matches(model_matches))
+                return selected_by_model
+
             if len(requested_capacities) > 1:
                 selected = []
                 for capacity in requested_capacities:
@@ -2326,9 +2467,9 @@ class AgentService:
                     ]
                     if not capacity_matches:
                         continue
-                    selected.extend(select_best_matches(capacity_matches))
+                    selected.extend(select_requested_model_matches(capacity_matches))
             else:
-                selected = select_best_matches(scored)
+                selected = select_requested_model_matches(scored)
 
         reply = _format_product_availability(selected)
         if requested_quantity is not None:
@@ -2377,6 +2518,13 @@ class AgentService:
             return AgentDecision(reply=reply, confidence="high")
 
         context = _appointment_context(text, history)
+        if (
+            is_followup
+            and _has_visit_time_reference(context)
+            and not _has_visit_date_reference(context)
+            and _has_today_visit_offer(history)
+        ):
+            context = f"hoje\n{context}"
         if _has_visit_date_reference(context) and _has_visit_time_reference(context):
             address = self.faq.get("address") or (
                 "Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060"
@@ -2684,7 +2832,11 @@ class AgentService:
                 handoff_reason="Pedido explícito de atendimento humano",
                 confidence="high",
             )
-        query = _installment_context_query(combined, history)
+        query = _installment_context_query(
+            combined,
+            history,
+            strip_assistant_constraints=True,
+        )
         items = await self.cache.search(query, limit=3) if query else []
         if not items:
             return AgentDecision(

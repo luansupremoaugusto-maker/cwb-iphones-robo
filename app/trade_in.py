@@ -111,7 +111,7 @@ _PARTS_RE = re.compile(
     re.IGNORECASE,
 )
 _BUYBACK_VERB_RE = re.compile(
-    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos)|aceit(?:a|am|amos)|"
+    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
@@ -179,7 +179,7 @@ def _has_device_offer(text: str) -> bool:
         return True
 
     if re.search(
-        r"\b(?:aceita|aceitam|pega|pegam|recebe|recebem|avalia|avaliam)\b"
+        r"\b(?:aceita|aceitam|pega|pegam|pegm|recebe|recebem|avalia|avaliam)\b"
         r".{0,40}\b(?:meu|minha|meus|minhas|celular|iphone|aparelho|"
         r"usado|seminovo|ele|ela)\b",
         text,
@@ -217,12 +217,12 @@ def _is_store_buyback_question(text: str) -> bool:
 
     store_subject = re.search(
         r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
-        r"(?:compram|compra|pegam|aceitam|recebem|avaliam)\b",
+        r"(?:compram|compra|pegam|pegm|aceitam|recebem|avaliam)\b",
         text,
         flags=re.IGNORECASE,
     )
     verb_first = re.search(
-        r"\b(?:compram|compra|pegam|aceitam|recebem|avaliam)\b.{0,45}\b"
+        r"\b(?:compram|compra|pegam|pegm|aceitam|recebem|avaliam)\b.{0,45}\b"
         r"(?:algum|alguma|produto|iphone|ipad|macbook|apple\s+watch|"
         r"airpods?|celular|aparelho|usado|seminovo)\b",
         text,
@@ -233,10 +233,47 @@ def _is_store_buyback_question(text: str) -> bool:
     )
 
 
+def _has_complete_device_buyback_context(text: str) -> bool:
+    """Return True when a part term describes a complete device offer."""
+    for verb_match in _BUYBACK_VERB_RE.finditer(text):
+        window = text[verb_match.end() : verb_match.end() + 60]
+        part_match = _PARTS_RE.search(window)
+        if (
+            part_match
+            and part_match.start() <= 45
+            and _DEVICE_RE.search(window[: part_match.start()])
+        ):
+            return True
+
+    for part_match in _PARTS_RE.finditer(text):
+        prefix = text[max(0, part_match.start() - 45) : part_match.start()]
+        suffix = text[part_match.end() : part_match.end() + 60]
+        verb_match = _BUYBACK_VERB_RE.search(suffix)
+        if (
+            _DEVICE_RE.search(prefix)
+            and verb_match
+            and verb_match.start() <= 45
+        ):
+            return True
+
+    return False
+
+
+def _has_complete_device_listing(text: str) -> bool:
+    """Recognize a customer's list of complete devices offered for resale."""
+    has_sale_language = bool(re.search(r"\b(?:vend(?:endo|er|o|a)|revenda)\b", text))
+    has_model_capacity = bool(
+        re.search(r"\b\d{1,2}\s+\d+(?:[.,]\d+)?\s*(?:gb|tb)\b", text)
+    )
+    return has_sale_language and has_model_capacity and _has_device_reference(text)
+
+
 def is_parts_buyback_request(text: str | None) -> bool:
     """Recognize a question about the shop buying repair parts."""
     normalized = _normalize(text)
     if not normalized or not _PARTS_RE.search(normalized):
+        return False
+    if _has_complete_device_buyback_context(normalized) or _has_complete_device_listing(normalized):
         return False
     store_subject = re.search(
         r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}"

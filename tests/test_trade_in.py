@@ -29,6 +29,17 @@ def test_parts_buyback_detector_does_not_capture_customer_purchase_of_a_part():
     assert is_parts_buyback_request("Quero comprar uma tela para meu iPhone") is False
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Vocês compram peças de iPhone?",
+        "A loja compra tela de iPhone?",
+    ],
+)
+def test_parts_buyback_detector_keeps_part_as_the_buyback_target(text):
+    assert is_parts_buyback_request(text) is True
+
+
 def test_credit_limit_is_not_a_device_sale_offer():
     assert is_trade_in_request("To vendo meu limite") is False
 
@@ -131,6 +142,45 @@ async def test_trade_in_response_is_form_and_handoff(tmp_path):
     assert decision.reply == TRADE_IN_FORM
     assert "Qual modelo de iPhone?" in decision.reply
     assert "Saúde da bateria" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_abbreviated_pegm_trade_in_question_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Oii qual valor vcs pegM na troca, iPhone 13 pro max, 128gb 83% bateria?"
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_two_iphone_buyback_listing_is_not_classified_as_parts(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Bom dia estou vendendo 2 iphones, vocês compram para revenda?\n"
+        "15 128gb preto - sem nenhum detalhe, bateria 100% original e garantia apple até 31/11/2026 - possui caixinha\n"
+        "14 128gb azul - unico detalhe é um pequeno trinco parte inferior esquerda traseira, bateria 79% - não possui caixinha"
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "Não compramos peças avulsas" not in decision.reply
 
 
 @pytest.mark.asyncio
@@ -238,6 +288,28 @@ async def test_owned_iphone_for_sale_returns_evaluation_form(tmp_path):
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_FORM
     assert "Qual modelo de iPhone?" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_trade_in_offer_with_screen_condition_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Bom dia, tudo bem? Eu gostaria de saber se vocês tem: "
+        "Iphone 14 ou 15 PRO; Saúde da bateria + de 95%. "
+        "E também gostaria de saber se vocês aceitam iphone na volta: "
+        "Iphone 11, 128gb, Saúde da bateria 68%, Cor preta. "
+        "Obs: tela com pequenos riscos, e parte de trás com um leve trincado."
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
 
 
 @pytest.mark.asyncio
