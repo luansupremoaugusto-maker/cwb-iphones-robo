@@ -1586,6 +1586,35 @@ def _has_photo_request_in_history(history: list[dict[str, str]] | None) -> bool:
     )
 
 
+def _is_photo_context_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Keep a previous photo request active while the customer clarifies it."""
+    if not _has_photo_request_in_history(history):
+        return False
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    if normalized in {
+        "usado",
+        "usada",
+        "seminovo",
+        "seminova",
+        "semi novo",
+        "semi nova",
+    }:
+        return True
+    if _requested_capacity_keys(text):
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:eu\s+)?vi\s+que\s+(?:voce|voces|vc)\s+tem",
+            normalized,
+        )
+    )
+
+
 def _public_item(item: Any) -> dict[str, Any]:
     return {
         "nome": item.name,
@@ -2868,7 +2897,11 @@ class AgentService:
         *,
         image_description: str | None = None,
     ) -> AgentDecision | None:
-        if not _is_photo_request(text) and not _is_standalone_photo_followup(text, history):
+        if (
+            not _is_photo_request(text)
+            and not _is_standalone_photo_followup(text, history)
+            and not _is_photo_context_followup(text, history)
+        ):
             return None
         if _is_photo_retry_request(text) and not _has_photo_request_in_history(history):
             return None
@@ -2887,13 +2920,71 @@ class AgentService:
             is_sealed = _is_sealed_item(item)
             return is_sealed if requested_condition == "sealed" else not is_sealed
 
+        def exact_candidates(items: list[Any]) -> list[Any]:
+            requested_capacities = _requested_capacity_keys(query)
+            candidates: list[Any] = []
+            seen: set[str] = set()
+            for item in items:
+                external_id = str(getattr(item, "external_id", "") or "")
+                if external_id in seen:
+                    continue
+                if not _is_device_item(item):
+                    continue
+                if (
+                    getattr(item, "source", None) == "mercado_phone"
+                    and not _is_available_item(item)
+                ):
+                    continue
+                if not condition_matches(item) or not _matches_requested_model(query, item):
+                    continue
+                if requested_capacities and _capacity_key(
+                    getattr(item, "capacity", None) or getattr(item, "name", "")
+                ) not in requested_capacities:
+                    continue
+                seen.add(external_id)
+                candidates.append(item)
+
+            scored = [(_catalog_score(query, item), item) for item in candidates]
+            positive = [(score, item) for score, item in scored if score > 0]
+            if not positive:
+                return []
+            best_score = max(score for score, _item in positive)
+            return [item for score, item in positive if score == best_score]
+
+        def ambiguous_reply(items: list[Any]) -> AgentDecision:
+            first = items[0]
+            model = str(getattr(first, "name", "esse aparelho") or "esse aparelho").strip()
+            condition = "novo lacrado" if _is_sealed_item(first) else "seminovo"
+            lines: list[str] = []
+            for item in items:
+                capacity = str(getattr(item, "capacity", None) or "capacidade não informada").strip()
+                color = str(
+                    getattr(item, "color", None)
+                    or getattr(item, "colors", None)
+                    or "cor não informada"
+                ).strip()
+                photo_status = (
+                    "fotos cadastradas"
+                    if getattr(item, "photo_urls", [])
+                    else "fotos a confirmar"
+                )
+                lines.append(f"• {capacity} — {color} — {photo_status}")
+            return AgentDecision(
+                reply=(
+                    f"Encontrei o {model} {condition} em mais de uma opção:\n"
+                    + "\n".join(lines)
+                    + "\nQual capacidade você quer que eu envie nas fotos?"
+                ),
+                confidence="high",
+            )
+
         if callable(finder):
             try:
                 selected = await finder(query)
             except Exception:
                 return None
             if selected is None:
-                fallback = []
+                fallback: list[Any] = []
                 sealed_cache = getattr(self.cache, "sealed_cache", None)
                 if sealed_cache is not None:
                     try:
@@ -2902,21 +2993,26 @@ class AgentService:
                             await ensure_fresh()
                         search_sealed = getattr(sealed_cache, "search", None)
                         if callable(search_sealed):
-                            fallback = await search_sealed(query, limit=5)
+                            fallback.extend(await search_sealed(query, limit=5))
                         else:
-                            fallback = list(getattr(sealed_cache, "items", []))[:5]
+                            fallback.extend(list(getattr(sealed_cache, "items", []))[:5])
                     except Exception:
-                        fallback = []
-                if not fallback:
-                    try:
-                        fallback = await self.cache.search(query, limit=5)
-                    except Exception:
-                        fallback = []
-                fallback = [item for item in fallback if condition_matches(item)]
-                if fallback and _is_sealed_item(fallback[0]):
-                    return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
-                return None
-            items = [selected]
+                        pass
+                try:
+                    fallback.extend(await self.cache.search(query, limit=5))
+                except Exception:
+                    pass
+                items = exact_candidates(fallback)
+                if requested_condition is None:
+                    used_items = [item for item in items if not _is_sealed_item(item)]
+                    if used_items:
+                        items = used_items
+                if not items:
+                    if requested_condition == "sealed":
+                        return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
+                    return None
+            else:
+                items = [selected]
         else:
             try:
                 items = await self.cache.search(query, limit=5)
@@ -2924,6 +3020,8 @@ class AgentService:
                 return None
         items = [item for item in items if condition_matches(item)]
         if items:
+            if len(items) > 1:
+                return ambiguous_reply(items)
             selected = items[0]
             if _is_made_to_order_sealed_item(selected):
                 return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
