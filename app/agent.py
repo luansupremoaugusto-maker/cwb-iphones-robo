@@ -61,6 +61,11 @@ TECHNICAL_ASSISTANCE_REPLY = (
     "valores e disponibilidade."
 )
 TECHNICAL_ASSISTANCE_REASON = "Solicitação de assistência técnica ou reparo"
+CATALOG_BUYER_DETAILS_REPLY = (
+    "Vou encaminhar suas dúvidas sobre esse aparelho para um atendente confirmar "
+    "essas informações com você."
+)
+CATALOG_BUYER_DETAILS_REASON = "Dúvidas sobre detalhes de um aparelho disponível"
 WEEKDAY_LABELS = (
     "segunda-feira",
     "terça-feira",
@@ -607,10 +612,14 @@ def _is_physical_store_request(text: str) -> bool:
         "qual o endereco",
         "endereco da loja",
         "endereco do escritorio",
+        "de onde e a loja",
+        "de onde fica a loja",
         "posso ir na loja",
         "posso visitar a loja",
     )
-    return any(phrase in normalized for phrase in phrases)
+    return any(phrase in normalized for phrase in phrases) or bool(
+        re.search(r"\bde\s+onde\s+(?:e|fica)\s+(?:a\s+)?loja\b", normalized)
+    )
 
 
 def _is_delivery_or_pickup_request(text: str) -> bool:
@@ -998,6 +1007,36 @@ def _is_technical_assistance_request(text: str) -> bool:
         or re.search(rf"\b{repair_action}\b.{{0,35}}\b{device}\b", normalized)
         or re.search(rf"\b{device}\b.{{0,35}}\b{repair_action}\b", normalized)
     )
+
+
+def _is_catalog_buyer_details_question(text: str | None) -> bool:
+    """Recognize a buyer checking the condition of an advertised device."""
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    buyer_context = re.search(
+        r"\b(?:interesse\s+em\s+compr\w*|antes\s+de\s+fechar|"
+        r"(?:quero|vou|pretendo|gostaria\s+de)\s+compr\w*)\b",
+        normalized,
+    )
+    if not buyer_context:
+        return False
+
+    detail_groups = (
+        re.search(r"\b(?:bateria|tela|display|vidro|pecas?)\b", normalized),
+        re.search(
+            r"\b(?:face\s+id|c[aâ]meras?|alto\s+falante|microfone|"
+            r"carregamento|botoes?|funcion\w*)\b",
+            normalized,
+        ),
+        re.search(
+            r"\b(?:ja\s+foi|trocad\w*|substituid\w*|problema\w*|manuten\w*)\b",
+            normalized,
+        ),
+        re.search(r"\b(?:bloqueio|icloud|restric\w*)\b", normalized),
+    )
+    return sum(bool(group) for group in detail_groups) >= 2
 
 
 def _has_sealed_reference(normalized: str) -> bool:
@@ -1520,7 +1559,7 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
     """Turn follow-ups such as "a bateria do 15" into an explicit model."""
     pattern = re.compile(
         r"\b(?:do|da|dos|das|de|no|na|o|a|esse|essa|este|esta)\s+"
-        r"(?P<number>\d{1,2})"
+        r"(?:iphone\s*)?(?P<number>\d{1,2})"
         r"(?P<variant>\s*(?:e|pro\s+max|pro|max|plus|mini|air))?\b",
         flags=re.IGNORECASE,
     )
@@ -1932,6 +1971,19 @@ class AgentService:
         catalog_price_recall_decision = await self._try_catalog_price_recall(combined_request)
         if catalog_price_recall_decision is not None:
             return protect_customer_decision(catalog_price_recall_decision)
+        if (
+            _is_catalog_buyer_details_question(combined_request)
+            and not trade_in_em_andamento(history)
+            and not is_trade_in_context_request(combined_request, history)
+        ):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CATALOG_BUYER_DETAILS_REPLY,
+                    handoff=True,
+                    handoff_reason=CATALOG_BUYER_DETAILS_REASON,
+                    confidence="high",
+                )
+            )
         if (
             _is_device_condition_question(combined_request)
             and not trade_in_em_andamento(history)
@@ -3010,7 +3062,20 @@ class AgentService:
                 if not items:
                     if requested_condition == "sealed":
                         return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
-                    return None
+                    alternative = await self._try_unavailable_seminew_alternative(
+                        query,
+                        requested_label=_extract_bare_catalog_model_reference(text),
+                    )
+                    if alternative is not None:
+                        return alternative
+                    requested_label = _extract_bare_catalog_model_reference(text) or "esse produto"
+                    return AgentDecision(
+                        reply=(
+                            f"No momento, não localizei o {requested_label} disponível no estoque. "
+                            "Posso verificar outro modelo ou capacidade?"
+                        ),
+                        confidence="medium",
+                    )
             else:
                 items = [selected]
         else:

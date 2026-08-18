@@ -159,3 +159,25 @@ async def test_capacity_followup_sends_the_selected_used_phone_photos(tmp_path):
     assert decision.image_urls == ["https://photos.example/15-pro-max-256.jpg"]
     assert decision.product_references == ["9445935"]
     assert "15 pro max" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_photo_request_for_unavailable_model_continues_with_stock_alternatives(tmp_path):
+    agent = _build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Tem foto do iPhone 13",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Seminovos disponíveis para venda: IPHONE 12, IPHONE XR.",
+            },
+        ],
+    )
+
+    reply = decision.reply.lower()
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert "não localizei o iphone 13 disponível no estoque" in reply
+    assert "15 pro max" in reply
+    assert "atendente" not in reply
