@@ -73,6 +73,60 @@ async def test_battery_health_question_is_not_treated_as_repair(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_catalog_buyer_condition_questions_are_forwarded_as_product_questions(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Oi! Tenho interesse em comprar esse celular. Antes de fechar, queria confirmar "
+        "algumas coisas, por favor. A bateria é original? A tela ou alguma outra peça já "
+        "foi trocada? Se sim, quais peças? O Face ID, câmeras, alto-falante, microfone, "
+        "carregamento e todos os botões estão funcionando normalmente? O celular já teve "
+        "algum problema ou passou por manutenção? E ele está sem bloqueio de iCloud e sem "
+        "nenhuma restrição? Se puder me mandar fotos dessas informações do aparelho, eu "
+        "agradeço!",
+        history=[
+            {"role": "user", "content": "Esse mesmo"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Perfeito 😊 O iPhone 15 Pro 128GB, titânio azul, seminovo, com 93% "
+                    "de bateria, está disponível por R$ 3.460,00. Deseja saber sobre "
+                    "parcelamento ou agendar uma visita?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
+    assert "dúvida" in decision.reply.lower()
+    assert "assistência técnica" not in decision.reply.lower()
+    assert "não compramos peças" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_single_catalog_battery_question_keeps_battery_detail_flow(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Tenho interesse em comprar esse celular. A bateria é original?")
+
+    assert decision.handoff is False
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_visual_port_question_with_photo_is_forwarded_without_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = InventoryCache(

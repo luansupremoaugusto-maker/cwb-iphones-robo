@@ -71,3 +71,14 @@ async def test_address_question_includes_appointment_notice(tmp_path, monkeypatc
     assert "horário marcado" in decision.reply
     assert "reserva" not in decision.reply.lower()
 
+
+@pytest.mark.asyncio
+async def test_informal_store_origin_question_returns_address_without_catalog_list(tmp_path, monkeypatch):
+    freeze_weekday(monkeypatch)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("De onde é a loja de vcs?")
+
+    assert decision.handoff is False
+    assert "Avenida Nossa Senhora da Luz, 1341" in decision.reply
+    assert "lista completa" not in decision.reply.lower()
