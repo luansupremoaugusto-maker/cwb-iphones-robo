@@ -200,6 +200,53 @@ async def test_visit_followup_now_reports_closed_on_saturday(tmp_path, monkeypat
     assert "visita para hoje" not in decision.reply.lower()
 
 
+@pytest.mark.asyncio
+async def test_visit_followup_with_tomorrow_uses_tomorrow_instead_of_repeating_today(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 8, 18, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    initial = await agent.respond("Hoje não consigo ir até aí")
+
+    decision = await agent.respond(
+        "Vou deixar para ir amanhã!",
+        history=[
+            {"role": "user", "content": "Hoje não consigo ir até aí"},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "amanhã" in decision.reply.lower()
+    assert "quarta-feira, 19/08/2026" in decision.reply
+    assert "qual horário" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_visit_followup_with_tomorrow_does_not_offer_closed_store(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 8, 14, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    initial = await agent.respond("Hoje não consigo ir até aí")
+
+    decision = await agent.respond(
+        "Vou deixar para ir amanhã!",
+        history=[
+            {"role": "user", "content": "Hoje não consigo ir até aí"},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sábado, 15/08/2026" in decision.reply
+    assert "fechada" in decision.reply.lower()
+    assert "visita para amanhã" not in decision.reply.lower()
+
+
 
 
 

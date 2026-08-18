@@ -5,7 +5,13 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService, _format_product_availability, _is_available_list_request, _normalize
+from app.agent import (
+    AgentService,
+    _format_product_availability,
+    _is_available_list_request,
+    _is_product_availability_request,
+    _normalize,
+)
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -186,6 +192,83 @@ async def test_model_information_request_lists_seminovo_and_sealed_options(tmp_p
     assert "NOVO LACRADO" in decision.reply.upper()
     assert "3.500,00" in decision.reply
     assert "4.100,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_generic_iphone_models_request_lists_every_iphone_without_other_categories(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4100),
+        _sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 4700),
+        _sealed_item("iphone-16e-lacrado", "iPhone 16e", "128 GB", 4200),
+        _sealed_item("macbook-air", "MacBook Air", "512 GB", 8500),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-max-seminovo",
+            name="iPhone 13 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="VERDE ALPINO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3160,
+            battery_health=90,
+            search_text="iphone 13 pro max verde alpino 256 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-plus-seminovo",
+            name="iPhone 14 Plus",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2250,
+            battery_health=97,
+            search_text="iphone 14 plus azul 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2900,
+            battery_health=92,
+            search_text="iphone 15 rosa 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Gostaria de ver os modelos de IPhone e preços.\n"
+        "O meu colega Diogo Mitsuiki me passou o contato"
+    )
+
+    assert decision.handoff is False
+    for expected in (
+        "IPHONE 13 PRO MAX",
+        "IPHONE 14 PLUS",
+        "IPHONE 15",
+        "IPHONE 16",
+        "IPHONE 16E",
+    ):
+        assert expected in decision.reply.upper()
+    assert "MACBOOK" not in decision.reply.upper()
 
 
 @pytest.mark.asyncio
@@ -956,6 +1039,89 @@ async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_shared_pro_max_suffix_matches_bare_first_model_and_keeps_both_units(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class SharedProMaxCatalog:
+        items = [_sealed_item("iphone-17-pro-max-256-lacrado", "iPhone 17 Pro Max", "256 GB", 8000)]
+
+        async def ensure_fresh(self):
+            return None
+
+        async def search(self, query: str, limit: int = 5):
+            return self.items[:limit]
+
+        async def get(self, product_id: str):
+            return next((item for item in self.items if item.external_id == product_id), None)
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SharedProMaxCatalog(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-base",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4600,
+            search_text="iphone 16 azul 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-preto",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5200,
+            search_text="iphone 16 pro max preto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-titanio",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="512GB",
+            color="TITANIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5600,
+            search_text="iphone 16 pro max titanio natural 512gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Procuro iphone 16 ou 17 pro max")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-preto",
+        "iphone-16-pro-max-titanio",
+        "iphone-17-pro-max-256-lacrado",
+    }
+    assert decision.reply.count("iPhone 16 Pro Max") == 2
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "não aparece" not in decision.reply.lower()
+
+
+def test_procuro_iphone_models_is_a_catalog_availability_request():
+    assert _is_product_availability_request("Procuro iphone 16 ou 17 pro max") is True
+
+
+@pytest.mark.asyncio
 async def test_generic_airpods_request_lists_all_available_models_and_conditions(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
@@ -1105,3 +1271,59 @@ async def test_availability_confirmation_uses_last_product_clarification(tmp_pat
     }
     assert "IPHONE 16 PRO" in decision.reply.upper()
     assert "NÃO LOCALIZEI" not in decision.reply.upper()
+
+
+def _price_followup_history():
+    return [
+        {
+            "role": "user",
+            "content": "Gostaria de saber o valor do iPhone 17 pro 256gb",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim. Encontrei estas opcoes de iPhone 17 Pro disponiveis: "
+                "iPhone 17 Pro - 256 GB - NOVO LACRADO - R$ 7.200,00"
+            ),
+        },
+    ]
+
+
+def _build_17_pro_price_followup_agent(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items.insert(
+        0,
+        _sealed_item("17-pro-256", "iPhone 17 Pro", "256 GB", 7200),
+    )
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_pix_discount_followup_answers_payment_policy_instead_of_repeating_catalog(tmp_path):
+    agent = _build_17_pro_price_followup_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Esse valor no pix tem desconto?",
+        history=_price_followup_history(),
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "nao ha desconto no pix" in reply
+    assert "encontrei estas opcoes" not in reply
+
+
+@pytest.mark.asyncio
+async def test_price_validity_followup_answers_price_policy_instead_of_repeating_catalog(tmp_path):
+    agent = _build_17_pro_price_followup_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Esse valor nao vale mais?",
+        history=_price_followup_history(),
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "os precos podem ser alterados sem aviso previo" in reply
+    assert "confirmacao deve ser feita no momento do atendimento" in reply
+    assert "encontrei estas opcoes" not in reply

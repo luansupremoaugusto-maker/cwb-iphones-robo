@@ -365,6 +365,8 @@ def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
+    if _is_generic_iphone_list_request(normalized):
+        return True
     phrases = (
         "o que tem disponivel",
         "o que voce tem",
@@ -384,6 +386,45 @@ def _is_available_list_request(text: str) -> bool:
         "tabela de valores",
     )
     return any(phrase in normalized for phrase in phrases)
+
+
+def _is_generic_iphone_list_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not re.search(r"\biphones?\b", normalized):
+        return False
+    if _requested_iphone_model_keys(normalized):
+        return False
+    if _is_accessory_catalog_request(normalized):
+        return False
+    if (
+        re.search(r"\bate\b", normalized)
+        or any(
+            marker in normalized
+            for marker in (
+                "faixa de",
+                "orcamento",
+                "em torno de",
+                "cerca de",
+                "por volta de",
+                "comprar",
+                "retirar",
+                "entrega",
+                "aparelho",
+                "unidade",
+                "quantos",
+                "preciso de",
+                "necessito de",
+            )
+        )
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:modelo|modelos|preco|precos|valor|valores|lista|catalogo|"
+            r"tem|vende|possui|disponivel|disponibilidade|ver|mostrar|mostre)\b",
+            normalized,
+        )
+    )
 
 
 def _is_sealed_catalog_list_request(text: str) -> bool:
@@ -474,6 +515,7 @@ def _is_product_availability_request(text: str) -> bool:
             "gostaria de informacoes sobre",
             "quero ver",
             "quero comprar",
+            "procuro",
             "preciso de",
             "necessito de",
         )
@@ -894,6 +936,26 @@ def _today_store_reply(faq: FAQStore, *, include_physical_store: bool = True) ->
     )
 
 
+def _tomorrow_store_reply(faq: FAQStore, *, include_physical_store: bool = True) -> str:
+    current = _store_now()
+    tomorrow = current + timedelta(days=1)
+    tomorrow_label = _today_label(tomorrow)
+    address = _store_address(faq)
+    intro = "Sim, temos loja física. " if include_physical_store else ""
+    if _is_business_weekday(tomorrow):
+        return (
+            f"{intro}Perfeito 😊 Podemos marcar sua visita para amanhã, {tomorrow_label}, "
+            "das 09:00 às 18:00, com horário marcado. "
+            f"Endereço: {address}. Qual horário fica melhor para você?"
+        )
+    return (
+        f"{intro}Amanhã será {tomorrow_label} e a loja estará fechada. {_store_hours(faq)} "
+        f"Endereço: {address}. O atendimento é feito com horário marcado. "
+        "Podemos marcar uma visita em um dia de atendimento. Qual dia e horário ficam "
+        "melhores para você?"
+    )
+
+
 def _reservation_reply(faq: FAQStore) -> str:
     reason = faq.get("reserva") or (
         "Não trabalhamos com reserva de aparelhos porque alguns clientes reservam "
@@ -1074,6 +1136,46 @@ def _is_payment_methods_question(text: str) -> bool:
         )
     )
     return has_request or normalized in {"pix", "dinheiro", "debito", "cartao", "cartao de debito"}
+
+
+def _is_cash_discount_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    has_cash_method = bool(
+        re.search(r"\b(?:pix|dinheiro|debito|a\s+vista)\b", normalized)
+    )
+    has_discount_marker = bool(
+        re.search(r"\b(?:desconto|desconta|descontar|abatimento|promocao)\b", normalized)
+    )
+    return has_cash_method and has_discount_marker
+
+
+def _is_price_validity_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or not re.search(r"\b(?:valor|preco|precos|cotacao)\b", normalized):
+        return False
+    return any(
+        phrase in normalized
+        for phrase in (
+            "vale mais",
+            "vale ainda",
+            "ainda vale",
+            "continua valendo",
+            "continua esse valor",
+            "continua o valor",
+            "valor atual",
+            "preco atual",
+            "valor valido",
+            "preco valido",
+            "valor mudou",
+            "preco mudou",
+            "mudou o valor",
+            "mudou o preco",
+            "ainda esta valido",
+            "ainda esta valendo",
+        )
+    )
 
 
 def _is_payment_link_request(text: str) -> bool:
@@ -1846,6 +1948,10 @@ class AgentService:
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
 
+        price_policy_decision = self._try_price_policy(text)
+        if price_policy_decision is not None:
+            return protect_customer_decision(price_policy_decision)
+
         payment_methods_decision = self._try_payment_methods(text)
         if payment_methods_decision is not None:
             return protect_customer_decision(payment_methods_decision)
@@ -2057,6 +2163,24 @@ class AgentService:
             confidence="high",
         )
 
+    def _try_price_policy(self, text: str) -> AgentDecision | None:
+        if _is_cash_discount_question(text):
+            reply = self.faq.get("desconto_pix") or (
+                "Não há desconto no PIX; PIX, dinheiro e cartão de débito têm "
+                "pagamento integral à vista, sem taxas."
+            )
+        elif _is_price_validity_question(text):
+            reply = self.faq.get("preco") or (
+                "Os preços podem ser alterados sem aviso prévio. A confirmação "
+                "deve ser feita no momento do atendimento."
+            )
+        else:
+            return None
+        return AgentDecision(
+            reply=self._append_delivery_or_pickup_info(reply, text),
+            confidence="high",
+        )
+
     def _append_delivery_or_pickup_info(self, reply: str, text: str) -> str:
         if not _is_delivery_or_pickup_request(text):
             return reply
@@ -2095,6 +2219,28 @@ class AgentService:
             if not lacrados:
                 return None
             result = {"encontrado": True, "seminovos": [], "lacrados": lacrados}
+        if _is_generic_iphone_list_request(text):
+            normalized = _normalize(text)
+            other_family_requested = bool(
+                re.search(r"\b(?:ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+            )
+            if not other_family_requested:
+                def is_iphone_entry(entry: dict[str, Any]) -> bool:
+                    entry_text = " ".join(
+                        str(entry.get(field) or "")
+                        for field in ("nome", "capacidade", "cor", "condicao")
+                    )
+                    return _catalog_family(entry_text) == "iphone"
+
+                result = {
+                    **result,
+                    "seminovos": [
+                        entry for entry in result.get("seminovos", []) if is_iphone_entry(entry)
+                    ],
+                    "lacrados": [
+                        entry for entry in result.get("lacrados", []) if is_iphone_entry(entry)
+                    ],
+                }
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
     async def _try_battery_detail(
@@ -2639,6 +2785,10 @@ class AgentService:
                 handoff_reason="Agendamento de visita solicitado; atendente deve confirmar o horário",
                 confidence="high",
             )
+
+        if "amanha" in _normalize(text):
+            reply = _tomorrow_store_reply(self.faq)
+            return AgentDecision(reply=reply, confidence="high")
 
         reply = _today_store_reply(self.faq)
         return AgentDecision(reply=reply, confidence="high")

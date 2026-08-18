@@ -54,7 +54,7 @@ def _model_key(value: Any) -> tuple[int | str, str] | None:
         # can appear after the model in an assistant summary. They are not
         # product models and must not replace an explicit iPhone reference.
         suffix = normalized[match.end() :]
-        return not re.match(r"\s*(?:%|gb|tb|g|x)", suffix)
+        return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
 
     explicit_iphone = [
         match
@@ -127,7 +127,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
 
     def is_usable(match: re.Match[str]) -> bool:
         suffix = normalized[match.end() :]
-        return not re.match(r"\s*(?:%|gb|tb|g|x)", suffix)
+        return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
 
     def key_for(match: re.Match[str]) -> tuple[int | str, str]:
         legacy = match.group("legacy")
@@ -163,13 +163,21 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         ):
             continue
         model_key = key_for(match)
+        if (
+            len(selected) == 1
+            and len([candidate for candidate in matches if is_usable(candidate)]) == 2
+            and not selected[0][1]
+            and model_key[1]
+            and re.search(r"\b(?:ou|or)\b", separator)
+        ):
+            selected[0] = (selected[0][0], model_key[1])
         if model_key not in selected:
             selected.append(model_key)
         previous = match
 
     if len(selected) == 1:
         return (target,)
-    if target not in selected:
+    if target not in selected and not any(model[0] == target[0] for model in selected):
         selected.append(target)
     return tuple(selected)
 
