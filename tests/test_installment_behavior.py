@@ -314,6 +314,78 @@ async def test_specific_installment_keeps_selected_battery_on_short_followup(tmp
 
 
 @pytest.mark.asyncio
+async def test_batched_model_and_installment_question_keeps_selected_iphone(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        FakeMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="14-plus-blue-128",
+            name="IPHONE 14 PLUS",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2250.0,
+            battery_health=97,
+            search_text="iphone 14 plus azul 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="14-plus-star-128",
+            name="IPHONE 14 PLUS",
+            category="Celular",
+            capacity="128GB",
+            color="ESTELAR",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2250.0,
+            battery_health=97,
+            search_text="iphone 14 plus estelar 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="14-pro-purple-128",
+            name="IPHONE 14 PRO",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2930.0,
+            battery_health=85,
+            search_text="iphone 14 pro roxo profundo 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "14 plus azul\nEm 8 vezes ficaria quantos?",
+        history=[
+            {"role": "user", "content": "14 plus 14 pro"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos iPhone 14 Plus azul e estelar, além de iPhone 14 Pro roxo. "
+                    "Qual deles prefere simular no cartão?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do IPHONE 14 PLUS 128GB" in decision.reply
+    assert "8x de R$ 315,37" in decision.reply
+    assert "não localizei" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_missing_seminew_installment_offers_available_seminew_models(tmp_path):
     cache, settings = build_cache(tmp_path)
     settings.openai_api_key = None

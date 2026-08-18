@@ -190,6 +190,13 @@ def _has_personal_device_reference(text: str) -> bool:
             text,
             flags=re.IGNORECASE,
         )
+        or re.search(
+            r"\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
+            r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
+            r"aparelho|smartphone|telefone)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
     )
 
 
@@ -208,7 +215,7 @@ def _has_device_offer(text: str) -> bool:
 
     if re.search(
         r"\b(?:trade[- ]?in|retoma|retomar|troca de celular|"
-        r"parte do pagamento|como entrada|de entrada|para troca|na troca)\b",
+        r"parte do pagamento|como entrada|de entrada|para troca|na troca|na jogada)\b",
         text,
         flags=re.IGNORECASE,
     ) and (
