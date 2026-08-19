@@ -1011,18 +1011,52 @@ def _is_technical_assistance_request(text: str) -> bool:
     )
 
 
-def _is_catalog_buyer_details_question(text: str | None) -> bool:
+def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) -> bool:
+    for entry in reversed(history or []):
+        if entry.get("role") != "assistant" or not entry.get("content"):
+            continue
+        answer = _normalize(entry.get("content", ""))
+        return bool(
+            _has_product_reference(answer)
+            and any(
+                marker in answer
+                for marker in (
+                    "r$",
+                    "bateria",
+                    "disponivel",
+                    "disponibilidade",
+                    "capacidade",
+                    "gb",
+                    "seminovo",
+                    "lacrado",
+                )
+            )
+        )
+    return False
+
+
+def _is_catalog_buyer_details_question(
+    text: str | None,
+    history: list[dict[str, str]] | None = None,
+) -> bool:
     """Recognize a buyer checking the condition of an advertised device."""
     normalized = _normalize(text)
     if not normalized:
         return False
 
+    has_catalog_context = _has_recent_catalog_product_context(history)
     buyer_context = re.search(
         r"\b(?:interesse\s+em\s+compr\w*|antes\s+de\s+fechar|"
         r"(?:quero|vou|pretendo|gostaria\s+de)\s+compr\w*)\b",
         normalized,
     )
-    if not buyer_context:
+    state_question = re.search(
+        r"\b(?:foi|foram|teve|tiveram|funcion\w*|"
+        r"problema\w*|manuten\w*|trocad\w*|substituid\w*|bloqueio|"
+        r"icloud|restric\w*)\b",
+        normalized,
+    )
+    if not buyer_context and not (has_catalog_context and state_question):
         return False
 
     detail_groups = (
@@ -1038,7 +1072,9 @@ def _is_catalog_buyer_details_question(text: str | None) -> bool:
         ),
         re.search(r"\b(?:bloqueio|icloud|restric\w*)\b", normalized),
     )
-    return sum(bool(group) for group in detail_groups) >= 2
+    return sum(bool(group) for group in detail_groups) >= 2 or bool(
+        has_catalog_context and state_question and any(detail_groups)
+    )
 
 
 def _has_sealed_reference(normalized: str) -> bool:
@@ -2003,7 +2039,7 @@ class AgentService:
         if catalog_price_recall_decision is not None:
             return protect_customer_decision(catalog_price_recall_decision)
         if (
-            _is_catalog_buyer_details_question(combined_request)
+            _is_catalog_buyer_details_question(combined_request, history)
             and not trade_in_em_andamento(history)
             and not is_trade_in_context_request(combined_request, history)
         ):
