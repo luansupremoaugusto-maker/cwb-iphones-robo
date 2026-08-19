@@ -465,7 +465,12 @@ def _is_product_availability_request(text: str) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
     accessory_request = _is_accessory_catalog_request(normalized)
-    if not normalized or (not _has_product_reference(normalized) and not accessory_request):
+    bare_model_request = _is_bare_model_availability_request(text)
+    if not normalized or (
+        not _has_product_reference(normalized)
+        and not accessory_request
+        and not bare_model_request
+    ):
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
@@ -1703,6 +1708,23 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
     return f"iPhone {number}"
 
 
+def _is_bare_model_availability_request(text: str) -> bool:
+    """Recognize a shorthand model only when the customer asks about sale/stock."""
+    normalized = _normalize(text)
+    if (
+        not normalized
+        or _has_product_reference(normalized)
+        or _extract_bare_catalog_model_reference(normalized) is None
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:tem|teria|disponivel|disponibilidade|estoque|vende|vender|possui)\b",
+            normalized,
+        )
+    )
+
+
 def _battery_detail_context_query(text: str, history: list[dict[str, str]] | None) -> str | None:
     normalized = _normalize(text)
     model_reference = _extract_bare_catalog_model_reference(text)
@@ -2778,6 +2800,10 @@ class AgentService:
         image_description: str | None = None,
     ) -> AgentDecision | None:
         current_query = _current_catalog_context(text, image_description)
+        if _is_bare_model_availability_request(current_query):
+            bare_model = _extract_bare_catalog_model_reference(current_query)
+            if bare_model:
+                current_query = f"{bare_model} {current_query}".strip()
         query = current_query
         if (
             history

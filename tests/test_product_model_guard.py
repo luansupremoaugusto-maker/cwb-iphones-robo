@@ -111,6 +111,30 @@ async def test_bare_iphone_13_followup_does_not_return_macbook_13(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_bare_model_sell_question_returns_only_requested_iphone(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items.insert(
+        0,
+        _sealed_item("iphone-17-lacrado", "iPhone 17", "256 GB", 5700),
+    )
+
+    decision = await agent.respond(
+        "Vocês tem o 17 pra vender?",
+        history=[
+            {"role": "user", "content": "Eu comprei um iPhone com vocês e queria indicar a loja."},
+            {"role": "assistant", "content": "Tudo certo! Como posso ajudar você hoje?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-17-lacrado"]
+    assert "iPhone 17" in decision.reply
+    assert "iPhone 17 Pro" not in decision.reply
+    assert "iPhone 17 Pro Max" not in decision.reply
+    assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
