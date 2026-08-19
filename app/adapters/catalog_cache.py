@@ -206,7 +206,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
 
 def _matches_requested_model(query: str, item: Any) -> bool:
     if _is_accessory_catalog_query(query):
-        return _is_sealed_accessory_item(item)
+        return _is_sealed_accessory_item(item) and _matches_requested_accessory(query, item)
     if not _matches_requested_family(query, item):
         return False
     targets = _requested_iphone_model_keys(query)
@@ -375,6 +375,35 @@ def _is_accessory_catalog_query(value: Any) -> bool:
         any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in ("fonte", "carregador"))
         and not _is_phone_accessory_context(normalized)
     )
+
+
+def _accessory_kind(value: Any) -> str | None:
+    normalized = _score_text(value)
+    if re.search(r"\b(?:inducao|magnetic\w*|magsafe|wireless|sem\s+fio)\b", normalized):
+        return "wireless_charger"
+    if re.search(r"\b(?:tipo\s+c|usb\s+c|20w)\b", normalized) or re.search(
+        r"\bfonte\b", normalized
+    ):
+        return "type_c_charger"
+    if re.search(r"\b(?:carregador|fonte)\b", normalized):
+        return "charger"
+    if re.search(r"\b(?:capinha|capa|case)\b", normalized):
+        return "case"
+    return None
+
+
+def _matches_requested_accessory(query: str, item: Any) -> bool:
+    requested_kind = _accessory_kind(query)
+    if requested_kind is None:
+        return True
+    item_text = (
+        f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} "
+        f"{getattr(item, 'search_text', '')}"
+    )
+    item_kind = _accessory_kind(item_text)
+    if requested_kind == "charger":
+        return item_kind in {"charger", "type_c_charger", "wireless_charger"}
+    return item_kind == requested_kind
 
 
 def _is_sealed_accessory_item(item: Any) -> bool:
