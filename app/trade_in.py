@@ -95,7 +95,9 @@ _NON_APPLE_RE = re.compile(
 
 _NEGATION_RE = re.compile(
     r"\b(?:nao|nunca|jamais|sem|nenhum|nenhuma)\b.{0,35}\b"
-    r"(?:troca|trocar|troco|vender|venda|trade[- ]?in)\b",
+    r"(?:(?:troca|trocar|troco)(?!\s+(?:de\s+)?(?:pecas?|tela|bateria|"
+    r"display|vidro|conector|camera|carcaca|microfone|alto\s+falante|"
+    r"chip|flex|placa|componentes?))|vender|venda|trade[- ]?in)\b",
     re.IGNORECASE,
 )
 _PAYMENT_METHOD_RE = re.compile(

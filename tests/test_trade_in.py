@@ -338,6 +338,26 @@ async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evalua
 
 
 @pytest.mark.asyncio
+async def test_device_offer_with_no_parts_or_damage_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Aceita um iPhone 14 azul claro, 82% de bateria sem troca de peças nem avaria."
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_upgrade_request_with_battery_and_camera_details_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
