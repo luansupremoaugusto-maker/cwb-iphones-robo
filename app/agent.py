@@ -586,6 +586,18 @@ def _is_case_accessory_request(text: str) -> bool:
     )
 
 
+def _is_accessory_inclusion_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not re.search(r"\b(?:fonte|carregador|cabo|acessorio|acessorios)\b", normalized):
+        return False
+    return bool(
+        re.search(
+            r"(?:\bvem\s+(?:com|junto|inclus\w*|na\s+caixa)\b|\bacompanha\w*\b|\binclui\w*\b)",
+            normalized,
+        )
+    )
+
+
 def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     normalized = _normalize(text)
     keys: list[str] = []
@@ -2181,6 +2193,10 @@ class AgentService:
         if installment_rate_decision is not None:
             return protect_customer_decision(installment_rate_decision)
 
+        accessory_inclusion_decision = self._try_accessory_inclusion_information(text)
+        if accessory_inclusion_decision is not None:
+            return protect_customer_decision(accessory_inclusion_decision)
+
         rate_followup_decision = await self._try_rate_model_followup(text, history)
         if rate_followup_decision is not None:
             return protect_customer_decision(rate_followup_decision)
@@ -2450,6 +2466,26 @@ class AgentService:
             return None
         return AgentDecision(
             reply=self.faq.get("capinhas") or CASE_ACCESSORY_REPLY,
+            confidence="high",
+        )
+
+    def _try_accessory_inclusion_information(self, text: str) -> AgentDecision | None:
+        if not _is_accessory_inclusion_question(text):
+            return None
+
+        normalized = _normalize(text)
+        if _has_sealed_reference(normalized) and not _has_seminovo_reference(normalized):
+            reply = self.faq.get("lacrados")
+        elif _has_seminovo_reference(normalized) and not _has_sealed_reference(normalized):
+            reply = self.faq.get("seminovos")
+        else:
+            reply = self.faq.get("acessórios")
+        return AgentDecision(
+            reply=reply
+            or (
+                "Aparelhos seminovos acompanham cabo e fonte novos, homologados pela Anatel. "
+                "Aparelhos novos lacrados acompanham apenas o cabo original que já vem dentro da caixa."
+            ),
             confidence="high",
         )
 
