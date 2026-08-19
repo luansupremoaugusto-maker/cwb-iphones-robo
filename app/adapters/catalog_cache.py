@@ -164,17 +164,38 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         ):
             continue
         model_key = key_for(match)
+        has_following_shared_variant = re.match(
+            r"\s*(?:ou|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?"
+            r"(?:pro\s+max|pro)\b",
+            normalized[match.end() :],
+            flags=re.IGNORECASE,
+        )
         if (
             len(selected) == 1
             and len([candidate for candidate in matches if is_usable(candidate)]) == 2
             and not selected[0][1]
             and model_key[1]
             and re.search(r"\b(?:ou|or)\b", separator)
+            and not has_following_shared_variant
         ):
             selected[0] = (selected[0][0], model_key[1])
         if model_key not in selected:
             selected.append(model_key)
         previous = match
+
+    inherited_variant = re.match(
+        r"\s*(?:ou|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?"
+        r"(?P<variant>pro\s+max|pro)\b",
+        normalized[previous.end() :],
+        flags=re.IGNORECASE,
+    )
+    if inherited_variant:
+        inherited_key = (
+            selected[-1][0],
+            " ".join(inherited_variant.group("variant").split()).lower(),
+        )
+        if inherited_key not in selected:
+            selected.append(inherited_key)
 
     if len(selected) == 1:
         return (target,)
