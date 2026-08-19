@@ -268,6 +268,31 @@ async def test_carregador_followup_uses_the_sealed_catalog(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_charger_inclusion_question_uses_accessories_policy_without_listing_catalog(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Vem com carregador?",
+        history=[
+            {"role": "user", "content": "Queria saber se tem o iPhone 13 de 128 GB"},
+            {
+                "role": "assistant",
+                "content": (
+                    "No momento, não localizei esse produto seminovo disponível no sistema. "
+                    "Segue a lista dos seminovos disponíveis para você escolher: iPhone 15 Plus."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "lista completa" not in _normalize(decision.reply)
+    assert "cabo e fonte novos" in decision.reply
+    assert "apenas o cabo original" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_type_c_purchase_reason_keeps_the_iphone_context(tmp_path):
     agent = build_phone_and_accessory_agent(tmp_path)
 
