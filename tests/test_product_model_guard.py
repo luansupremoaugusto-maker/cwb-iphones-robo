@@ -1156,6 +1156,22 @@ async def test_shared_variant_question_returns_base_pro_and_pro_max(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_shared_pro_and_pro_max_suffix_returns_both_requested_models(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Pode me passar o valor do iPhone 17 pro e do pro max")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "17-pro-512",
+        "17-pro-max-128",
+        "17-pro-max-256",
+    }
+    assert "iPhone 17 Pro" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_shared_pro_max_suffix_matches_bare_first_model_and_keeps_both_units(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
 
