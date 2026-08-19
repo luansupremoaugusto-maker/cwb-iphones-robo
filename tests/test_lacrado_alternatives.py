@@ -220,6 +220,24 @@ def build_accessory_agent(tmp_path):
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+def build_phone_and_accessory_agent(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("sheet:bot:8", "Fonte Tipo-C 20W original", "-", 150),
+    ]
+    sealed.items[0].search_text = "fonte tipo c 20w original carregador novo lacrado"
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [_seminovo_item("phone:15-pro", "iPhone 15 Pro", "128 GB", 3460)]
+    cache.last_refresh = time.time()
+    return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+
 @pytest.mark.asyncio
 async def test_source_question_uses_the_sealed_catalog_without_handoff(tmp_path):
     agent = build_accessory_agent(tmp_path)
@@ -247,3 +265,51 @@ async def test_carregador_followup_uses_the_sealed_catalog(tmp_path):
     assert decision.handoff is False
     assert decision.product_references == ["sheet:bot:8"]
     assert "Fonte Tipo-C 20W original" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_type_c_purchase_reason_keeps_the_iphone_context(tmp_path):
+    agent = build_phone_and_accessory_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Acho melhor o iPhone 15 Pro porque o carregador já é tipo C, né?",
+        history=[
+            {
+                "role": "assistant",
+                "content": "iPhone 15 Pro, 128 GB, seminovo por R$ 3.460,00.",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "iPhone 15 Pro" in decision.reply
+    assert "Fonte Tipo-C 20W original" not in decision.reply
+    assert "NOVO LACRADO" not in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Vocês vendem carregador?",
+        "Quanto custa a fonte?",
+        "Quanto custa o carregador tipo C do iPhone 15 Pro?",
+    ],
+)
+async def test_explicit_accessory_request_overrides_phone_history(tmp_path, query):
+    agent = build_phone_and_accessory_agent(tmp_path)
+
+    decision = await agent.respond(
+        query,
+        history=[
+            {
+                "role": "assistant",
+                "content": "iPhone 15 Pro, 128 GB, seminovo por R$ 3.460,00.",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:bot:8"]
+    assert "Fonte Tipo-C 20W original" in decision.reply
+    assert "R$ 150,00" in decision.reply
