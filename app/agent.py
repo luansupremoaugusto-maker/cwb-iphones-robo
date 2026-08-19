@@ -428,7 +428,8 @@ def _is_generic_iphone_list_request(text: str) -> bool:
     return bool(
         re.search(
             r"\b(?:modelo|modelos|preco|precos|valor|valores|lista|catalogo|"
-            r"tem|vende|possui|disponivel|disponibilidade|ver|mostrar|mostre)\b",
+            r"tem|vende|possui|disponivel|disponibilidade|ver|mostrar|mostre|"
+            r"a\s+venda)\b",
             normalized,
         )
     )
@@ -1176,6 +1177,24 @@ PAYMENT_METHODS_REPLY = (
 )
 
 
+PAYMENT_ONLY_CREDIT_REPLY = (
+    "Sim. A única forma de parcelamento é no cartão de crédito, em até 18 vezes "
+    "na máquina física. PIX, dinheiro e cartão de débito são pagamentos à vista, "
+    "sem taxas; não parcelamos no boleto ou no PIX."
+)
+
+
+def _is_credit_only_installment_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or "parcel" not in normalized:
+        return False
+    has_only_marker = bool(re.search(r"\b(?:apenas|somente|so)\b", normalized))
+    has_credit_marker = bool(
+        re.search(r"\b(?:cartao\s+de\s+credito|credito)\b", normalized)
+    )
+    return has_only_marker and has_credit_marker
+
+
 def _is_payment_methods_question(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or _is_payment_link_request(text):
@@ -1191,7 +1210,11 @@ def _is_payment_methods_question(text: str) -> bool:
         )
     ):
         return False
-    if "parcel" in normalized and not has_cash_method:
+    if (
+        "parcel" in normalized
+        and not has_cash_method
+        and not _is_credit_only_installment_question(text)
+    ):
         return False
     has_method = bool(re.search(r"\b(?:pix|dinheiro|debito|credito|cartao|cartoes)\b", normalized))
     if not has_method:
@@ -1212,7 +1235,11 @@ def _is_payment_methods_question(text: str) -> bool:
             "dar o valor",
         )
     )
-    return has_request or normalized in {"pix", "dinheiro", "debito", "cartao", "cartao de debito"}
+    return (
+        has_request
+        or _is_credit_only_installment_question(text)
+        or normalized in {"pix", "dinheiro", "debito", "cartao", "cartao de debito"}
+    )
 
 
 def _is_cash_discount_question(text: str) -> bool:
@@ -2299,7 +2326,10 @@ class AgentService:
         if not _is_payment_methods_question(text):
             return None
 
-        reply = self.faq.get("pagamento") or PAYMENT_METHODS_REPLY
+        if _is_credit_only_installment_question(text):
+            reply = PAYMENT_ONLY_CREDIT_REPLY
+        else:
+            reply = self.faq.get("pagamento") or PAYMENT_METHODS_REPLY
         normalized = _normalize(text)
         if re.search(r"\b(?:dois|duas)\s+cartoes?\s+de\s+credito\b", normalized) or "mais de um cartao" in normalized:
             reply = (
