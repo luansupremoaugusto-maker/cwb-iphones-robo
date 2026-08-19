@@ -68,6 +68,9 @@ CATALOG_BUYER_DETAILS_REPLY = (
     "essas informações com você."
 )
 CATALOG_BUYER_DETAILS_REASON = "Dúvidas sobre detalhes de um aparelho disponível"
+CASE_ACCESSORY_REPLY = (
+    "Sim 😊 Conseguimos capinhas, películas e protetores de câmera por R$ 10,00 cada."
+)
 WEEKDAY_LABELS = (
     "segunda-feira",
     "terça-feira",
@@ -561,6 +564,23 @@ def _is_accessory_catalog_request(text: str) -> bool:
     return normalized in {"fonte", "carregador"} or bool(
         re.search(
             r"\b(?:tem|vende\w*|possui|disponivel|estoque|a venda|valor|preco|custa|original|tipo|usb|20w)\b",
+            normalized,
+        )
+    )
+
+
+def _is_case_accessory_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not re.search(
+        r"\b(?:capinha|capa|case|pelicula|protetor(?:\s+de\s+camera)?)\b",
+        normalized,
+    ):
+        return False
+    if normalized.strip(" ?!.,") in {"capinha", "capa", "case", "pelicula", "protetor de camera"}:
+        return True
+    return bool(
+        re.search(
+            r"\b(?:quanto|valor|preco|custa|a partir|tem|vende|disponivel|consegue|conseguem)\b",
             normalized,
         )
     )
@@ -1567,7 +1587,7 @@ def _installment_context_query(
     # Do not append an older catalog answer: its last listed model can make a
     # follow-up such as "Do iPhone 12" inherit an unrelated iPhone XR.
     current = text.strip()
-    if _has_product_reference(_normalize(current)):
+    if _has_product_reference(_normalize(current)) or _is_case_accessory_request(current):
         return current
 
     for item in reversed(history or []):
@@ -2165,6 +2185,10 @@ class AgentService:
         if rate_followup_decision is not None:
             return protect_customer_decision(rate_followup_decision)
 
+        case_accessory_decision = self._try_case_accessory_information(text)
+        if case_accessory_decision is not None:
+            return protect_customer_decision(case_accessory_decision)
+
         catalog_product_decision = await self._try_catalog_product_reference(
             text,
             image_description=image_description,
@@ -2420,6 +2444,14 @@ class AgentService:
                     ],
                 }
         return AgentDecision(reply=_format_available_products(result), confidence="high")
+
+    def _try_case_accessory_information(self, text: str) -> AgentDecision | None:
+        if not _is_case_accessory_request(text):
+            return None
+        return AgentDecision(
+            reply=self.faq.get("capinhas") or CASE_ACCESSORY_REPLY,
+            confidence="high",
+        )
 
     async def _try_battery_detail(
         self,
@@ -2712,6 +2744,7 @@ class AgentService:
             history
             and not _has_product_reference(_normalize(current_query))
             and not _is_accessory_catalog_request(current_query)
+            and not _is_case_accessory_request(current_query)
             and (
                 _is_catalog_followup(current_query)
                 or _is_catalog_availability_confirmation(current_query, history)

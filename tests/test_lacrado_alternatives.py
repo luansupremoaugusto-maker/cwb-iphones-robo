@@ -313,3 +313,42 @@ async def test_explicit_accessory_request_overrides_phone_history(tmp_path, quer
     assert decision.product_references == ["sheet:bot:8"]
     assert "Fonte Tipo-C 20W original" in decision.reply
     assert "R$ 150,00" in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "E aquele carregador por indução tem também?",
+        "Aquele carregador magnético tem?",
+    ],
+)
+async def test_specific_charger_type_does_not_match_type_c_source(tmp_path, query):
+    agent = build_accessory_agent(tmp_path)
+
+    decision = await agent.respond(query)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "Fonte Tipo-C 20W original" not in decision.reply
+    assert "nao localizei" in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
+async def test_capinha_price_question_does_not_reuse_source_history(tmp_path):
+    agent = build_accessory_agent(tmp_path)
+
+    decision = await agent.respond(
+        "E capinha a partir de qual valor tem?",
+        history=[
+            {"role": "user", "content": "Vocês vendem a fonte tipo C?"},
+            {
+                "role": "assistant",
+                "content": "Fonte Tipo-C 20W original — NOVO LACRADO — R$ 150,00",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "R$ 10,00" in decision.reply
+    assert "Fonte Tipo-C 20W original" not in decision.reply
