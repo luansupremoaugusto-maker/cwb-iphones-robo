@@ -68,3 +68,17 @@ async def test_debit_fee_question_confirms_no_fee(tmp_path):
     assert decision.handoff is False
     assert "cartao de debito" in reply
     assert "sem taxas" in reply
+
+
+@pytest.mark.asyncio
+async def test_credit_only_installment_question_confirms_credit_is_the_only_installment_method(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Vocês parcelam apenas no cartão de crédito?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert reply.startswith("sim")
+    assert "unica forma de parcelamento" in reply
+    assert "cartao de credito" in reply
+    assert "18 vezes" in reply
