@@ -1094,6 +1094,68 @@ async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_shared_variant_question_returns_base_pro_and_pro_max(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2920,
+            battery_health=83,
+            search_text="iphone 15 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-128",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="128GB",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3460,
+            battery_health=93,
+            search_text="iphone 15 pro 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-256",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4130,
+            battery_health=90,
+            search_text="iphone 15 pro max 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Voce teria o iphone 15 ou 15 pro ou pro max?")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-15-128",
+        "iphone-15-pro-128",
+        "iphone-15-pro-max-256",
+    }
+    assert "iPhone 15" in decision.reply
+    assert "iPhone 15 Pro" in decision.reply
+    assert "iPhone 15 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_shared_pro_max_suffix_matches_bare_first_model_and_keeps_both_units(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
 
