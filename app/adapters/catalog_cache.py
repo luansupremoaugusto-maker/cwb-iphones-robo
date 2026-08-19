@@ -184,7 +184,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         previous = match
 
     inherited_variant = re.match(
-        r"\s*(?:ou|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?"
+        r"\s*(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das))?\s*(?:iphone\s*)?"
         r"(?P<variant>pro\s+max|pro)\b",
         normalized[previous.end() :],
         flags=re.IGNORECASE,
