@@ -13,6 +13,24 @@ class EmptyMercadoClient:
         return []
 
 
+class AvailableCatalog:
+    async def list_available_products(self):
+        return {
+            "encontrado": True,
+            "seminovos": [
+                {
+                    "nome": "iPhone 13 Pro Max",
+                    "capacidade": "128 GB",
+                    "cor": "GRAFITE",
+                    "condicao": "SEMINOVO",
+                    "precos_brl": [2830.0],
+                    "saude_bateria": 91,
+                }
+            ],
+            "lacrados": [],
+        }
+
+
 def build_agent(tmp_path):
     settings = Settings(
         openai_api_key=None,
@@ -23,6 +41,15 @@ def build_agent(tmp_path):
         EmptyMercadoClient(),
         settings,
         cache_path=tmp_path / "inventory.json",
+    )
+    return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+
+def build_agent_with_cache(cache):
+    settings = Settings(
+        openai_api_key=None,
+        mercado_cache_ttl_seconds=60,
+        faq_path="data/faq.yaml",
     )
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
@@ -56,6 +83,21 @@ async def test_payment_question_confirms_debit_with_two_credit_cards_and_pix(tmp
     assert "dinheiro" in reply
     assert "sem taxas" in reply
     assert "debito nao foi confirmado" not in reply
+
+
+@pytest.mark.asyncio
+async def test_generic_payment_method_question_about_exchange_does_not_list_products():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Qual o método de pagamento que vcs tem na troca de iPhone")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "pix" in reply
+    assert "cartao de debito" in reply
+    assert "cartao de credito" in reply
+    assert "lista completa de produtos" not in reply
+    assert "iphone 13 pro max" not in reply
 
 
 @pytest.mark.asyncio
