@@ -1447,6 +1447,21 @@ async def test_pix_discount_followup_answers_payment_policy_instead_of_repeating
 
 
 @pytest.mark.asyncio
+async def test_pix_same_value_followup_answers_payment_policy_instead_of_repeating_catalog(tmp_path):
+    agent = _build_17_pro_price_followup_agent(tmp_path)
+
+    decision = await agent.respond(
+        "No pix sai o mesmo valor?",
+        history=_price_followup_history(),
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "nao ha desconto no pix" in reply
+    assert "encontrei estas opcoes" not in reply
+
+
+@pytest.mark.asyncio
 async def test_price_validity_followup_answers_price_policy_instead_of_repeating_catalog(tmp_path):
     agent = _build_17_pro_price_followup_agent(tmp_path)
 

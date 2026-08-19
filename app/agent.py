@@ -1284,7 +1284,10 @@ def _is_cash_discount_question(text: str) -> bool:
     has_discount_marker = bool(
         re.search(r"\b(?:desconto|desconta|descontar|abatimento|promocao)\b", normalized)
     )
-    return has_cash_method and has_discount_marker
+    has_price_equivalence_marker = bool(
+        re.search(r"\bmesmo\s+(?:valor|preco)\b", normalized)
+    )
+    return has_cash_method and (has_discount_marker or has_price_equivalence_marker)
 
 
 def _is_price_validity_question(text: str) -> bool:
