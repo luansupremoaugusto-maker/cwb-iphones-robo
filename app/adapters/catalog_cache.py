@@ -342,9 +342,39 @@ def _is_device_item(item: Any) -> bool:
     )
 
 
+def _is_phone_accessory_context(value: Any) -> bool:
+    """Keep a phone question from becoming an accessory search by keyword."""
+    normalized = _score_text(value)
+    accessory = re.search(r"\b(?:fonte|carregador)\b", normalized)
+    if accessory is None:
+        return False
+
+    model_matches = [
+        match
+        for match in _MODEL_PATTERN.finditer(normalized)
+        if match.end() <= accessory.start()
+    ]
+    if not model_matches:
+        return False
+
+    model = model_matches[-1]
+    bridge = normalized[model.end() : accessory.start()]
+    accessory_tail = normalized[accessory.start() :]
+    return bool(
+        re.search(r"\b(?:porque|pq|pois|ja|tem|possui|acompanha|vem|inclui|usa)\b", bridge)
+        or (
+            re.search(r"\b(?:acho\s+melhor|prefiro|escolh\w*|vou\s+de|por\s+causa)\b", normalized[: model.start()])
+            and re.search(r"\b(?:tipo\s+c|usb\s+c)\b", accessory_tail)
+        )
+    )
+
+
 def _is_accessory_catalog_query(value: Any) -> bool:
     normalized = _score_text(value)
-    return any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in ("fonte", "carregador"))
+    return bool(
+        any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in ("fonte", "carregador"))
+        and not _is_phone_accessory_context(normalized)
+    )
 
 
 def _is_sealed_accessory_item(item: Any) -> bool:
@@ -358,6 +388,8 @@ def _is_sealed_accessory_item(item: Any) -> bool:
 
 def _is_excluded_query(query: str) -> bool:
     normalized = _normalize(query)
+    if _is_phone_accessory_context(normalized):
+        return False
     return any(
         re.search(rf"\b{re.escape(marker)}\b", normalized) is not None
         for marker in ("pelicula", "capa", "capinha", "case", "fonte", "cabo", "carregador", "protetor", "suporte")

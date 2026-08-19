@@ -560,7 +560,7 @@ def _is_accessory_catalog_request(text: str) -> bool:
         return False
     return normalized in {"fonte", "carregador"} or bool(
         re.search(
-            r"\b(?:tem|vende|possui|disponivel|estoque|a venda|valor|preco|custa|original|tipo|usb|20w)\b",
+            r"\b(?:tem|vende\w*|possui|disponivel|estoque|a venda|valor|preco|custa|original|tipo|usb|20w)\b",
             normalized,
         )
     )
@@ -2711,6 +2711,7 @@ class AgentService:
         if (
             history
             and not _has_product_reference(_normalize(current_query))
+            and not _is_accessory_catalog_request(current_query)
             and (
                 _is_catalog_followup(current_query)
                 or _is_catalog_availability_confirmation(current_query, history)
