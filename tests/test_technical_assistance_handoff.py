@@ -111,6 +111,63 @@ async def test_catalog_buyer_condition_questions_are_forwarded_as_product_questi
 
 
 @pytest.mark.asyncio
+async def test_catalog_battery_replacement_followup_is_forwarded_as_product_question(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Algum desses teve a bateria substituída?",
+        history=[
+            {"role": "user", "content": "Pq eles são usados e estão com 100% de bateria?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Porque ‘seminovo’ significa que o aparelho já teve uso, mas alguns podem "
+                    "estar com a saúde da bateria em 100% — por exemplo, por terem tido pouco "
+                    "uso ou bateria substituída. No catálogo, há iPhones 16 Pro Max seminovos "
+                    "com 100% e também com 89% de saúde da bateria. Todos são conferidos antes "
+                    "da venda."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
+    assert "dúvida" in decision.reply.lower()
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_explicit_battery_repair_after_catalog_context_stays_technical(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quanto custa trocar a bateria desse iPhone?",
+        history=[
+            {
+                "role": "assistant",
+                "content": "iPhone 16 Pro Max seminovo, 256 GB, bateria 100%, disponível.",
+            }
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "assistência técnica" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_single_catalog_battery_question_keeps_battery_detail_flow(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = InventoryCache(
