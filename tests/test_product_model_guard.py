@@ -806,6 +806,61 @@ async def test_batched_availability_query_keeps_all_three_requested_models(tmp_p
         assert expected in decision.reply.upper()
 
 
+@pytest.mark.asyncio
+async def test_exact_question_about_iphone_15_and_15_pro_returns_both_models(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2920,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 15 preto 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-128",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="128GB",
+            color="TITANIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3460,
+            battery_health=93,
+            source="mercado_phone",
+            search_text="iphone 15 pro titanio azul 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "oii bom dia, gostaria de saber mais sobre os iPhones 15 e 15 pro, "
+        "se são novos ou seminovos"
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-15-128",
+        "iphone-15-pro-128",
+    }
+    assert "iPhone 15" in decision.reply
+    assert "iPhone 15 Pro" in decision.reply
+
+
 def _watch_seminovo() -> InventoryItem:
     return InventoryItem(
         external_id="watch-se2-seminovo",
