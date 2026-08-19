@@ -1254,7 +1254,10 @@ def _is_payment_methods_question(text: str) -> bool:
     ):
         return False
     has_method = bool(re.search(r"\b(?:pix|dinheiro|debito|credito|cartao|cartoes)\b", normalized))
-    if not has_method:
+    has_generic_payment_method_phrase = bool(
+        re.search(r"\b(?:forma[s]?|metodo[s]?)\s+de\s+pagamento\b", normalized)
+    )
+    if not has_method and not has_generic_payment_method_phrase:
         return False
     if has_cash_method and any(marker in normalized for marker in ("taxa", "taxas", "tarifa", "juros", "parcel")):
         return True
@@ -1263,6 +1266,8 @@ def _is_payment_methods_question(text: str) -> bool:
         for phrase in (
             "forma de pagamento",
             "formas de pagamento",
+            "metodo de pagamento",
+            "metodos de pagamento",
             "aceita",
             "aceitam",
             "posso pagar",
