@@ -202,6 +202,17 @@ def _has_personal_device_reference(text: str) -> bool:
 
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
+    # In informal Portuguese, "tem interesse em comprar um iPhone" commonly
+    # omits "vocês" and means that the customer is asking whether the store
+    # wants to buy the described device. Keep the first-person buyer phrasing
+    # ("tenho interesse em comprar") in the catalog flow.
+    if re.search(
+        r"\b(?:tem|teria|possui)\s+interesse\s+em\s+compr\w*\b",
+        text,
+        flags=re.IGNORECASE,
+    ) and _APPLE_PRODUCT_RE.search(text):
+        return True
+
     # Customers commonly state ownership before the sale intent: "tenho um
     # iPhone 11 Pro Max para vender". Keep this ahead of the stock guard below
     # so the model number is not routed as a catalog lookup.

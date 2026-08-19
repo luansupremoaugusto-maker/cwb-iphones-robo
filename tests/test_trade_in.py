@@ -365,6 +365,42 @@ async def test_complete_device_offer_with_photo_returns_evaluation_form(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_grouped_tem_interesse_offer_returns_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Boa noite\n"
+        "Tem interesse em comprar um iPhone 16 e 256gb\n"
+        "Tá na garantia ainda\n"
+        "Comprei dia 30 de novembro 2025 está 99% de saúde da bateria\n"
+        "Não tem nenhum detalhe não tem nenhum defeito\n"
+        "Está com película de vidro e capinha\n"
+        "Face ID funciona td top o celular\n"
+        "Tem caixa e o negócio de tira o chip\n"
+        "Nunca foi trocado peça nada\n"
+        "Qual valor paga?",
+        image_description="Descrição visual da imagem recebida: fotos de um iPhone 16.",
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_processor_pauses_trade_in_conversation_after_sending_form():
     settings = Settings(
         database_url="sqlite:///:memory:",
