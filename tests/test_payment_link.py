@@ -183,3 +183,64 @@ async def test_online_card_specific_quantity_returns_full_link_comparison_table(
     assert "12x de" in reply
     assert "18x" not in reply
 
+
+@pytest.mark.asyncio
+async def test_link_installment_followup_keeps_link_context_after_link_table(tmp_path):
+    settings = Settings(
+        mercado_cache_ttl_seconds=60,
+        faq_path="data/faq.yaml",
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="15-pro-128-blue",
+            name="iPhone 15 Pro",
+            capacity="128 GB",
+            category="Celular",
+            price_brl=3460.0,
+            quantity=1,
+            availability="Disponivel para venda",
+            condition="seminovo",
+            battery_health=93,
+            search_text="iphone 15 pro 128 gb titanio azul celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Em 6 vezes quanto fica, e tem mais juros.",
+        history=[
+            {
+                "role": "user",
+                "content": "Queria pagar parcelado à distância pelo cartão.",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Para pagar parcelado à distância, usamos link de pagamento:\n"
+                    "1x de R$ 3.611,69\n"
+                    "2x de R$ 1.842,19\n"
+                    "3x de R$ 1.240,28\n"
+                    "4x de R$ 939,30\n"
+                    "5x de R$ 758,77\n"
+                    "6x de R$ 638,40\n"
+                    "12x de R$ 345,97\n"
+                    "O aparelho é o iPhone 15 Pro 128GB seminovo, por R$ 3.460,00 à vista."
+                ),
+            },
+        ],
+    )
+
+    reply = decision.reply
+    assert decision.handoff is False
+    assert "Valores calculados para pagamento pelo link de pagamento." in reply
+    assert "6x de R$ 638,40" in reply
+    assert "12x de R$ 345,97" in reply
+    assert "18x" not in reply
+    assert "Taxas do cartão na máquina física" not in reply
+

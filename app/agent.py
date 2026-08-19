@@ -1288,6 +1288,33 @@ def _is_payment_link_rate_request(text: str) -> bool:
     )
 
 
+def _has_payment_link_installment_context(history: list[dict[str, str]] | None) -> bool:
+    """Recognize a prior assistant answer that already selected link payment."""
+    for entry in reversed(history or []):
+        if entry.get("role") != "assistant":
+            continue
+        normalized = _normalize(entry.get("content", ""))
+        if not normalized or "link de pagamento" not in normalized:
+            continue
+        has_installment_table = bool(
+            re.search(r"\b(?:1[0-2]|[1-9])\s*x\s+de\b", normalized)
+        )
+        if has_installment_table or "simulacao do parcelamento pelo link" in normalized:
+            return True
+    return False
+
+
+def _is_payment_link_followup(text: str, history: list[dict[str, str]] | None) -> bool:
+    """Keep link mode for a short installment question after its link table."""
+    if _is_payment_link_request(text) or not _has_payment_link_installment_context(history):
+        return False
+    return (
+        _requested_installments(text) is not None
+        or _is_installment_rate_question(text)
+        or _is_full_installment_request(text)
+    )
+
+
 def _is_installment_rate_question(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or _is_payment_link_request(text):
@@ -2190,7 +2217,7 @@ class AgentService:
         text: str,
         history: list[dict[str, str]] | None,
     ) -> AgentDecision | None:
-        if not _is_payment_link_request(text):
+        if not (_is_payment_link_request(text) or _is_payment_link_followup(text, history)):
             return None
         query = _installment_context_query(text, history)
         if _has_installment_product_context(query):
