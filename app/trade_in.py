@@ -136,6 +136,10 @@ _BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_BARE_MODEL_EXCHANGE_RE = re.compile(
+    r"\b(?:na|para)\s+troca\b.{0,20}\b(?:um|uma)\s+\d{1,2}\b",
+    re.IGNORECASE,
+)
 _CATALOG_PRICE_RECALL_CONTEXT_RE = re.compile(
     r"\b(?:estava|tava)\s+vendo\b.{0,50}\b(?:celular|aparelho|iphone)\b"
     r".{0,50}\b(?:contigo|com\s+(?:voces|vcs)|na\s+loja)\b",
@@ -252,7 +256,11 @@ def _has_device_offer(text: str) -> bool:
     ) and (
         _has_personal_device_reference(text)
         or (
-            (_BARE_IPHONE_MODEL_RE.search(text) or _has_device_reference(text))
+            (
+                _BARE_IPHONE_MODEL_RE.search(text)
+                or _BARE_MODEL_EXCHANGE_RE.search(text)
+                or _has_device_reference(text)
+            )
             and _COMPLETE_DEVICE_DETAIL_RE.search(text)
             and not _NON_APPLE_RE.search(text)
         )
@@ -333,6 +341,8 @@ def _is_store_buyback_question(text: str) -> bool:
 
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
+    if _BARE_MODEL_EXCHANGE_RE.search(text) and _COMPLETE_DEVICE_DETAIL_RE.search(text):
+        return True
     if _has_complete_device_reference(text) and _BUYBACK_VERB_RE.search(text):
         return True
 
