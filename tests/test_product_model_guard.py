@@ -7,6 +7,7 @@ import pytest
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.agent import (
     AgentService,
+    _extract_budget_limit,
     _format_product_availability,
     _is_available_list_request,
     _is_product_availability_request,
@@ -70,6 +71,11 @@ def build_agent(tmp_path):
     )
     cache.last_refresh = time.time()
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+
+def test_delivery_deadline_is_not_parsed_as_budget_limit():
+    assert _extract_budget_limit("iPhone 17 com entrega em até 1 semana") is None
+    assert _extract_budget_limit("iPhone 17 até R$ 7.200,00") == 7200
 
 
 @pytest.mark.asyncio
@@ -1499,3 +1505,21 @@ async def test_price_validity_followup_answers_price_policy_instead_of_repeating
     assert "os precos podem ser alterados sem aviso previo" in reply
     assert "confirmacao deve ser feita no momento do atendimento" in reply
     assert "encontrei estas opcoes" not in reply
+
+
+@pytest.mark.asyncio
+async def test_price_increase_followup_does_not_turn_delivery_deadline_into_budget(tmp_path):
+    agent = _build_17_pro_price_followup_agent(tmp_path)
+    history = _price_followup_history()
+    history[1]["content"] += (
+        " São aparelhos por encomenda, com entrega em até 1 semana "
+        "e pagamento somente na entrega."
+    )
+
+    decision = await agent.respond("Aumentou o valor, né?", history=history)
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "os precos podem ser alterados sem aviso previo" in reply
+    assert "ate r$ 1,00" not in reply
+    assert "nao localizei aparelhos" not in reply

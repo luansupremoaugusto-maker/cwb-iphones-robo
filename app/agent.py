@@ -1316,6 +1316,12 @@ def _is_price_validity_question(text: str) -> bool:
             "preco mudou",
             "mudou o valor",
             "mudou o preco",
+            "valor aumentou",
+            "preco aumentou",
+            "aumentou o valor",
+            "aumentou o preco",
+            "subiu o valor",
+            "subiu o preco",
             "ainda esta valido",
             "ainda esta valendo",
         )
@@ -1491,6 +1497,17 @@ def _extract_budget_limit(text: str) -> float | None:
         return None
     amount = _parse_brl_amount(amount_match.group("value"))
     if amount is None:
+        return None
+    # Do not treat delivery deadlines, installment counts, or quantities as
+    # prices. This matters when a previous catalog answer is part of the
+    # follow-up context, for example: "entrega em até 1 semana".
+    suffix = normalized[marker.end() + amount_match.end() :]
+    if re.match(
+        r"\s*(?:x\b|semanas?\b|dias?\b|horas?\b|mes(?:es)?\b|"
+        r"vez(?:es)?\b|parcelas?\b|unidades?\b|aparelhos?\b|"
+        r"celulares?\b|telefones?\b|iphones?\b|gb\b|tb\b|%)",
+        suffix,
+    ):
         return None
     if amount_match.group("scale") and amount < 1000:
         amount *= 1000
