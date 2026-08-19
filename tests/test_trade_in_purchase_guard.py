@@ -88,6 +88,24 @@ def test_condition_question_with_product_photo_keeps_generic_handoff():
     assert decision.reply == CONDITION_HANDOFF_REPLY
 
 
+def test_non_apple_trade_in_cannot_be_rewritten_as_evaluation_form():
+    text = "Gostaria de saber se você pega Samsung na troca?"
+
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        [],
+    )
+
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+    assert "apple" in decision.reply.lower()
+
+
 def test_visual_port_question_does_not_keep_an_evaluation_form_from_the_model():
     text = "O que seria esse branco perto da entrada do carregador?"
     image_description = (

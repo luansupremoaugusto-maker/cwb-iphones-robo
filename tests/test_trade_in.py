@@ -147,6 +147,31 @@ def test_trade_in_guard_does_not_capture_purchase_stock_or_payment(text):
     assert is_trade_in_request(text) is False
 
 
+@pytest.mark.asyncio
+async def test_non_apple_exchange_question_returns_policy_reply_without_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond("Gostaria de saber se você pega Samsung na troca?")
+
+    assert decision.handoff is False
+    assert "somente produtos da apple" in decision.reply.lower()
+    assert "lista de avaliação" not in decision.reply.lower()
+
+
 @pytest.mark.parametrize(
     "text",
     [

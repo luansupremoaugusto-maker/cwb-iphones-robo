@@ -65,6 +65,10 @@ PARTS_BUYBACK_REPLY = (
     "N\u00e3o compramos pe\u00e7as avulsas. Compramos somente produtos completos da Apple, "
     "mediante avalia\u00e7\u00e3o."
 )
+NON_APPLE_TRADE_IN_REPLY = (
+    "No momento, avaliamos para troca somente produtos da Apple. "
+    "N\u00e3o aceitamos aparelhos de outras marcas na troca."
+)
 
 
 def _normalize(value: str | None) -> str:
@@ -113,6 +117,11 @@ _PARTS_RE = re.compile(
 _BUYBACK_VERB_RE = re.compile(
     r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
+    re.IGNORECASE,
+)
+_NON_APPLE_EXCHANGE_RE = re.compile(
+    r"\b(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
+    r"como\s+entrada|de\s+entrada|retoma\w*|retomar)\b",
     re.IGNORECASE,
 )
 _COMPLETE_DEVICE_DETAIL_RE = re.compile(
@@ -172,6 +181,17 @@ def is_catalog_price_recall_request(text: str | None) -> bool:
 
 def _has_device_reference(text: str) -> bool:
     return bool(_DEVICE_RE.search(text))
+
+
+def is_non_apple_trade_in_request(text: str | None) -> bool:
+    """Recognize a non-Apple buyback question before the LLM can offer a form."""
+    normalized = _normalize(text)
+    if not normalized or _APPLE_PRODUCT_RE.search(normalized):
+        return False
+    return bool(
+        _NON_APPLE_RE.search(normalized)
+        and (_BUYBACK_VERB_RE.search(normalized) or _NON_APPLE_EXCHANGE_RE.search(normalized))
+    )
 
 
 def _has_personal_device_reference(text: str) -> bool:

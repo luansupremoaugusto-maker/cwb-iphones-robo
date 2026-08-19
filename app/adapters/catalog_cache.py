@@ -36,7 +36,8 @@ def _score_text(value: Any) -> str:
 
 _MODEL_PATTERN = re.compile(
     r"\b(?:iphone\s*)?(?:(?P<number>\d{1,2})"
-    r"(?:\s*(?P<variant>pro\s+max|pro|max|plus|mini|air|e))?|"
+    r"(?:\s*(?P<variant>pro\s+max|pro|max|plus|mini|air|"
+    r"e(?!\s+(?:(?:o|a|um|uma)\s+)?(?:iphone\s*)?\d{1,2}\b)))?|"
     r"(?P<legacy>xr))\b",
     flags=re.IGNORECASE,
 )
