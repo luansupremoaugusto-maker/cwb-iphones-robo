@@ -79,6 +79,32 @@ def _build_agent(tmp_path) -> AgentService:
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+def _build_1tb_agent(tmp_path) -> AgentService:
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-1tb.json",
+        sealed_cache=SealedCatalog(),
+    )
+    cache.items = [
+        _used_15_pro_max(
+            "used-256",
+            "256GB",
+            4130.0,
+            "https://photos.example/15-pro-max-256.jpg",
+        ),
+        _used_15_pro_max(
+            "used-1tb",
+            "1TB",
+            4290.0,
+            "https://photos.example/15-pro-max-1tb.jpg",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+
 def _model_history() -> list[dict[str, str]]:
     return [
         {"role": "user", "content": "To vendo se vou pro 15 pro max"},
@@ -159,6 +185,35 @@ async def test_capacity_followup_sends_the_selected_used_phone_photos(tmp_path):
     assert decision.image_urls == ["https://photos.example/15-pro-max-256.jpg"]
     assert decision.product_references == ["9445935"]
     assert "15 pro max" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_batched_1tb_selection_and_payment_question_sends_1tb_photos(tmp_path):
+    agent = _build_1tb_agent(tmp_path)
+    history = [
+        {
+            "role": "user",
+            "content": "Pode me mandar fotos desse iPhone 15 Pro Max seminovo",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei o iPhone 15 Pro Max seminovo em 256GB e 1TB, "
+                "ambos com fotos cadastradas. Qual capacidade você quer?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "1TB\nVoces parcela?\nComo é a forma de pagamento? E quanto tempo chegaria pra mim?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == ["https://photos.example/15-pro-max-1tb.jpg"]
+    assert decision.product_references == ["used-1tb"]
+    assert "1tb" in decision.reply.lower()
+    assert "256gb" not in decision.reply.lower()
 
 
 @pytest.mark.asyncio
