@@ -3177,10 +3177,17 @@ class AgentService:
             return None
         if _is_sealed_photo_request(text):
             return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
-        query = _product_context_query(
-            _current_catalog_context(text, image_description),
-            history,
-        )
+        current_query = _current_catalog_context(text, image_description)
+        query = _product_context_query(current_query, history)
+        # A previous assistant answer can list several capacities. When the
+        # current turn contains one explicit choice, make that choice the
+        # first capacity seen by the photo resolver instead of letting the
+        # historical list select its first entry.
+        explicit_capacity_keys = _requested_capacity_keys(text)
+        if len(explicit_capacity_keys) != 1:
+            explicit_capacity_keys = _requested_capacity_keys(image_description or "")
+        if len(explicit_capacity_keys) == 1:
+            query = f"capacidade solicitada {explicit_capacity_keys[0]}\n{query}".strip()
         requested_condition = _requested_photo_condition(query)
         finder = getattr(self.cache, "find_product_photos", None)
 
