@@ -338,6 +338,42 @@ async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evalua
 
 
 @pytest.mark.asyncio
+async def test_part_payment_offer_with_bare_iphone_model_and_battery_health_returns_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Vocês trabalham com iPhone como parte do pagamento? "
+        "Tenho um 13 com 85% de saúde de bateria. Original, nunca aberto, comprei novo"
+    )
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Bom dia"},
+            {"role": "assistant", "content": "Bom dia! 😊 Como posso ajudar?"},
+        ],
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_device_offer_with_no_parts_or_damage_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
