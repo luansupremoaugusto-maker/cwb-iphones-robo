@@ -14,6 +14,9 @@ class EmptyMercadoClient:
 
 
 class AvailableCatalog:
+    async def search(self, query, limit=3):
+        return []
+
     async def list_available_products(self):
         return {
             "encontrado": True,
@@ -97,6 +100,21 @@ async def test_generic_payment_method_question_about_exchange_does_not_list_prod
     assert "cartao de debito" in reply
     assert "cartao de credito" in reply
     assert "lista completa de produtos" not in reply
+    assert "iphone 13 pro max" not in reply
+
+
+@pytest.mark.asyncio
+async def test_short_payment_how_it_works_question_does_not_handoff_as_device_doubt():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Pagamento\nComo funciona")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "pix" in reply
+    assert "cartao de debito" in reply
+    assert "cartao de credito" in reply
+    assert "duvidas sobre esse aparelho" not in reply
     assert "iphone 13 pro max" not in reply
 
 
