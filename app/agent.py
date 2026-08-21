@@ -1257,7 +1257,13 @@ def _is_payment_methods_question(text: str) -> bool:
     has_generic_payment_method_phrase = bool(
         re.search(r"\b(?:forma[s]?|metodo[s]?)\s+de\s+pagamento\b", normalized)
     )
-    if not has_method and not has_generic_payment_method_phrase:
+    has_short_payment_question = bool(
+        re.fullmatch(
+            r"(?:pagamento|pagamento\s+como\s+funciona|como\s+funciona(?:\s+o)?\s+pagamento)",
+            normalized,
+        )
+    )
+    if not has_method and not has_generic_payment_method_phrase and not has_short_payment_question:
         return False
     if has_cash_method and any(marker in normalized for marker in ("taxa", "taxas", "tarifa", "juros", "parcel")):
         return True
