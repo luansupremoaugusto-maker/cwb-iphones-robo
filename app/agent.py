@@ -19,6 +19,7 @@ from app.adapters.catalog_cache import (
     _is_sealed_accessory_item,
     _matches_requested_model,
     _model_key,
+    _requested_battery_health,
     _requested_iphone_model_keys,
     _requested_photo_condition,
 )
@@ -630,6 +631,25 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
 def _requested_capacity_key(text: str) -> str | None:
     keys = _requested_capacity_keys(text)
     return keys[0] if keys else None
+
+
+def _has_requested_catalog_color(text: str, items: list[Any]) -> bool:
+    """Return whether the query names a color present in its candidates."""
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    for item in items:
+        raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
+        if isinstance(raw_colors, (list, tuple, set)):
+            colors = raw_colors
+        else:
+            colors = re.split(r"\s*[|;/,]\s*", str(raw_colors or ""))
+        for value in colors:
+            color = _normalize(str(value or "")).strip()
+            if color and re.search(rf"(?<!\w){re.escape(color)}(?!\w)", normalized):
+                return True
+    return False
 
 
 def _capacity_key(value: Any) -> str | None:
@@ -3010,6 +3030,13 @@ class AgentService:
                 in requested_capacities
             ]
 
+        normalized_query = _normalize(query)
+        requested_conditions: set[str] = set()
+        if _has_sealed_reference(normalized_query):
+            requested_conditions.add("lacrado")
+        if _has_seminovo_reference(normalized_query):
+            requested_conditions.add("seminovo")
+
         if not public_candidates:
             alternative = await self._try_unavailable_lacrado_alternative(
                 query, requested_budget=requested_budget
@@ -3079,6 +3106,20 @@ class AgentService:
                     confidence="medium",
                 )
 
+            return_all_matching_units = (
+                len(requested_models) == 1
+                and bool(requested_conditions)
+                and requested_quantity is None
+                and _requested_battery_health(query) is None
+                and not _has_requested_catalog_color(query, public_candidates)
+            )
+
+            def condition_matches(item: Any) -> bool:
+                if not requested_conditions:
+                    return True
+                condition = "lacrado" if _is_sealed_item(item) else "seminovo"
+                return condition in requested_conditions
+
             def best_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
                 positive = [(score, item) for score, item in scored_items if score > 0]
                 if not positive:
@@ -3121,7 +3162,13 @@ class AgentService:
                     selected_by_model.extend(select_best_matches(model_matches))
                 return selected_by_model
 
-            if len(requested_capacities) > 1:
+            if return_all_matching_units:
+                selected = [
+                    item
+                    for score, item in scored
+                    if score > 0 and condition_matches(item)
+                ]
+            elif len(requested_capacities) > 1:
                 selected = []
                 for capacity in requested_capacities:
                     capacity_matches = [

@@ -1174,6 +1174,87 @@ async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_single_pro_max_value_question_returns_all_available_units(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-512",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="512GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5480,
+            battery_health=100,
+            search_text="iphone 16 pro max titanio deserto 512gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-a",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5500,
+            battery_health=100,
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-b",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5290,
+            battery_health=90,
+            # A valid unit must not disappear only because its searchable
+            # description has fewer lexical matches than another unit.
+            search_text="iphone 16 pro max preto 256gb celular",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Qual o valor do 16 pro max? Pode ser lacrado e semi novo",
+        history=[
+            {"role": "user", "content": "Olá, boa tarde"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Olá, boa tarde! Claro 😊 Qual modelo de iPhone você procura? "
+                    "Se puder, me informe também a capacidade e se prefere seminovo ou novo lacrado."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-512",
+        "iphone-16-pro-max-256-a",
+        "iphone-16-pro-max-256-b",
+    }
+    assert decision.reply.count("256GB") == 2
+    assert decision.reply.count("512GB") == 1
+
+
+@pytest.mark.asyncio
 async def test_shared_variant_question_returns_base_pro_and_pro_max(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
