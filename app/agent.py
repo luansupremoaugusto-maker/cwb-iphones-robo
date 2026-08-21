@@ -68,6 +68,11 @@ CATALOG_BUYER_DETAILS_REPLY = (
     "essas informações com você."
 )
 CATALOG_BUYER_DETAILS_REASON = "Dúvidas sobre detalhes de um aparelho disponível"
+CATALOG_PRICE_NEGOTIATION_REPLY = (
+    "Vou encaminhar sua pergunta sobre o valor desse aparelho para um atendente "
+    "confirmar essa negociação com você."
+)
+CATALOG_PRICE_NEGOTIATION_REASON = "Negociação de preço de aparelho disponível"
 CASE_ACCESSORY_REPLY = (
     "Sim 😊 Conseguimos capinhas, películas e protetores de câmera por R$ 10,00 cada."
 )
@@ -1071,6 +1076,84 @@ def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) ->
             )
         )
     return False
+
+
+_CATALOG_PRICE_NEGOTIATION_AMOUNT_RE = re.compile(
+    r"(?:\br\$\s*(?:\d{1,3}(?:[.,]\d{3})+|\d{3,5})(?:[.,]\d{1,2})?(?!\w)"
+    r"|(?:\d{1,3}(?:[.,]\d{3})+|\d{3,5})(?:[.,]\d{1,2})?\s*"
+    r"(?:\$|reais?|conto|mil|k)(?!\w))",
+    re.IGNORECASE,
+)
+_CATALOG_PRICE_NEGOTIATION_VERB_RE = re.compile(
+    r"\b(?:consegue|conseguem|faz|fazer|melhor(?:ar)?|negociar|negociacao)\b",
+    re.IGNORECASE,
+)
+_CATALOG_PRICE_DISCOUNT_RE = re.compile(
+    r"\b(?:descont\w*|abatimento|promoc\w*)\b"
+    r"|\b(?:preco|valor)\s+(?:mais\s+)?melhor\b"
+    r"|\bmelhor\s+(?:preco|valor)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_recent_catalog_sale_context(history: list[dict[str, str]] | None) -> bool:
+    for entry in reversed((history or [])[-8:]):
+        if entry.get("role") != "assistant" or not entry.get("content"):
+            continue
+        answer = _normalize(entry.get("content", ""))
+        if re.search(
+            r"\b(?:favor preencher lista de avaliacao|parte do pagamento|como entrada|"
+            r"para troca|na troca|compramos produtos|mediante avaliacao)\b",
+            answer,
+        ):
+            return False
+        return bool(
+            _has_product_reference(answer)
+            and any(
+                marker in answer
+                for marker in (
+                    "r$",
+                    "bateria",
+                    "disponivel",
+                    "disponibilidade",
+                    "capacidade",
+                    "gb",
+                    "seminovo",
+                    "lacrado",
+                )
+            )
+        )
+    return False
+
+
+def _is_catalog_price_negotiation(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a buyer negotiating a price already quoted by the store."""
+    normalized = _normalize(text)
+    if not normalized or not history:
+        return False
+    if trade_in_em_andamento(history) or is_trade_in_context_request(normalized, history):
+        return False
+    if _is_cash_discount_question(normalized):
+        return False
+    if re.search(r"\b(?:entrada|sinal|parcel\w*|parcelamento|restante)\b", normalized):
+        return False
+    if not _has_recent_catalog_sale_context(history):
+        return False
+
+    has_discount_request = bool(_CATALOG_PRICE_DISCOUNT_RE.search(normalized))
+    has_target_amount = bool(_CATALOG_PRICE_NEGOTIATION_AMOUNT_RE.search(normalized)) or bool(
+        re.search(
+            r"\b(?:faz|fazer|sair|sai|fica|ficar)\s+por\s+(?:r\$\s*)?"
+            r"(?:\d{1,3}(?:[.,]\d{3})+|\d{3,5})(?:[.,]\d{1,2})?\b",
+            normalized,
+        )
+    )
+    if not has_discount_request and not has_target_amount:
+        return False
+    return has_discount_request or bool(_CATALOG_PRICE_NEGOTIATION_VERB_RE.search(normalized))
 
 
 def _is_catalog_buyer_details_question(
@@ -2150,6 +2233,15 @@ class AgentService:
         catalog_price_recall_decision = await self._try_catalog_price_recall(combined_request)
         if catalog_price_recall_decision is not None:
             return protect_customer_decision(catalog_price_recall_decision)
+        if _is_catalog_price_negotiation(combined_request, history):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CATALOG_PRICE_NEGOTIATION_REPLY,
+                    handoff=True,
+                    handoff_reason=CATALOG_PRICE_NEGOTIATION_REASON,
+                    confidence="high",
+                )
+            )
         if (
             _is_catalog_buyer_details_question(combined_request, history)
             and not trade_in_em_andamento(history)
@@ -3552,6 +3644,18 @@ def _ensure_trade_in_form_before_handoff(
                 "reply": NON_APPLE_TRADE_IN_REPLY,
                 "handoff": False,
                 "handoff_reason": None,
+                "confidence": "high",
+            }
+        )
+
+    if not trade_in_em_andamento(history) and _is_catalog_price_negotiation(
+        request_context, history
+    ):
+        return decision.model_copy(
+            update={
+                "reply": CATALOG_PRICE_NEGOTIATION_REPLY,
+                "handoff": True,
+                "handoff_reason": CATALOG_PRICE_NEGOTIATION_REASON,
                 "confidence": "high",
             }
         )
