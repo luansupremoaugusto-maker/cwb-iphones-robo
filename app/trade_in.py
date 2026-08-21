@@ -143,6 +143,13 @@ _BARE_MODEL_EXCHANGE_RE = re.compile(
     r"\b(?:na|para)\s+troca\b.{0,20}\b(?:um|uma)\s+\d{1,2}\b",
     re.IGNORECASE,
 )
+_CATALOG_PURCHASE_ADVICE_RE = re.compile(
+    r"(?:\b(?:compensa|vale\s+a\s+pena)\b.{0,35}\b"
+    r"(?:pega\w*|compr\w*|levar\w*|ficar\s+com)\b"
+    r"|\b(?:pega\w*|compr\w*|levar\w*|ficar\s+com)\b.{0,35}\b"
+    r"(?:compensa|vale\s+a\s+pena)\b)",
+    re.IGNORECASE,
+)
 _CATALOG_PRICE_RECALL_CONTEXT_RE = re.compile(
     r"\b(?:estava|tava)\s+vendo\b.{0,50}\b(?:celular|aparelho|iphone)\b"
     r".{0,50}\b(?:contigo|com\s+(?:voces|vcs)|na\s+loja)\b",
@@ -184,6 +191,21 @@ def catalog_price_recall_amount(text: str | None) -> float | None:
 def is_catalog_price_recall_request(text: str | None) -> bool:
     """Recognize a remembered store product, not an offer of the customer's device."""
     return catalog_price_recall_amount(text) is not None
+
+
+def is_catalog_purchase_advice_request(text: str | None) -> bool:
+    """Recognize a buyer asking whether a catalog phone is worth buying."""
+    normalized = _normalize(text)
+    if not normalized or not _CATALOG_PURCHASE_ADVICE_RE.search(normalized):
+        return False
+    return not bool(
+        re.search(
+            r"\b(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
+            r"como\s+entrada|de\s+entrada|pagamento|entrada|vender|venda|"
+            r"avaliar|avaliacao|meu|minha|tenho|possuo|estou\s+com)\b",
+            normalized,
+        )
+    )
 
 
 def _has_device_reference(text: str) -> bool:
@@ -450,6 +472,8 @@ def is_trade_in_request(text: str | None) -> bool:
     if not normalized or normalized.startswith("[foto:"):
         return False
     if is_catalog_price_recall_request(normalized):
+        return False
+    if is_catalog_purchase_advice_request(normalized):
         return False
 
     if re.search(

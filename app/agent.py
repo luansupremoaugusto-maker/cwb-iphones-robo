@@ -50,6 +50,7 @@ from app.trade_in import (
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
+    is_catalog_purchase_advice_request,
     catalog_price_recall_amount,
     trade_in_em_andamento,
     is_purchase_without_trade_in_request,
@@ -1076,6 +1077,19 @@ def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) ->
             )
         )
     return False
+
+
+def _is_catalog_purchase_advice_question(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if not is_catalog_purchase_advice_request(text):
+        return False
+    if not history or trade_in_em_andamento(history):
+        return False
+    if is_trade_in_context_request(text, history):
+        return False
+    return _has_recent_catalog_product_context(history)
 
 
 _CATALOG_PRICE_NEGOTIATION_AMOUNT_RE = re.compile(
@@ -2239,6 +2253,15 @@ class AgentService:
                     reply=CATALOG_PRICE_NEGOTIATION_REPLY,
                     handoff=True,
                     handoff_reason=CATALOG_PRICE_NEGOTIATION_REASON,
+                    confidence="high",
+                )
+            )
+        if _is_catalog_purchase_advice_question(combined_request, history):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CATALOG_BUYER_DETAILS_REPLY,
+                    handoff=True,
+                    handoff_reason=CATALOG_BUYER_DETAILS_REASON,
                     confidence="high",
                 )
             )
@@ -3644,6 +3667,16 @@ def _ensure_trade_in_form_before_handoff(
                 "reply": NON_APPLE_TRADE_IN_REPLY,
                 "handoff": False,
                 "handoff_reason": None,
+                "confidence": "high",
+            }
+        )
+
+    if _is_catalog_purchase_advice_question(request_context, history):
+        return decision.model_copy(
+            update={
+                "reply": CATALOG_BUYER_DETAILS_REPLY,
+                "handoff": True,
+                "handoff_reason": CATALOG_BUYER_DETAILS_REASON,
                 "confidence": "high",
             }
         )
