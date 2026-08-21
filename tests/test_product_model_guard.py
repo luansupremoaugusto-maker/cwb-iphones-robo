@@ -7,6 +7,7 @@ import pytest
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.agent import (
     AgentService,
+    CATALOG_BUYER_DETAILS_REPLY,
     _extract_budget_limit,
     _format_product_availability,
     _is_available_list_request,
@@ -16,6 +17,7 @@ from app.agent import (
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
+from app.trade_in import is_trade_in_context_request, is_trade_in_request
 
 
 class EmptyMercadoClient:
@@ -793,6 +795,54 @@ async def test_catalog_price_recall_returns_available_iphone_instead_of_evaluati
     assert "IPHONE 12" in decision.reply.upper()
     assert "1.210,00" in decision.reply
     assert "lista de avaliacao" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_catalog_purchase_advice_about_xr_does_not_send_trade_in_form(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-xr-branco-64",
+            name="IPHONE XR",
+            category="Celular",
+            capacity="64GB",
+            color="BRANCO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=400,
+            battery_health=74,
+            source="mercado_phone",
+            search_text="iphone xr branco 64gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Tem o xr"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos sim 😊 iPhone XR branco, 64GB, seminovo, com 74% de saúde "
+                "da bateria, por R$ 400,00. Temos 1 aparelho disponível."
+            ),
+        },
+    ]
+    text = "Compensa pega ele em 2026"
+
+    decision = await agent.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.handoff is True
+    assert decision.reply == CATALOG_BUYER_DETAILS_REPLY
+    assert "lista de avaliacao" not in decision.reply.lower()
+    assert is_trade_in_request("Compensa pegar meu iPhone na troca?") is True
 
 
 @pytest.mark.asyncio

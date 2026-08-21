@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.agent import CATALOG_PRICE_NEGOTIATION_REPLY, _ensure_trade_in_form_before_handoff
+from app.agent import (
+    CATALOG_BUYER_DETAILS_REPLY,
+    CATALOG_PRICE_NEGOTIATION_REPLY,
+    _ensure_trade_in_form_before_handoff,
+)
 from app.schemas import AgentDecision
 from app.trade_in import (
     CONDITION_HANDOFF_REPLY,
@@ -91,6 +95,30 @@ def test_catalog_price_negotiation_cannot_keep_model_evaluation_form():
 
     assert decision.handoff is True
     assert decision.reply == CATALOG_PRICE_NEGOTIATION_REPLY
+    assert decision.reply != TRADE_IN_FORM
+
+
+def test_catalog_purchase_advice_cannot_keep_model_evaluation_form():
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        "Compensa pega ele em 2026",
+        [
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos sim um iPhone XR branco, 64GB, seminovo, com 74% de "
+                    "saúde da bateria, por R$ 400,00."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == CATALOG_BUYER_DETAILS_REPLY
     assert decision.reply != TRADE_IN_FORM
 
 
