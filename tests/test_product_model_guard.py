@@ -1477,6 +1477,60 @@ async def test_pix_discount_followup_answers_payment_policy_instead_of_repeating
 
 
 @pytest.mark.asyncio
+async def test_catalog_price_negotiation_does_not_send_trade_in_form(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-roxo-128",
+            name="IPHONE 14 PRO",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2930,
+            battery_health=85,
+            source="mercado_phone",
+            search_text="iphone 14 pro roxo profundo 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    history = [
+        {"role": "user", "content": "Estou interessado no Iphone 14 Pro"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos o iPhone 14 Pro seminovo 128GB, na cor Roxo Profundo, "
+                "com 85% de saúde da bateria, por R$ 2.930."
+            ),
+        },
+        {"role": "user", "content": "Gostaria de saber quais cores vocês tem no modelo"},
+        {"role": "assistant", "content": "No momento, temos disponível apenas na cor Roxo Profundo."},
+        {"role": "user", "content": "Sim"},
+        {"role": "user", "content": "Por gentileza"},
+        {
+            "role": "assistant",
+            "content": "Claro! Seguem as fotos do iPhone 14 Pro 128GB Roxo Profundo:",
+        },
+    ]
+
+    decision = await agent.respond("Você consegue fazer por 2.900$?", history=history)
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is True
+    assert "confirmar essa negociacao" in reply
+    assert "lista de avaliacao" not in reply
+
+
+@pytest.mark.asyncio
 async def test_pix_same_value_followup_answers_payment_policy_instead_of_repeating_catalog(tmp_path):
     agent = _build_17_pro_price_followup_agent(tmp_path)
 

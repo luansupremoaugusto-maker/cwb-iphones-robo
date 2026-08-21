@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.agent import _ensure_trade_in_form_before_handoff
+from app.agent import CATALOG_PRICE_NEGOTIATION_REPLY, _ensure_trade_in_form_before_handoff
 from app.schemas import AgentDecision
 from app.trade_in import (
     CONDITION_HANDOFF_REPLY,
@@ -63,6 +63,34 @@ def test_pix_pickup_price_offer_cannot_be_rewritten_as_trade_in_handoff():
     )
 
     assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+def test_catalog_price_negotiation_cannot_keep_model_evaluation_form():
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        "Você consegue fazer por 2.900$?",
+        [
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos o iPhone 14 Pro seminovo 128GB, na cor Roxo Profundo, "
+                    "com 85% de saúde da bateria, por R$ 2.930."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": "Claro! Seguem as fotos do iPhone 14 Pro 128GB Roxo Profundo:",
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == CATALOG_PRICE_NEGOTIATION_REPLY
     assert decision.reply != TRADE_IN_FORM
 
 
