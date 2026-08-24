@@ -32,8 +32,6 @@ from app.installments import (
     format_installment_rates,
     format_installment_result,
     format_installment_table,
-    format_link_installment_result,
-    format_link_installment_table,
 )
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision
@@ -192,15 +190,16 @@ REGRAS OBRIGATÓRIAS:
   uma quantidade específica, como 5x, 6x, 12x ou 18x: a quantidade é uma
   referência para a dúvida, não um filtro para esconder as demais opções.
   Não pergunte em quantas vezes o cliente quer parcelar. Se a pergunta mencionar
-  pagamento por link, use a tabela completa do link, limitada a 12x.
+  link de pagamento ou cartão online, informe que essa modalidade não é mais aceita
+  e não faça simulação ou cálculo de parcelas pelo link.
 - Se o cliente informar uma entrada à vista ou um sinal e quiser parcelar o
   restante, subtraia a entrada do preço total e use somente o saldo restante
   como base do cálculo. Use sempre simulate_all_installments_with_entry para
   enviar a tabela completa de 1x até 18x sobre o saldo. Nunca aplique as taxas
   sobre o preço cheio depois que uma entrada tiver sido informada.
-- As taxas fixas aprovadas valem para qualquer produto da loja, desde que exista
-  preço confirmado. Para lacrados, o preço vem da aba BOT; para os demais produtos,
-  o preço vem do catálogo do Mercado Phone.
+- Os valores de parcelamento no cartão da máquina física valem para qualquer produto
+  da loja, desde que exista preço confirmado. Para lacrados, o preço vem da aba BOT;
+  para os demais produtos, o preço vem do catálogo do Mercado Phone.
 - Se o cliente perguntar sobre nota fiscal, informe que podemos emitir nota fiscal
   para todos os produtos, sejam seminovos ou lacrados.
 - Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. PIX, dinheiro e
@@ -208,17 +207,10 @@ REGRAS OBRIGATÓRIAS:
   mais de um cartão de crédito na mesma compra e completar o valor com PIX,
   dinheiro ou cartão de débito.
 - O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar.
-- Só mencione link de pagamento se o cliente perguntar explicitamente sobre ele. Uma
-  pergunta sobre pagar com cartão de crédito online, à distância ou pela internet é
-  também uma pergunta sobre link de pagamento: explique que o cartão online é pago
-  por link e não encaminhe automaticamente para um atendente. Não ofereça nem sugira
-  link nas respostas gerais; preferimos o pagamento pela máquina física. Se o cliente
-  perguntar se fazemos link, responda que sim e que ele é uma segunda opção. Se
-  perguntar qual é a taxa ou o parcelamento do link, use as taxas aprovadas no tópico
-  taxas_link_pagamento e informe no máximo 12x. A regra de até 18x vale somente para
-  pagamento no cartão pela máquina física. Se o cliente já tiver identificado o produto,
-  use simulate_all_link_installments para enviar a tabela completa até 12x, sem
-  encaminhar automaticamente para um atendente.
+- Se o cliente perguntar sobre link de pagamento, cartão de crédito online, pagamento
+  à distância ou pela internet, informe que não aceitamos mais link de pagamento nem
+  pagamento por cartão online. Oriente para pagamento com cartão na máquina física,
+  PIX, dinheiro ou cartão de débito. Não informe percentuais de taxas.
 - Se o produto ou capacidade for ambíguo, peça a escolha antes de calcular.
 - Para pedidos específicos ambíguos, apresente no máximo três candidatos e peça
   modelo, capacidade, cor ou outro detalhe. Para pedidos genéricos, listas, faixa de
@@ -1322,9 +1314,9 @@ SEALED_PHOTO_REPLY = (
 
 
 PAYMENT_LINK_REPLY = (
-    "Sim. O pagamento por cartão de crédito online é feito por link de pagamento "
-    "quando necessário. Preferimos o pagamento pela máquina física; o link fica "
-    "como segunda opção."
+    "Não aceitamos mais link de pagamento nem pagamento por cartão de crédito online. "
+    "Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito na máquina física. "
+    "O cartão de crédito pode ser parcelado em até 18 vezes."
 )
 
 
@@ -1503,30 +1495,6 @@ def _is_payment_link_request(text: str) -> bool:
         "pagamento pela internet",
     )
     return any(phrase in normalized for phrase in phrases)
-
-
-def _is_payment_link_rate_request(text: str) -> bool:
-    normalized = _normalize(text)
-    if not normalized or not _is_payment_link_request(text):
-        return False
-    if re.search(r"\b(?:[1-9]|1[0-8])\s*x\b", normalized):
-        return True
-    return any(
-        phrase in normalized
-        for phrase in (
-            "taxa",
-            "tarifa",
-            "juros",
-            "quanto fica",
-            "qual o valor",
-            "qual valor",
-            "parcelamento",
-            "parcelar",
-            "simulacao",
-            "simular",
-            "em quantas",
-        )
-    )
 
 
 def _has_payment_link_installment_context(history: list[dict[str, str]] | None) -> bool:
@@ -1724,7 +1692,11 @@ def _has_installment_product_context(value: str) -> bool:
 def _has_installment_rate_prompt(history: list[dict[str, str]] | None) -> bool:
     return any(
         entry.get("role") == "assistant"
-        and "taxas do cartao na maquina fisica" in _normalize(entry.get("content", ""))
+        and (
+            "taxas do cartao na maquina fisica" in _normalize(entry.get("content", ""))
+            or "cartao de credito pode ser parcelado somente na maquina fisica"
+            in _normalize(entry.get("content", ""))
+        )
         and "qual modelo" in _normalize(entry.get("content", ""))
         for entry in (history or [])
     )
@@ -2153,28 +2125,6 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
         return json.dumps(result, ensure_ascii=False)
 
     @function_tool
-    async def simulate_all_link_installments(product_query: str) -> str:
-        """Calcula todas as parcelas de 1x a 12x usando as taxas do link."""
-        method = getattr(cache, "simulate_all_link_installments", None)
-        if not callable(method):
-            return json.dumps({"encontrado": False, "motivo": "Tabela do link indisponivel"})
-        result = await method(product_query)
-        if result.get("encontrado"):
-            result["mensagem_pronta"] = format_link_installment_table(result)
-        return json.dumps(result, ensure_ascii=False)
-
-    @function_tool
-    async def simulate_link_installments(product_query: str, installments: int) -> str:
-        """Simula uma quantidade de 1x a 12x usando as taxas do link."""
-        method = getattr(cache, "simulate_link_installment", None)
-        if not callable(method):
-            return json.dumps({"encontrado": False, "motivo": "Calculo do link indisponivel"})
-        result = await method(product_query, installments)
-        if result.get("encontrado"):
-            result["mensagem_pronta"] = format_link_installment_result(result)
-        return json.dumps(result, ensure_ascii=False)
-
-    @function_tool
     async def simulate_all_installments_with_entry(product_query: str, entry_amount_brl: float) -> str:
         """Calcula 1x a 18x sobre o saldo que sobra depois de uma entrada à vista."""
         method = getattr(cache, "simulate_all_installments_with_entry", None)
@@ -2229,7 +2179,6 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
             list_available_products,
             get_product_photos,
             simulate_all_installments,
-            simulate_all_link_installments,
             simulate_all_installments_with_entry,
             get_store_information,
         ],
@@ -2514,40 +2463,6 @@ class AgentService:
     ) -> AgentDecision | None:
         if not (_is_payment_link_request(text) or _is_payment_link_followup(text, history)):
             return None
-        query = _installment_context_query(text, history)
-        if _has_installment_product_context(query):
-            method_name = "simulate_all_link_installments"
-            method_args = (query,)
-            formatter = format_link_installment_table
-
-            method = getattr(self.cache, method_name, None)
-            if callable(method):
-                try:
-                    result = await method(*method_args)
-                except Exception:
-                    result = None
-                if result and result.get("encontrado"):
-                    intro = (
-                        "Para pagamento online, o cart\u00e3o \u00e9 passado pelo link de pagamento. "
-                        "Segue a simula\u00e7\u00e3o do parcelamento pelo link (at\u00e9 12x):"
-                    )
-                    return AgentDecision(
-                        reply=self._append_delivery_or_pickup_info(
-                            f"{intro}\n\n{formatter(result)}",
-                            text,
-                        ),
-                        confidence="high",
-                    )
-        if _is_payment_link_rate_request(text):
-            rates = self.faq.get("taxas_link_pagamento")
-            if rates:
-                return AgentDecision(
-                    reply=self._append_delivery_or_pickup_info(
-                        f"{PAYMENT_LINK_REPLY}\n\n{rates}",
-                        text,
-                    ),
-                    confidence="high",
-                )
         reply = self.faq.get("link_pagamento") or PAYMENT_LINK_REPLY
         return AgentDecision(
             reply=self._append_delivery_or_pickup_info(reply, text),

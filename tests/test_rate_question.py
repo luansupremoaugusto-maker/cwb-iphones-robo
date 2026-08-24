@@ -66,16 +66,18 @@ def build_rate_agent(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_generic_rate_question_returns_machine_rates_and_asks_model(tmp_path):
+async def test_generic_rate_question_avoids_percentage_disclosure_and_asks_model(tmp_path):
     agent = build_empty_agent(tmp_path)
 
     decision = await agent.respond("Mas possuem a taxa?")
 
     reply = decision.reply.lower()
     assert decision.handoff is False
-    assert "taxas do cart\u00e3o na m\u00e1quina f\u00edsica" in reply
-    assert "1x: 4,95%" in reply
-    assert "18x: 19,20%" in reply
+    assert "cart\u00e3o de cr\u00e9dito" in reply
+    assert "m\u00e1quina f\u00edsica" in reply
+    assert "%" not in decision.reply
+    assert "4,95%" not in decision.reply
+    assert "19,20%" not in decision.reply
     assert "qual modelo e capacidade voc\u00ea gostaria de simular" in reply
     assert "taxas do link" not in reply
 

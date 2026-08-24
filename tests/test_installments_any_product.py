@@ -81,5 +81,5 @@ async def test_installment_rates_apply_to_seminovo_mercado_phone_product(tmp_pat
     assert simulation["condicao"] == "seminovo"
     assert simulation["fonte_preco"] == "catálogo Mercado Phone"
     assert simulation["preco_avista_brl"] == 1600.0
-    assert simulation["taxa_percentual"] == 19.2
+    assert "taxa_percentual" not in simulation
     assert simulation["valor_parcela_brl"] == 110.01

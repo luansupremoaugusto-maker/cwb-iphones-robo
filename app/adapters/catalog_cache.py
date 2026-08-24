@@ -8,8 +8,6 @@ from app.adapters.mercado_phone import InventoryCache, score_item
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS, extract_file_urls, list_product_files
 from app.config import Settings
 from app.installments import (
-    simulate_link_installment,
-    simulate_link_installment_table,
     simulate_installment,
     simulate_installment_table,
     simulate_installment_table_with_entry,
@@ -768,20 +766,6 @@ class StoreCatalogCache(InventoryCache):
         if error:
             return error
         result = simulate_installment_table(item)
-        return self._add_price_source(result, item)
-
-    async def simulate_link_installment(self, query: str, installments: int) -> dict[str, Any]:
-        item, error = await self._select_priced_candidate(query)
-        if error:
-            return error
-        result = simulate_link_installment(item, int(installments))
-        return self._add_price_source(result, item)
-
-    async def simulate_all_link_installments(self, query: str) -> dict[str, Any]:
-        item, error = await self._select_priced_candidate(query)
-        if error:
-            return error
-        result = simulate_link_installment_table(item)
         return self._add_price_source(result, item)
 
     async def simulate_installment_with_entry(

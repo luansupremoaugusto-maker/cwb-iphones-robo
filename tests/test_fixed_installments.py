@@ -18,7 +18,7 @@ def test_fixed_installment_rates_match_approved_table():
     result = simulate_installment(item, 18)
 
     assert result["encontrado"] is True
-    assert result["taxa_percentual"] == 19.2
+    assert "taxa_percentual" not in result
     assert result["valor_parcela_brl"] == 110.01
 
 

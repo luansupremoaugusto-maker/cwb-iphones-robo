@@ -97,7 +97,7 @@ async def test_sheet_cache_simulates_installment_and_catalog_search(tmp_path):
     assert products[0].name == "iPhone 15"
     assert simulation["encontrado"] is True
     assert simulation["valor_parcela_brl"] == 275.03
-    assert simulation["taxa_percentual"] == 19.2
+    assert "taxa_percentual" not in simulation
 
 
 def test_disabled_sheet_cache_does_not_load_persisted_products(tmp_path):

@@ -64,7 +64,9 @@ async def test_payment_and_delivery_batch_answers_both_questions(tmp_path):
 
     reply = decision.reply
     assert decision.handoff is False
-    assert "simulação do parcelamento pelo link" in reply.lower()
+    assert "não aceitamos mais link de pagamento" in reply.lower()
+    assert "simulação do parcelamento pelo link" not in reply.lower()
+    assert "%" not in reply
     assert "Enviamos para Curitiba e região por motoboy" in reply
     assert "Fazemos retirada na loja com horário marcado" in reply
 
@@ -79,7 +81,7 @@ async def test_delivery_followup_answers_without_handoff_after_payment_batch(tmp
             {"role": "user", "content": "Fazem link de pagamento?"},
             {
                 "role": "assistant",
-                "content": "Para pagamento online, o cartão é passado pelo link de pagamento.",
+                "content": "Não aceitamos mais link de pagamento; aceitamos cartão na máquina física.",
             },
         ],
     )
