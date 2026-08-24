@@ -1717,7 +1717,7 @@ async def test_price_increase_followup_does_not_turn_delivery_deadline_into_budg
     history = _price_followup_history()
     history[1]["content"] += (
         " São aparelhos por encomenda, com entrega em até 1 semana "
-        "e pagamento somente na entrega."
+        "e pagamento antecipado antes do despacho."
     )
 
     decision = await agent.respond("Aumentou o valor, né?", history=history)
