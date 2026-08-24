@@ -236,3 +236,73 @@ async def test_photo_request_for_unavailable_model_continues_with_stock_alternat
     assert "não localizei o iphone 13 disponível no estoque" in reply
     assert "15 pro max" in reply
     assert "atendente" not in reply
+
+
+@pytest.mark.asyncio
+async def test_typo_photo_request_for_listed_16_pro_max_sends_all_same_capacity_units(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-16-pro-max.json",
+        sealed_cache=SealedCatalog(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-deserto-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5500.0,
+            battery_health=100,
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+            photo_urls=["https://photos.example/16-pro-max-deserto-256.jpg"],
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-preto-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5280.0,
+            battery_health=89,
+            search_text="iphone 16 pro max titanio preto 256gb celular seminovo",
+            photo_urls=["https://photos.example/16-pro-max-preto-256.jpg"],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quero doto do 16 pro Max",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "IPHONE 16 PRO MAX\n"
+                    "• - TITÂNIO DESERTO - 256GB - SEMINOVO — R$ 5.500,00 | Bat: 100%\n"
+                    "• - TITÂNIO PRETO - 256GB - SEMINOVO — R$ 5.280,00 | Bat: 89%"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [
+        "https://photos.example/16-pro-max-deserto-256.jpg",
+        "https://photos.example/16-pro-max-preto-256.jpg",
+    ]
+    assert decision.product_references == [
+        "iphone-16-pro-max-deserto-256",
+        "iphone-16-pro-max-preto-256",
+    ]
+    assert "não encontrei fotos" not in decision.reply.lower()

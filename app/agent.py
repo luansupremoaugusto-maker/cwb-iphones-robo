@@ -1266,7 +1266,11 @@ def _is_photo_request(text: str) -> bool:
         return False
     if _is_photo_retry_request(text):
         return True
-    has_photo_word = any(word in normalized for word in ("foto", "fotos", "imagem", "imagens"))
+    # "doto" is a common WhatsApp typo for "foto"; keep the correction local
+    # to photo intent so it cannot alter unrelated catalog queries.
+    has_photo_word = any(
+        word in normalized for word in ("foto", "fotos", "doto", "imagem", "imagens")
+    )
     has_photo_abbreviation = bool(re.search(r"\bfts?\b", normalized))
     if not has_photo_word and not has_photo_abbreviation:
         return False
@@ -3479,6 +3483,35 @@ class AgentService:
         items = [item for item in items if condition_matches(item)]
         if items:
             if len(items) > 1:
+                capacities = {
+                    _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                    for item in items
+                }
+                approved_urls = [
+                    url
+                    for item in items
+                    for url in (getattr(item, "photo_urls", []) or [])
+                    if isinstance(url, str) and url
+                ]
+                if (
+                    len(capacities) == 1
+                    and None not in capacities
+                    and not any(_is_sealed_item(item) for item in items)
+                    and not _has_requested_catalog_color(current_query, items)
+                    and len(approved_urls) == sum(
+                        len(getattr(item, "photo_urls", []) or []) for item in items
+                    )
+                    and approved_urls
+                ):
+                    return AgentDecision(
+                        reply=(
+                            f"Claro! Seguem as fotos do {items[0].name} "
+                            f"{items[0].capacity}."
+                        ),
+                        image_urls=list(dict.fromkeys(approved_urls))[:MAX_PRODUCT_PHOTOS],
+                        product_references=[item.external_id for item in items],
+                        confidence="high",
+                    )
                 return ambiguous_reply(items)
             selected = items[0]
             if _is_made_to_order_sealed_item(selected):
