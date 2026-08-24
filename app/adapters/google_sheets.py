@@ -411,7 +411,6 @@ class GoogleSheetsCache:
             "capacidade": item.capacity,
             "preco_avista_brl": round(item.price_brl, 2),
             "vezes": int(installments),
-            "taxa_percentual": round(rate * 100, 2),
             "valor_total_brl": round(total, 2),
             "valor_parcela_brl": round(installment, 2),
         }

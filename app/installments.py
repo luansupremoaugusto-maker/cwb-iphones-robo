@@ -27,17 +27,11 @@ FIXED_INSTALLMENT_RATES: dict[int, float] = {
 
 
 def format_installment_rates() -> str:
-    lines = ["Taxas do cart\u00e3o na m\u00e1quina f\u00edsica:"]
-    for count, rate in FIXED_INSTALLMENT_RATES.items():
-        percent = f"{rate * 100:.2f}".replace(".", ",")
-        lines.append(f"{count}x: {percent}%")
-    lines.extend(
-        [
-            "",
-            "Qual modelo e capacidade voc\u00ea gostaria de simular?",
-        ]
+    return (
+        "O cart\u00e3o de cr\u00e9dito pode ser parcelado somente na m\u00e1quina f\u00edsica, "
+        "em at\u00e9 18 vezes. O valor depende do aparelho e da quantidade de parcelas.\n\n"
+        "Qual modelo e capacidade voc\u00ea gostaria de simular?"
     )
-    return "\n".join(lines)
 
 
 def _simulate_for_price(item: Any, price: float, installments: int) -> dict[str, Any]:
@@ -53,7 +47,6 @@ def _simulate_for_price(item: Any, price: float, installments: int) -> dict[str,
         "capacidade": item.capacity,
         "preco_avista_brl": round(price, 2),
         "vezes": count,
-        "taxa_percentual": round(rate * 100, 2),
         "valor_total_brl": round(total, 2),
         "valor_parcela_brl": round(total / count, 2),
     }
@@ -190,95 +183,4 @@ def format_installment_table(result: dict[str, Any]) -> str:
         )
     lines.append("")
     lines.append("Valores calculados para pagamento no cartão de crédito.")
-    return "\n".join(lines)
-
-LINK_INSTALLMENT_RATES: dict[int, float] = {
-    1: 0.0420,
-    2: 0.0609,
-    3: 0.0701,
-    4: 0.0791,
-    5: 0.0880,
-    6: 0.0967,
-    7: 0.1259,
-    8: 0.1342,
-    9: 0.1425,
-    10: 0.1506,
-    11: 0.1587,
-    12: 0.1666,
-}
-
-
-def _simulate_link_for_price(item: Any, price: float, installments: int) -> dict[str, Any]:
-    count = int(installments)
-    if count not in LINK_INSTALLMENT_RATES:
-        return {"encontrado": False, "motivo": "O parcelamento pelo link deve estar entre 1x e 12x"}
-
-    rate = LINK_INSTALLMENT_RATES[count]
-    total = price / (1 - rate)
-    return {
-        "encontrado": True,
-        "nome": item.name,
-        "capacidade": item.capacity,
-        "preco_avista_brl": round(price, 2),
-        "vezes": count,
-        "taxa_percentual": round(rate * 100, 2),
-        "valor_total_brl": round(total, 2),
-        "valor_parcela_brl": round(total / count, 2),
-    }
-
-
-def simulate_link_installment(item: Any, installments: int) -> dict[str, Any]:
-    price = item.price_brl
-    if price is None:
-        return {
-            "encontrado": False,
-            "motivo": "Produto sem preco confirmado para parcelamento pelo link",
-        }
-    return _simulate_link_for_price(item, float(price), installments)
-
-
-def simulate_link_installment_table(item: Any) -> dict[str, Any]:
-    price = item.price_brl
-    if price is None:
-        return {
-            "encontrado": False,
-            "motivo": "Produto sem preco confirmado para parcelamento pelo link",
-        }
-
-    rows = [_simulate_link_for_price(item, float(price), count) for count in range(1, 13)]
-    return {
-        "encontrado": True,
-        "nome": item.name,
-        "capacidade": item.capacity,
-        "preco_avista_brl": round(float(price), 2),
-        "parcelas": rows,
-    }
-
-
-def format_link_installment_result(result: dict[str, Any]) -> str:
-    if not result.get("encontrado"):
-        return str(result.get("motivo") or "Nao foi possivel calcular o parcelamento pelo link.")
-    row = result
-    lines = _format_header(result)
-    lines.append(
-        f"{row['vezes']}x de {format_brl(float(row['valor_parcela_brl']))} "
-        f"(total {format_brl(float(row['valor_total_brl']))})"
-    )
-    lines.append("")
-    lines.append("Valores calculados para pagamento pelo link de pagamento.")
-    return "\n".join(lines)
-
-
-def format_link_installment_table(result: dict[str, Any]) -> str:
-    if not result.get("encontrado"):
-        return str(result.get("motivo") or "Nao foi possivel calcular o parcelamento pelo link.")
-
-    lines = _format_header(result)
-    for row in result.get("parcelas", []):
-        lines.append(
-            f"{row['vezes']}x de {format_brl(float(row['valor_parcela_brl']))} "
-            f"(total {format_brl(float(row['valor_total_brl']))})"
-        )
-    lines.append("")
-    lines.append("Valores calculados para pagamento pelo link de pagamento.")
     return "\n".join(lines)

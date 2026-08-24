@@ -21,22 +21,7 @@ topics:
   retirada: "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
   entrega: "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser antecipado antes do despacho. Taxa e prazo devem ser cotados com um atendente."
   lacrado: "Trabalhamos com aparelhos novos lacrados por encomenda. O prazo de entrega é de 1 semana e o pagamento pode ser feito somente na hora da entrega. Eles acompanham apenas o cabo original que já vem dentro da caixa."
-  link_pagamento: "Sim. O pagamento por cartão de crédito online é feito por link de pagamento quando necessário. Preferimos o pagamento pela máquina física; o link fica como segunda opção."
-  taxas_link_pagamento: |
-    Taxas do link de pagamento:
-    Pix: grátis
-    Crédito à vista: 4,20%
-    2x: 6,09%
-    3x: 7,01%
-    4x: 7,91%
-    5x: 8,80%
-    6x: 9,67%
-    7x: 12,59%
-    8x: 13,42%
-    9x: 14,25%
-    10x: 15,06%
-    11x: 15,87%
-    12x: 16,66%
+  link_pagamento: "Não aceitamos mais link de pagamento nem pagamento por cartão de crédito online. Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito na máquina física. O cartão de crédito pode ser parcelado em até 18 vezes."
   pagamento: "Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. PIX, dinheiro e cartão de débito têm pagamento integral à vista, sem taxas. O cliente pode pagar a mesma compra usando mais de um cartão de crédito, se desejar. O cartão de crédito pode ser parcelado em até 18 vezes na máquina física. Não parcelamos no boleto ou PIX e não aceitamos cartão Senff."
   cartoes: "Aceitamos cartão de débito para pagamento integral à vista, sem taxas. No cartão de crédito, o cliente pode pagar a mesma compra usando mais de um cartão, se desejar."
   parcelamento: "Parcelamos no cartão de crédito em até 18 vezes. Se desejar, o cliente pode pagar a mesma compra usando mais de um cartão de crédito. PIX, dinheiro e cartão de débito são pagamentos integrais à vista, sem taxas. Não parcelamos no boleto ou PIX."

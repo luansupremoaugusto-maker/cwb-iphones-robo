@@ -1,15 +1,15 @@
 # Robô de atendimento WhatsApp
 
 Serviço FastAPI para a CWB.IPHONES, com Z-API, Mercado Phone somente leitura,
-preços de lacrados vindos do Google Sheets, taxas de parcelamento fixas no robô,
-OpenAI Agents SDK, PostgreSQL e processamento assíncrono por worker.
+preços de lacrados vindos do Google Sheets, cálculo de parcelamento no cartão da
+máquina física, OpenAI Agents SDK, PostgreSQL e processamento assíncrono por worker.
 
 ## Fontes de dados
 
 - Mercado Phone: estoque, disponibilidade, informações do catálogo e anexos/fotos
   dos produtos por `POST` de listagem, sem nenhuma operação de alteração.
 - Google Sheets: aba `BOT` para preços de aparelhos novos lacrados.
-- `app/installments.py`: taxas fixas de parcelamento de 1x a 18x.
+- `app/installments.py`: cálculo interno do parcelamento de 1x a 18x na máquina física.
 - `data/faq.yaml`: endereço, horários, entrega, pagamento, garantia e política
   de atendimento.
 
@@ -67,8 +67,8 @@ opção CSV.
 
 O worker atualiza o cache de preços a cada hora. O preço do lacrado vem da aba
 `BOT`; o estoque não é deduzido da planilha e continua sendo conferido no
-Mercado Phone. As taxas de parcelamento são fixas no robô e não dependem da
-planilha.
+Mercado Phone. Os valores de parcelamento são calculados pelo robô e não dependem
+da planilha.
 
 ## Fotos dos produtos
 
