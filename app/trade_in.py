@@ -143,6 +143,14 @@ _BARE_MODEL_EXCHANGE_RE = re.compile(
     r"\b(?:na|para)\s+troca\b.{0,20}\b(?:um|uma)\s+\d{1,2}\b",
     re.IGNORECASE,
 )
+_BARE_MODEL_EXCHANGE_OFFER_RE = re.compile(
+    r"\b(?:aceita(?:m)?|peg(?:a|am|amos)|pegm|receb(?:e|em|emos)|"
+    r"avali(?:a|am|amos))\b.{0,55}"
+    r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b"
+    r".{0,80}\b(?:parte\s+do\s+pagamento|como\s+entrada|de\s+entrada|"
+    r"entrada|na\s+troca|para\s+troca|troca)\b",
+    re.IGNORECASE,
+)
 _CATALOG_PURCHASE_ADVICE_RE = re.compile(
     r"(?:\b(?:compensa|vale\s+a\s+pena)\b.{0,35}\b"
     r"(?:pega\w*|compr\w*|levar\w*|ficar\s+com)\b"
@@ -262,6 +270,9 @@ def _has_device_offer(text: str) -> bool:
     ) and _APPLE_PRODUCT_RE.search(text):
         return True
 
+    if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
+        return True
+
     # Customers commonly state ownership before the sale intent: "tenho um
     # iPhone 11 Pro Max para vender". Keep this ahead of the stock guard below
     # so the model number is not routed as a catalog lookup.
@@ -366,6 +377,8 @@ def _is_store_buyback_question(text: str) -> bool:
 
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
+    if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
+        return True
     if _BARE_MODEL_EXCHANGE_RE.search(text) and _COMPLETE_DEVICE_DETAIL_RE.search(text):
         return True
     if _has_complete_device_reference(text) and _BUYBACK_VERB_RE.search(text):
