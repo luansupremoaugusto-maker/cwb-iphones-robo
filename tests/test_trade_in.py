@@ -338,6 +338,36 @@ async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evalua
 
 
 @pytest.mark.asyncio
+async def test_batched_16_pro_entry_offer_with_battery_returns_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Você aceitam 16 pro 91% bateria Preto zerado\nEntrada"
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Qual valor do iPhone 17 pro?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de iPhone 17 Pro disponíveis:\n"
+                    "• iPhone 17 Pro — Laranja-cósmico | Azul-intenso | Prateado — "
+                    "512 GB — NOVO LACRADO"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_part_payment_offer_with_bare_iphone_model_and_battery_health_returns_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
