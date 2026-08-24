@@ -90,3 +90,32 @@ async def test_delivery_followup_answers_without_handoff_after_payment_batch(tmp
     assert decision.handoff is False
     assert "Enviamos para Curitiba e região por motoboy" in reply
     assert "Fazemos retirada na loja com horário marcado" not in reply
+
+
+@pytest.mark.asyncio
+async def test_sealed_shipping_followup_requires_advance_payment(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Vocês conseguem me mandar?",
+        history=[
+            {
+                "role": "user",
+                "content": "Vocês vendem iPhone novo? Pronta entrega? Quais os valores?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, "
+                    "enviamos por Sedex. O pagamento deve ser antecipado antes do despacho."
+                ),
+            },
+        ],
+    )
+
+    reply = decision.reply.lower()
+    assert decision.handoff is False
+    assert "enviamos para curitiba e região por motoboy" in reply
+    assert "para fora de curitiba, enviamos por sedex" in reply
+    assert "pagamento deve ser antecipado antes do despacho" in reply
+    assert "hora da entrega" not in reply

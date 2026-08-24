@@ -11,4 +11,8 @@ def test_lacrado_faq_contains_order_deadline_and_delivery_payment():
 
     assert "por encomenda" in answer
     assert "1 semana" in answer
-    assert "somente na hora da entrega" in answer
+    assert "pagamento deve ser antecipado antes do despacho" in answer
+    assert "hora da entrega" not in answer
+
+    pickup_answer = faq.get("retirada")
+    assert "hora da retirada" in pickup_answer

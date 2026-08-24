@@ -126,9 +126,10 @@ REGRAS OBRIGATÓRIAS:
   informe isso e ofereca as alternativas retornadas pelo catalogo, sem
   encaminhar automaticamente para um atendente.
 - Para aparelhos novos lacrados, informe que trabalhamos por encomenda, com prazo
-  de entrega de 1 semana e pagamento somente na hora da entrega. Essa regra
-  específica prevalece sobre a regra geral de entrega; consulte o FAQ no tópico
-  lacrado/lacrados quando a pergunta for sobre esse tipo de aparelho.
+  de entrega de 1 semana. Em qualquer envio, inclusive por motoboy ou Sedex,
+  o pagamento deve ser antecipado antes do despacho. Somente na retirada na loja
+  o pagamento é feito na hora. Nunca diga que um lacrado pode ser pago na entrega
+  quando o cliente estiver pedindo envio.
 - Quando o cliente perguntar sobre garantia, responda diretamente: produtos
   seminovos têm garantia de 90 dias e produtos novos lacrados têm garantia de
   1 ano pela Apple. Se a pergunta mencionar o produto ou o contexto deixar claro
@@ -694,6 +695,42 @@ def _is_delivery_or_pickup_request(text: str) -> bool:
     return has_delivery or has_pickup
 
 
+def _has_delivery_context(history: list[dict[str, str]] | None) -> bool:
+    delivery_markers = (
+        "enviamos para curitiba",
+        "por motoboy",
+        "por sedex",
+        "pagamento deve ser antecipado antes do despacho",
+    )
+    return any(
+        entry.get("role") == "assistant"
+        and any(marker in _normalize(entry.get("content", "")) for marker in delivery_markers)
+        for entry in (history or [])
+    )
+
+
+def _is_delivery_followup_request(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Keep a short shipping confirmation in the delivery flow after the FAQ answer."""
+    normalized = _normalize(text)
+    if not normalized or not _has_delivery_context(history):
+        return False
+    if re.search(
+        r"\b(?:foto|fotos|imagem|imagens|valor|preco|precos|link|dados|"
+        r"informacao|informacoes|detalhes)\b",
+        normalized,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:conseguem?|podem?|poderiam?)\s+(?:me\s+)?(?:mandar|enviar)\b",
+            normalized,
+        )
+    )
+
+
 def _is_explicit_human_request(text: str) -> bool:
     normalized = _normalize(text)
     return bool(
@@ -703,10 +740,15 @@ def _is_explicit_human_request(text: str) -> bool:
     )
 
 
-def _delivery_or_pickup_reply(faq: FAQStore, text: str) -> str:
+def _delivery_or_pickup_reply(
+    faq: FAQStore,
+    text: str,
+    *,
+    force_delivery: bool = False,
+) -> str:
     normalized = _normalize(text)
     replies: list[str] = []
-    if re.search(r"\b(?:entrega|entregam|entregas)\b", normalized):
+    if force_delivery or re.search(r"\b(?:entrega|entregam|entregas)\b", normalized):
         replies.append(
             faq.get("entrega")
             or "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
@@ -716,7 +758,7 @@ def _delivery_or_pickup_reply(faq: FAQStore, text: str) -> str:
     ):
         replies.append(
             faq.get("retirada")
-            or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da entrega."
+            or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da retirada."
         )
     return "\n\n".join(reply for reply in replies if reply)
 
@@ -2052,7 +2094,11 @@ def _format_available_products(result: dict[str, Any]) -> str:
     if lacrados:
         lines.extend(["", "📦 Novos lacrados por encomenda:"])
         lines.extend(grouped_lines(lacrados))
-        lines.append("\nOs lacrados são por encomenda, com prazo de 1 semana e pagamento somente na hora da entrega.")
+        lines.append(
+            "\nOs lacrados são por encomenda, com prazo de 1 semana. Em qualquer envio, "
+            "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
+            "despacho; na retirada na loja, o pagamento é feito na hora."
+        )
     if not seminovos and not lacrados:
         return "No momento não localizei modelos disponíveis para informar. Vou encaminhar para um atendente confirmar."
     return "\n".join(lines)
@@ -2306,7 +2352,7 @@ class AgentService:
         if payment_methods_decision is not None:
             return protect_customer_decision(payment_methods_decision)
 
-        delivery_pickup_decision = self._try_delivery_or_pickup(text)
+        delivery_pickup_decision = self._try_delivery_or_pickup(text, history)
         if delivery_pickup_decision is not None:
             return protect_customer_decision(delivery_pickup_decision)
 
@@ -2516,14 +2562,19 @@ class AgentService:
             return reply
         return f"{reply}\n\n{information}"
 
-    def _try_delivery_or_pickup(self, text: str) -> AgentDecision | None:
+    def _try_delivery_or_pickup(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> AgentDecision | None:
+        delivery_followup = _is_delivery_followup_request(text, history)
         if (
-            not _is_delivery_or_pickup_request(text)
+            not (_is_delivery_or_pickup_request(text) or delivery_followup)
             or _is_explicit_human_request(text)
             or _is_physical_store_request(text)
         ):
             return None
-        reply = _delivery_or_pickup_reply(self.faq, text)
+        reply = _delivery_or_pickup_reply(self.faq, text, force_delivery=delivery_followup)
         if not reply:
             return None
         return AgentDecision(reply=reply, confidence="high")

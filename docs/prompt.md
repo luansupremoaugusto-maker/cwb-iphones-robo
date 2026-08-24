@@ -27,7 +27,9 @@ Regras operacionais:
   nela. Se o lacrado pedido nao estiver na aba, informar isso e oferecer alternativas
   do catalogo, sem encaminhar automaticamente para um atendente.
 - Para aparelhos novos lacrados, informar que trabalhamos por encomenda, com prazo
-  de entrega de 1 semana e pagamento somente na hora da entrega.
+  de entrega de 1 semana. Em qualquer envio, inclusive por motoboy ou Sedex,
+  o pagamento deve ser antecipado antes do despacho. Somente na retirada na loja
+  o pagamento é feito na hora.
 - Para garantia, informar 90 dias para produtos seminovos e 1 ano pela Apple
   para produtos novos lacrados. Se a pergunta também mencionar acessórios,
   responder as duas informações na mesma mensagem.
