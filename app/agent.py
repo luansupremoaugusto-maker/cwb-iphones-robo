@@ -1840,7 +1840,9 @@ def _is_bare_model_availability_request(text: str) -> bool:
         return False
     return bool(
         re.search(
-            r"\b(?:tem|teria|disponivel|disponibilidade|estoque|vende|vender|possui)\b",
+            r"\b(?:tem|teria|disponivel|disponibilidade|estoque|vende|vender|possui|"
+            r"valor|valores|preco|precos|custa)\b"
+            r"|\bquanto\s+(?:custa|fica)\b",
             normalized,
         )
     )

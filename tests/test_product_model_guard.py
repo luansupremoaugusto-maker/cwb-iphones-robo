@@ -143,6 +143,25 @@ async def test_bare_model_sell_question_returns_only_requested_iphone(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_bare_model_capacity_value_question_returns_only_requested_iphone(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items.insert(
+        0,
+        _sealed_item("iphone-17-lacrado", "iPhone 17", "256 GB", 5700),
+    )
+
+    decision = await agent.respond("Qual o valor do 17 256?")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-17-lacrado"]
+    assert "iPhone 17" in decision.reply
+    assert "256 GB" in decision.reply
+    assert "iPhone 17 Pro" not in decision.reply
+    assert "iPhone 17 Pro Max" not in decision.reply
+    assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
