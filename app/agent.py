@@ -644,6 +644,26 @@ def _has_requested_catalog_color(text: str, items: list[Any]) -> bool:
     return False
 
 
+def _current_catalog_color(text: str, items: list[Any]) -> str | None:
+    """Return one color explicitly chosen in the current photo request."""
+    normalized = _normalize(text)
+    if not normalized:
+        return None
+
+    colors: set[str] = set()
+    for item in items:
+        raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
+        if isinstance(raw_colors, (list, tuple, set)):
+            values = raw_colors
+        else:
+            values = re.split(r"\s*[|;/,]\s*", str(raw_colors or ""))
+        for value in values:
+            color = _normalize(str(value or "")).strip()
+            if color and re.search(rf"(?<!\w){re.escape(color)}(?!\w)", normalized):
+                colors.add(color)
+    return next(iter(colors)) if len(colors) == 1 else None
+
+
 def _capacity_key(value: Any) -> str | None:
     normalized = _normalize(str(value or ""))
     match = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized)
@@ -3277,6 +3297,17 @@ class AgentService:
             explicit_capacity_keys = _requested_capacity_keys(image_description or "")
         if len(explicit_capacity_keys) == 1:
             query = f"capacidade solicitada {explicit_capacity_keys[0]}\n{query}".strip()
+        current_color = _current_catalog_color(
+            text,
+            list(getattr(self.cache, "items", []) or []),
+        )
+        if current_color is None and image_description:
+            current_color = _current_catalog_color(
+                image_description,
+                list(getattr(self.cache, "items", []) or []),
+            )
+        if current_color:
+            query = f"foto_cor_atual: {current_color}\n{query}".strip()
         requested_condition = _requested_photo_condition(query)
         finder = getattr(self.cache, "find_product_photos", None)
 
