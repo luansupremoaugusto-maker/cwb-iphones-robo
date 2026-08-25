@@ -151,6 +151,31 @@ _BARE_MODEL_EXCHANGE_OFFER_RE = re.compile(
     r"entrada|na\s+troca|para\s+troca|troca)\b",
     re.IGNORECASE,
 )
+_OWNED_NUMBERED_IPHONE_RE = re.compile(
+    r"\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
+    r"(?:iphone\s*)?\d{1,2}\b",
+    re.IGNORECASE,
+)
+_IMPLICIT_UPGRADE_TARGET_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+(?:o|a|um|uma)?\s*"
+    r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
+_IMPLICIT_UPGRADE_DETAIL_RE = re.compile(
+    r"\b(?:\d{2,4}\s*(?:gb|tb)|bateria|tela|face\s*id|funcion\w*|original)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_implicit_device_upgrade_offer(text: str) -> bool:
+    return bool(
+        _OWNED_NUMBERED_IPHONE_RE.search(text)
+        and _IMPLICIT_UPGRADE_TARGET_RE.search(text)
+        and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+    )
+
+
 _CATALOG_PURCHASE_ADVICE_RE = re.compile(
     r"(?:\b(?:compensa|vale\s+a\s+pena)\b.{0,35}\b"
     r"(?:pega\w*|compr\w*|levar\w*|ficar\s+com)\b"
@@ -271,6 +296,13 @@ def _has_device_offer(text: str) -> bool:
         return True
 
     if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
+        return True
+
+    # Some customers imply the exchange by describing their owned iPhone and
+    # asking for a newer model, without saying "troca" or "entrada". Require
+    # complete-device details so a repair question mentioning a model does not
+    # enter the evaluation flow.
+    if _has_implicit_device_upgrade_offer(text):
         return True
 
     # Customers commonly state ownership before the sale intent: "tenho um
@@ -495,7 +527,7 @@ def is_trade_in_request(text: str | None) -> bool:
         r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
         r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
         normalized,
-    ):
+    ) and not _has_implicit_device_upgrade_offer(normalized):
         return False
     if _NEGATION_RE.search(normalized):
         return False
