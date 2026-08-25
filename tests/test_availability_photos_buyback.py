@@ -81,6 +81,72 @@ async def test_available_list_includes_complete_seminew_and_sealed_sections(tmp_
 
 
 @pytest.mark.asyncio
+async def test_available_list_includes_ready_sealed_mercado_stock_separately(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = FakeSealedCache()
+    sealed.items.append(
+        InventoryItem(
+            external_id="sheet:iphone-17-pro-max-256",
+            name="iPhone 17 Pro Max",
+            category="Novo lacrado",
+            capacity="256 GB",
+            price_brl=7900.0,
+            source="google_sheets",
+            condition="novo lacrado",
+            search_text="iphone 17 pro max 256 gb novo lacrado",
+        )
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="mp:iphone-17-pro-max-256-prateado",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            price_brl=7460.0,
+            quantity=2,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="LACRADO",
+            search_text="iphone 17 pro max 256 gb prateado celular lacrado",
+        ),
+        InventoryItem(
+            external_id="mp:iphone-17-pro-max-512-laranja",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="512 GB",
+            color="LARANJA-CÓSMICO",
+            price_brl=8700.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="LACRADO",
+            search_text="iphone 17 pro max 512 gb laranja cosmico celular lacrado",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("O que tem disponível?")
+
+    assert decision.handoff is False
+    assert "Lacrados disponíveis para pronta entrega" in decision.reply
+    assert "PRATEADO" in decision.reply
+    assert "256 GB" in decision.reply
+    assert "2 unidades" in decision.reply
+    assert "LARANJA-CÓSMICO" in decision.reply
+    assert "512 GB" in decision.reply
+    assert "Novos lacrados por encomenda" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_photo_request_returns_only_approved_product_urls(tmp_path):
     cache, settings = build_cache(tmp_path, photos=True)
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
