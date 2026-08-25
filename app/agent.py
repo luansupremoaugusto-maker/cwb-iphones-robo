@@ -1341,6 +1341,18 @@ def _is_photo_request(text: str) -> bool:
     )
 
 
+def _is_broad_promotion_photo_request(text: str) -> bool:
+    """Recognize a category-level photo request for promotional iPhones."""
+    normalized = _normalize(text)
+    return bool(
+        _is_photo_request(text)
+        and re.search(r"\b(?:promoc\w*|ofert\w*|liquidac\w*)\b", normalized)
+        and re.search(r"\biphones?\b", normalized)
+        and not _requested_iphone_model_keys(normalized)
+        and not _is_accessory_catalog_request(normalized)
+    )
+
+
 def _is_sealed_photo_request(text: str) -> bool:
     """Identify photo requests for sealed, made-to-order products."""
     if not _is_photo_request(text):
@@ -1873,7 +1885,7 @@ def _product_context_query(
 def _extract_bare_catalog_model_reference(text: str) -> str | None:
     """Turn follow-ups such as "a bateria do 15" into an explicit model."""
     pattern = re.compile(
-        r"\b(?:do|da|dos|das|de|no|na|o|a|esse|essa|este|esta)\s+"
+        r"\b(?:do|da|dos|das|de|no|na|o|a|um|uma|esse|essa|este|esta)\s+"
         r"(?:iphone\s*)?(?P<number>\d{1,2})"
         r"(?P<variant>\s*(?:e|pro\s+max|pro|max|plus|mini|air))?\b",
         flags=re.IGNORECASE,
@@ -1983,6 +1995,13 @@ def _is_photo_context_followup(
     return bool(
         re.fullmatch(
             r"(?:eu\s+)?vi\s+que\s+(?:voce|voces|vc)\s+tem",
+            normalized,
+        )
+        or re.fullmatch(
+            r"(?:eu\s+)?vi\s+(?:ali\s+)?que\s+tem\s+(?:um\s+)?"
+            r"(?:iphone\s*)?\d{1,2}"
+            r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air|e))?"
+            r"(?:\s+[a-z]+)?",
             normalized,
         )
     )
@@ -2954,6 +2973,11 @@ class AgentService:
         *,
         image_description: str | None = None,
     ) -> AgentDecision | None:
+        # A short clarification after a photo request is still a photo
+        # selection, even when it contains availability wording such as
+        # "tem um 11 verde". Let the photo resolver preserve that context.
+        if _is_photo_context_followup(text, history):
+            return None
         current_query = _current_catalog_context(text, image_description)
         if _is_bare_model_availability_request(current_query):
             bare_model = _extract_bare_catalog_model_reference(current_query)
@@ -3337,7 +3361,65 @@ class AgentService:
             return None
         if _is_sealed_photo_request(text):
             return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")
+        if _is_broad_promotion_photo_request(text):
+            try:
+                promotional_items = await self.cache.search("iPhone seminovo", limit=300)
+            except Exception:
+                promotional_items = []
+
+            photo_items: list[Any] = []
+            approved_urls: list[str] = []
+            for item in promotional_items:
+                item_text = (
+                    f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} "
+                    f"{getattr(item, 'search_text', '')}"
+                )
+                if (
+                    _catalog_family(item_text) != "iphone"
+                    or _is_sealed_item(item)
+                    or (
+                        getattr(item, "source", None) == "mercado_phone"
+                        and not _is_available_item(item)
+                    )
+                ):
+                    continue
+                urls = [
+                    url
+                    for url in (getattr(item, "photo_urls", []) or [])
+                    if isinstance(url, str) and url.lower().startswith("https://")
+                ]
+                if not urls:
+                    continue
+                photo_items.append(item)
+                approved_urls.extend(urls)
+
+            approved_urls = list(dict.fromkeys(approved_urls))[:MAX_PRODUCT_PHOTOS]
+            if approved_urls:
+                references = [
+                    str(getattr(item, "external_id", ""))
+                    for item in photo_items
+                    if getattr(item, "external_id", "")
+                ]
+                return AgentDecision(
+                    reply="Claro! Seguem as fotos dos iPhones seminovos disponíveis na promoção.",
+                    image_urls=approved_urls,
+                    product_references=references,
+                    confidence="high",
+                )
+            return AgentDecision(
+                reply=(
+                    "No momento não encontrei fotos cadastradas dos iPhones seminovos "
+                    "disponíveis na promoção."
+                ),
+                confidence="medium",
+            )
         current_query = _current_catalog_context(text, image_description)
+        if _is_photo_context_followup(text, history) and not _has_product_reference(
+            _normalize(current_query)
+        ):
+            followup_model = _extract_bare_catalog_model_reference(current_query)
+            if followup_model:
+                current_query = f"{followup_model} {current_query}".strip()
         query = _product_context_query(current_query, history)
         # A previous assistant answer can list several capacities. When the
         # current turn contains one explicit choice, make that choice the

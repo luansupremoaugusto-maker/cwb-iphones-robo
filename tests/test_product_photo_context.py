@@ -374,3 +374,131 @@ async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_pat
     assert decision.product_references == ["10302981"]
     assert purple_url not in decision.image_urls
     assert "não há fotos cadastradas" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_promotion_photo_request_returns_all_available_iphone_photos(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-promotion-photos.json",
+        sealed_cache=SealedCatalog(),
+    )
+    green_url = "https://photos.example/iphone-11-pro-max-verde-128.jpg"
+    blue_url = "https://photos.example/iphone-12-azul-64.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-pro-max-verde-128",
+            name="IPHONE 11 PRO MAX",
+            category="Celular",
+            capacity="128GB",
+            color="VERDE",
+            colors="VERDE",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2150.0,
+            search_text="iphone 11 pro max verde 128gb celular seminovo",
+            photo_urls=[green_url],
+        ),
+        InventoryItem(
+            external_id="iphone-12-azul-64",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="64GB",
+            color="AZUL",
+            colors="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1800.0,
+            search_text="iphone 12 azul 64gb celular seminovo",
+            photo_urls=[blue_url],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Manda foto de iPhone na promoção pra mim fazendo um favor")
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == {green_url, blue_url}
+    assert set(decision.product_references) == {
+        "iphone-11-pro-max-verde-128",
+        "iphone-12-azul-64",
+    }
+    assert "17 PRO MAX" not in decision.reply.upper()
+    assert "NOVO LACRADO" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_photo_followup_with_bare_11_and_green_color_finds_11_pro_max(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-11-pro-max-green.json",
+        sealed_cache=SealedCatalog(),
+    )
+    green_url = "https://photos.example/iphone-11-pro-max-verde-128.jpg"
+    black_url = "https://photos.example/iphone-11-pro-max-preto-128.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-pro-max-verde-128",
+            name="IPHONE 11 PRO MAX",
+            category="Celular",
+            capacity="128GB",
+            color="VERDE",
+            colors="VERDE",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2150.0,
+            search_text="iphone 11 pro max verde 128gb celular seminovo",
+            photo_urls=[green_url],
+        ),
+        InventoryItem(
+            external_id="iphone-11-pro-max-preto-128",
+            name="IPHONE 11 PRO MAX",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            colors="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2150.0,
+            search_text="iphone 11 pro max preto 128gb celular seminovo",
+            photo_urls=[black_url],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Eu vi ali que tem um 11 verde",
+        history=[
+            {
+                "role": "user",
+                "content": "Manda foto de iPhone na promoção pra mim fazendo um favor",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontrei o iPhone 17 Pro Max novo lacrado em mais de uma opção; "
+                    "qual capacidade você quer que eu envie nas fotos?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [green_url]
+    assert decision.product_references == ["iphone-11-pro-max-verde-128"]
+    assert "11 pro max" in decision.reply.lower()
+    assert black_url not in decision.image_urls
