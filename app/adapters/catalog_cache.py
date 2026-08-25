@@ -278,7 +278,15 @@ def _catalog_score(query: str, item: Any) -> int:
     # question mark and other punctuation first, then reward an exact match so
     # "16e preto?" cannot tie with the white unit of the same model.
     item_color = _score_text(getattr(item, "color", None) or getattr(item, "colors", None))
-    if item_color and re.search(rf"(?<!\w){re.escape(item_color)}(?!\w)", normalized_query):
+    current_photo_color = re.search(
+        r"(?im)^\s*foto_cor_atual\s*:\s*(.+?)\s*$",
+        str(query or ""),
+    )
+    if current_photo_color:
+        requested_color = _score_text(current_photo_color.group(1))
+        if item_color == requested_color:
+            score += 1000 + len(item_color.split()) * 20
+    elif item_color and re.search(rf"(?<!\w){re.escape(item_color)}(?!\w)", normalized_query):
         score += 300 + len(item_color.split()) * 20
 
     requested_battery = _requested_battery_health(query)

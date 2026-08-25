@@ -306,3 +306,71 @@ async def test_typo_photo_request_for_listed_16_pro_max_sends_all_same_capacity_
         "iphone-16-pro-max-preto-256",
     ]
     assert "não encontrei fotos" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-14-color.json",
+        sealed_cache=SealedCatalog(),
+    )
+    blue_url = "https://photos.example/iphone-14-azul-128.jpg"
+    purple_url = "https://photos.example/iphone-14-roxo-128.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="10302981",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            colors="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1980.0,
+            battery_health=82,
+            search_text="iphone 14 azul 128 gb celular seminovo",
+            photo_urls=[blue_url],
+        ),
+        InventoryItem(
+            external_id="10310968",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO",
+            colors="ROXO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1980.0,
+            battery_health=84,
+            search_text="iphone 14 roxo 128 gb celular seminovo",
+            photo_urls=[purple_url],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Consegue me mandar uma foto desse azul?",
+        history=[
+            {"role": "user", "content": "iPhone 14 ainda está disponível?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 14 disponíveis:\n"
+                    "• IPHONE 14 — AZUL — 128GB — SEMINOVO — R$ 1.980,00 | Bat: 82%\n"
+                    "• IPHONE 14 — ROXO — 128GB — SEMINOVO — R$ 1.980,00 | Bat: 84%"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [blue_url]
+    assert decision.product_references == ["10302981"]
+    assert purple_url not in decision.image_urls
+    assert "não há fotos cadastradas" not in decision.reply.lower()
