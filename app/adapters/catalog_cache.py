@@ -623,8 +623,32 @@ class StoreCatalogCache(InventoryCache):
 
         target_model = _model_key(query)
         if target_model is not None:
-            candidates = [item for item in candidates if _model_key(item.name) == target_model]
-            if not candidates:
+            exact_model_candidates = [
+                item for item in candidates if _model_key(item.name) == target_model
+            ]
+            if exact_model_candidates:
+                candidates = exact_model_candidates
+            elif not target_model[1]:
+                normalized_query = _score_text(query)
+                related_model_candidates = [
+                    item
+                    for item in candidates
+                    if (_model_key(item.name) or (None, ""))[0] == target_model[0]
+                ]
+                mentioned_colors = {
+                    _score_text(getattr(item, "color", None) or getattr(item, "colors", None))
+                    for item in related_model_candidates
+                    if _score_text(getattr(item, "color", None) or getattr(item, "colors", None))
+                    and re.search(
+                        rf"(?<!\w){re.escape(_score_text(getattr(item, 'color', None) or getattr(item, 'colors', None)))}(?!\w)",
+                        normalized_query,
+                    )
+                }
+                if len(mentioned_colors) == 1:
+                    candidates = related_model_candidates
+                else:
+                    return None
+            else:
                 return None
 
         target_capacity = _capacity_key(query)
