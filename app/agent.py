@@ -166,7 +166,8 @@ REGRAS OBRIGATÓRIAS:
   nunca deduza estoque apenas pela existência de uma linha na planilha.
 - Quando o cliente perguntar o que temos disponível, quais modelos estão disponíveis,
   pedir a lista ou pedir o catálogo, use list_available_products e envie a mensagem
-  pronta completa, separando seminovos em estoque e novos lacrados por encomenda.
+  pronta completa, separando seminovos em estoque, lacrados a pronta entrega e
+  novos lacrados por encomenda.
   Nos seminovos, mostre cada registro individualmente, sem agrupar modelos iguais;
   informe cor, capacidade, estado do produto e saúde da bateria em cada linha.
   Pode usar o nome do modelo como cabeçalho e sublinhas individuais para cada
@@ -2126,10 +2127,14 @@ def _format_available_products(result: dict[str, Any]) -> str:
 
     lines = ["📋 Lista completa de produtos disponíveis:"]
     seminovos = result.get("seminovos") or []
+    lacrados_pronta_entrega = result.get("lacrados_pronta_entrega") or []
     lacrados = result.get("lacrados") or []
     if seminovos:
         lines.extend(["", "📱 Seminovos disponíveis para venda:"])
         lines.extend(grouped_lines(seminovos))
+    if lacrados_pronta_entrega:
+        lines.extend(["", "📦 Lacrados disponíveis para pronta entrega:"])
+        lines.extend(grouped_lines(lacrados_pronta_entrega))
     if lacrados:
         lines.extend(["", "📦 Novos lacrados por encomenda:"])
         lines.extend(grouped_lines(lacrados))
@@ -2158,7 +2163,7 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
 
     @function_tool
     async def list_available_products() -> str:
-        """Lista individualmente os seminovos à venda e os lacrados por encomenda."""
+        """Lista seminovos, lacrados a pronta entrega e lacrados por encomenda."""
         method = getattr(cache, "list_available_products", None)
         if not callable(method):
             return json.dumps({"encontrado": False, "motivo": "Lista de disponibilidade indisponível"})
@@ -2632,10 +2637,16 @@ class AgentService:
         if not result.get("encontrado"):
             return None
         if sealed_only:
+            lacrados_pronta_entrega = result.get("lacrados_pronta_entrega") or []
             lacrados = result.get("lacrados") or []
-            if not lacrados:
+            if not lacrados_pronta_entrega and not lacrados:
                 return None
-            result = {"encontrado": True, "seminovos": [], "lacrados": lacrados}
+            result = {
+                "encontrado": True,
+                "seminovos": [],
+                "lacrados_pronta_entrega": lacrados_pronta_entrega,
+                "lacrados": lacrados,
+            }
         if _is_generic_iphone_list_request(text):
             normalized = _normalize(text)
             other_family_requested = bool(
@@ -2653,6 +2664,11 @@ class AgentService:
                     **result,
                     "seminovos": [
                         entry for entry in result.get("seminovos", []) if is_iphone_entry(entry)
+                    ],
+                    "lacrados_pronta_entrega": [
+                        entry
+                        for entry in result.get("lacrados_pronta_entrega", [])
+                        if is_iphone_entry(entry)
                     ],
                     "lacrados": [
                         entry for entry in result.get("lacrados", []) if is_iphone_entry(entry)

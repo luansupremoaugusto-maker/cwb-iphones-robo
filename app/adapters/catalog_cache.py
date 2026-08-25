@@ -734,13 +734,20 @@ class StoreCatalogCache(InventoryCache):
 
         # Do not request every attachment just to build the complete list.
         # Photos are loaded on demand when the customer names a product.
-        seminovos = self._individualize(self.items, sealed=False)
+        # Mercado Phone can also contain new sealed units that are physically
+        # in stock; keep them apart from both used devices and sheet-only
+        # made-to-order prices.
+        seminovo_items = [item for item in self.items if not _is_sealed_catalog_item(item)]
+        ready_sealed_items = [item for item in self.items if _is_sealed_catalog_item(item)]
+        seminovos = self._individualize(seminovo_items, sealed=False)
+        lacrados_pronta_entrega = self._individualize(ready_sealed_items, sealed=False)
         lacrados = self._individualize(sealed_items, sealed=True)
         return {
-            "encontrado": bool(seminovos or lacrados),
+            "encontrado": bool(seminovos or lacrados_pronta_entrega or lacrados),
             "seminovos": seminovos,
+            "lacrados_pronta_entrega": lacrados_pronta_entrega,
             "lacrados": lacrados,
-            "total_modelos": len(seminovos) + len(lacrados),
+            "total_modelos": len(seminovos) + len(lacrados_pronta_entrega) + len(lacrados),
         }
 
     async def _select_priced_candidate(self, query: str) -> tuple[Any | None, dict[str, Any] | None]:
