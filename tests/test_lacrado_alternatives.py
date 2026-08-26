@@ -47,6 +47,28 @@ def _seminovo_item(item_id: str, name: str, capacity: str, price: float) -> Inve
     )
 
 
+def _ready_sealed_item(
+    item_id: str,
+    name: str,
+    capacity: str,
+    price: float,
+    color: str = "AZUL-INTENSO",
+) -> InventoryItem:
+    return InventoryItem(
+        external_id=item_id,
+        name=name,
+        category="Celular",
+        capacity=capacity,
+        color=color,
+        price_brl=price,
+        source="mercado_phone",
+        condition="LACRADO",
+        availability="Disponível para venda",
+        quantity=1,
+        search_text=f"{name} {capacity} {color} celular lacrado",
+    )
+
+
 class SealedCatalog:
     def __init__(self):
         self.items = [_sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 4600)]
@@ -153,6 +175,99 @@ async def test_missing_explicit_lacrado_offers_other_catalog_models_without_hand
     assert "iPhone 16" in decision.reply
     assert "NOVO LACRADO" in decision.reply
     assert decision.reply.count("NOVO LACRADO") == 1
+
+
+@pytest.mark.asyncio
+async def test_500gb_request_matches_512gb_ready_sealed_phone(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        _ready_sealed_item(
+            "mp:iphone-17-pro-max-512-azul",
+            "iPhone 17 Pro Max",
+            "512 GB",
+            8700,
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Ainda tem disponível o 17 pro max 500GB na cor azul intenso? Lacrado"
+    )
+
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert decision.product_references == ["mp:iphone-17-pro-max-512-azul"]
+    assert "não localizei" not in normalized
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "512 GB" in decision.reply
+    assert "LACRADO" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_lacrado_alternatives_keep_ready_and_ordered_same_model_sections(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item(
+            "sheet:iphone-17-pro-max-256",
+            "iPhone 17 Pro Max",
+            "256 GB",
+            8000,
+        ),
+        _sealed_item(
+            "sheet:iphone-17-pro-max-512",
+            "iPhone 17 Pro Max",
+            "512 GB",
+            8700,
+        ),
+        _sealed_item("sheet:iphone-17", "iPhone 17", "256 GB", 5600),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        _ready_sealed_item(
+            "mp:iphone-17-pro-max-256-prata",
+            "iPhone 17 Pro Max",
+            "256 GB",
+            7460,
+            "PRATEADO",
+        ),
+        _ready_sealed_item(
+            "mp:iphone-17-pro-max-512-laranja",
+            "iPhone 17 Pro Max",
+            "512 GB",
+            8700,
+            "LARANJA-CÓSMICO",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Tem iPhone 17 Pro Max 1 TB lacrado?")
+
+    assert decision.handoff is False
+    assert "Seminovos disponíveis para venda" not in decision.reply
+    ready_heading = "Lacrados disponíveis para pronta entrega"
+    order_heading = "Novos lacrados por encomenda"
+    assert ready_heading in decision.reply
+    assert order_heading in decision.reply
+    assert decision.reply.count("iPhone 17 Pro Max") == 2
+    assert decision.reply.index(ready_heading) < decision.reply.index(order_heading)
+    ready_section = decision.reply.split(ready_heading, 1)[1].split(order_heading, 1)[0]
+    order_section = decision.reply.split(order_heading, 1)[1]
+    assert "256 GB" in ready_section and "512 GB" in ready_section
+    assert "256 GB" in order_section and "512 GB" in order_section
 
 
 @pytest.mark.asyncio
