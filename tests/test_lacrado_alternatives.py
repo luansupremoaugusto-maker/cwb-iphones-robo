@@ -252,6 +252,20 @@ async def test_source_question_uses_the_sealed_catalog_without_handoff(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_plural_type_c_charger_price_uses_the_sealed_catalog(tmp_path):
+    agent = build_accessory_agent(tmp_path)
+
+    decision = await agent.respond("gostaria de saber o valor de carregadores tipo C")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:bot:8"]
+    assert "Fonte Tipo-C 20W original" in decision.reply
+    assert "NOVO LACRADO" in decision.reply
+    assert "R$ 150,00" in decision.reply
+    assert "SEMINOVO" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
 async def test_carregador_followup_uses_the_sealed_catalog(tmp_path):
     agent = build_accessory_agent(tmp_path)
 
