@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
+from app.adapters.catalog_cache import StoreCatalogCache
 from app.adapters.mercado_phone import InventoryCache
 from app.agent import AgentService, _normalize
 from app.config import Settings
 from app.faq import FAQStore
+from app.schemas import InventoryItem
 
 
 class EmptyMercadoClient:
@@ -142,3 +146,56 @@ async def test_credit_only_installment_question_confirms_credit_is_the_only_inst
     assert "unica forma de parcelamento" in reply
     assert "cartao de credito" in reply
     assert "18 vezes" in reply
+
+
+@pytest.mark.asyncio
+async def test_boleto_installment_followup_refuses_simulation_and_explains_policy(tmp_path):
+    settings = Settings(
+        mercado_cache_ttl_seconds=60,
+        faq_path="data/faq.yaml",
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-max-256",
+            name="iPhone 13 Pro Max",
+            capacity="256 GB",
+            category="Celular",
+            price_brl=3160.0,
+            quantity=1,
+            availability="Disponivel para venda",
+            condition="seminovo",
+            battery_health=90,
+            search_text="iphone 13 pro max 256 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "18x no boleto ?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Parcelamento do IPHONE 13 PRO MAX 256GB\n"
+                    "Preço à vista: R$ 3.160,00\n"
+                    "1x de R$ 3.324,57 (total R$ 3.324,57)\n"
+                    "18x de R$ 217,27 (total R$ 3.910,89)\n"
+                    "Valores calculados para pagamento no cartão de crédito."
+                ),
+            }
+        ],
+    )
+
+    reply = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert "nao parcelamos no boleto" in reply
+    assert "cartao de credito" in reply
+    assert "maquina fisica" in reply
+    assert "1x de" not in decision.reply
+    assert "18x de" not in decision.reply

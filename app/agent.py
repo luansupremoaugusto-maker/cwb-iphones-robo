@@ -187,6 +187,10 @@ REGRAS OBRIGATÓRIAS:
 - Quando o cliente perguntar se a loja compra algum produto, responda que sim,
   somente produtos da marca Apple, envie o formulário de avaliação aprovado e
   defina handoff=true.
+- Se o cliente mencionar boleto junto com parcelamento ou quantidade de parcelas,
+  informe que não parcelamos no boleto e que o parcelamento é somente no cartão
+  de crédito na máquina física. Não use ferramentas de simulação nem envie tabela
+  de parcelas nesse caso.
 - Sempre que o cliente perguntar como fica o parcelamento, quanto fica parcelado,
   quais são as parcelas ou pedir uma simulação, use simulate_all_installments e
   envie a tabela completa de 1x até 18x. Isso vale mesmo quando ele mencionar
@@ -1459,6 +1463,12 @@ PAYMENT_ONLY_CREDIT_REPLY = (
 )
 
 
+BOLETO_INSTALLMENT_REPLY = (
+    "Não parcelamos no boleto. O parcelamento é somente no cartão de crédito, "
+    "em até 18 vezes na máquina física."
+)
+
+
 def _is_credit_only_installment_question(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or "parcel" not in normalized:
@@ -1468,6 +1478,15 @@ def _is_credit_only_installment_question(text: str) -> bool:
         re.search(r"\b(?:cartao\s+de\s+credito|credito)\b", normalized)
     )
     return has_only_marker and has_credit_marker
+
+
+def _is_boleto_installment_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or not re.search(r"\bboletos?\b", normalized):
+        return False
+    return _requested_installments(text) is not None or bool(
+        re.search(r"\bparcel\w*\b", normalized)
+    )
 
 
 def _is_payment_methods_question(text: str) -> bool:
@@ -2445,6 +2464,10 @@ class AgentService:
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
 
+        boleto_installment_decision = self._try_boleto_installment(text)
+        if boleto_installment_decision is not None:
+            return protect_customer_decision(boleto_installment_decision)
+
         price_policy_decision = self._try_price_policy(text)
         if price_policy_decision is not None:
             return protect_customer_decision(price_policy_decision)
@@ -2615,6 +2638,14 @@ class AgentService:
         reply = self.faq.get("link_pagamento") or PAYMENT_LINK_REPLY
         return AgentDecision(
             reply=self._append_delivery_or_pickup_info(reply, text),
+            confidence="high",
+        )
+
+    def _try_boleto_installment(self, text: str) -> AgentDecision | None:
+        if not _is_boleto_installment_request(text):
+            return None
+        return AgentDecision(
+            reply=self._append_delivery_or_pickup_info(BOLETO_INSTALLMENT_REPLY, text),
             confidence="high",
         )
 
