@@ -153,7 +153,8 @@ _BARE_MODEL_EXCHANGE_OFFER_RE = re.compile(
     re.IGNORECASE,
 )
 _OWNED_NUMBERED_IPHONE_RE = re.compile(
-    r"\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
+    r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
+    r"|\b(?:meu|minha)\s+)"
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
@@ -165,6 +166,15 @@ _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
 _IMPLICIT_GENERIC_UPGRADE_RE = re.compile(
     r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,20}"
     r"\btrocar\s+por\s+(?:um|uma|outro|outra)?\s*(?:modelo\s+)?mais\s+nov\w*\b",
+    re.IGNORECASE,
+)
+_IMPLICIT_MODEL_EXCHANGE_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,80}"
+    r"\btroca(?:r)?\s+(?:o|a|um|uma)?\s*(?:meu|minha)?\s*"
+    r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b"
+    r".{0,20}\b(?:por|pra|para|pro|bo)\b\s*"
+    r"(?:um|uma|outro|outra)?\s*(?:iphone\s*)?\d{1,2}\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
 _IMPLICIT_UPGRADE_DETAIL_RE = re.compile(
@@ -191,7 +201,11 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
     )
     return bool(
         owned_device
-        and (explicit_model_upgrade or _IMPLICIT_GENERIC_UPGRADE_RE.search(text))
+        and (
+            explicit_model_upgrade
+            or _IMPLICIT_GENERIC_UPGRADE_RE.search(text)
+            or _IMPLICIT_MODEL_EXCHANGE_RE.search(text)
+        )
         and not _NON_APPLE_RE.search(text)
     )
 
