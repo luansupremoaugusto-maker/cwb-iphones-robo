@@ -456,6 +456,24 @@ def _is_sealed_catalog_list_request(text: str) -> bool:
     )
 
 
+def _is_sealed_iphone_list_request(text: str) -> bool:
+    """Recognize a sealed-cell-phone request that must exclude Apple accessories."""
+    normalized = _normalize(text)
+    if not normalized or _has_product_reference(normalized):
+        return False
+    if not re.search(r"\bcelulares?\b", normalized):
+        return False
+    if not re.search(r"\blacrados?\b", normalized):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:quanto|qual|quais|preco|precos|valor|valores|lista|tabela|"
+            r"tem|vende|possui|disponivel|disponibilidade|estoque)\b",
+            normalized,
+        )
+    )
+
+
 def _is_broad_airpods_request(text: str) -> bool:
     """Recognize a family-level AirPods query that should show every option."""
     normalized = _normalize(text)
@@ -2628,7 +2646,8 @@ class AgentService:
 
     async def _try_available_products(self, text: str) -> AgentDecision | None:
         sealed_only = _is_sealed_catalog_list_request(text)
-        if not (_is_available_list_request(text) or sealed_only):
+        sealed_iphone_only = _is_sealed_iphone_list_request(text)
+        if not (_is_available_list_request(text) or sealed_only or sealed_iphone_only):
             return None
         method = getattr(self.cache, "list_available_products", None)
         if not callable(method):
@@ -2650,7 +2669,7 @@ class AgentService:
                 "lacrados_pronta_entrega": lacrados_pronta_entrega,
                 "lacrados": lacrados,
             }
-        if _is_generic_iphone_list_request(text):
+        if _is_generic_iphone_list_request(text) or sealed_iphone_only:
             normalized = _normalize(text)
             other_family_requested = bool(
                 re.search(r"\b(?:ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)

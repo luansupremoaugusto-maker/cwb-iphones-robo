@@ -147,6 +147,106 @@ async def test_available_list_includes_ready_sealed_mercado_stock_separately(tmp
 
 
 @pytest.mark.asyncio
+async def test_sealed_cell_phone_list_returns_only_iphones_from_both_sources(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = FakeSealedCache()
+    sealed.items.extend(
+        [
+            InventoryItem(
+                external_id="sheet:iphone-17",
+                name="iPhone 17",
+                category="Novo lacrado",
+                capacity="256 GB",
+                price_brl=5600.0,
+                source="google_sheets",
+                condition="novo lacrado",
+                search_text="iphone 17 256 gb novo lacrado",
+            ),
+            InventoryItem(
+                external_id="sheet:airpods-4",
+                name="AirPods 4 com ANC",
+                category="Novo lacrado",
+                price_brl=1500.0,
+                source="google_sheets",
+                condition="novo lacrado",
+                search_text="airpods 4 com anc novo lacrado",
+            ),
+            InventoryItem(
+                external_id="sheet:apple-watch-se-3",
+                name="Apple Watch SE 3 40MM",
+                category="Novo lacrado",
+                price_brl=2000.0,
+                source="google_sheets",
+                condition="novo lacrado",
+                search_text="apple watch se 3 40mm novo lacrado",
+            ),
+            InventoryItem(
+                external_id="sheet:macbook-air",
+                name="MacBook Air",
+                category="Novo lacrado",
+                price_brl=7000.0,
+                source="google_sheets",
+                condition="novo lacrado",
+                search_text="macbook air novo lacrado",
+            ),
+            InventoryItem(
+                external_id="sheet:ipad",
+                name="iPad 11",
+                category="Novo lacrado",
+                price_brl=3500.0,
+                source="google_sheets",
+                condition="novo lacrado",
+                search_text="ipad 11 novo lacrado",
+            ),
+        ]
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="mp:iphone-17-pro-max",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            price_brl=7460.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="LACRADO",
+            search_text="iphone 17 pro max 256 gb prateado celular lacrado",
+        ),
+        InventoryItem(
+            external_id="mp:airpods-pro-3",
+            name="AirPods Pro 3",
+            category="Celular",
+            price_brl=1800.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="LACRADO",
+            search_text="airpods pro 3 celular lacrado",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quais celulares lacrados vcs tem?")
+
+    assert decision.handoff is False
+    assert "Lacrados disponíveis para pronta entrega" in decision.reply
+    assert "Novos lacrados por encomenda" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "iPhone 17" in decision.reply
+    for excluded_family in ("AirPods", "Apple Watch", "MacBook", "iPad"):
+        assert excluded_family not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_photo_request_returns_only_approved_product_urls(tmp_path):
     cache, settings = build_cache(tmp_path, photos=True)
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
