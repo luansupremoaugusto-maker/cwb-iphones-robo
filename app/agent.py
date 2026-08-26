@@ -45,6 +45,7 @@ from app.trade_in import (
     TRADE_IN_NEGOTIATION_REPLY,
     TRADE_IN_REASON,
     is_trade_in_negotiation,
+    is_completed_trade_in_form,
     is_trade_in_context_request,
     is_photo_offer_confirmation,
     is_parts_buyback_request,
@@ -2366,7 +2367,9 @@ class AgentService:
                 handoff_reason=TRADE_IN_REASON,
                 confidence="high",
             )
-        if trade_in_em_andamento(history) and is_trade_in_negotiation(text):
+        if trade_in_em_andamento(history) and (
+            is_completed_trade_in_form(text) or is_trade_in_negotiation(text)
+        ):
             return AgentDecision(
                 reply=TRADE_IN_NEGOTIATION_REPLY,
                 handoff=True,
