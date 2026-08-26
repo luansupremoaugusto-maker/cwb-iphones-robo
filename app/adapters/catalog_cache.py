@@ -118,14 +118,20 @@ def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
     normalized = _normalize(value)
+    line_aware_normalized = _normalize(
+        str(value or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\n", " __linebreak__ ")
+    )
     target = _requested_iphone_model_key(value)
-    if target is None:
+    if target is None and not re.search(r"\biphones?\b", normalized):
         return ()
 
-    matches = list(_MODEL_PATTERN.finditer(normalized))
+    matches = list(_MODEL_PATTERN.finditer(line_aware_normalized))
 
     def is_usable(match: re.Match[str]) -> bool:
-        suffix = normalized[match.end() :]
+        suffix = line_aware_normalized[match.end() :]
         return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
 
     def key_for(match: re.Match[str]) -> tuple[int | str, str]:
@@ -147,7 +153,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     else:
         usable_matches = [match for match in matches if is_usable(match)]
         if not usable_matches:
-            return (target,)
+            return (target,) if target is not None else ()
         selected = [key_for(usable_matches[0])]
         previous = usable_matches[0]
         candidate_matches = usable_matches[1:]
@@ -155,9 +161,9 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     for match in candidate_matches:
         if match.start() <= previous.end() or not is_usable(match):
             continue
-        separator = normalized[previous.end() : match.start()]
+        separator = line_aware_normalized[previous.end() : match.start()]
         if not re.fullmatch(
-            r"\s*(?:(?:ou|e|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?|[/,])\s*",
+            r"\s*(?:(?:ou|e|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?|[/,;]|__linebreak__)\s*",
             separator,
         ):
             continue
@@ -165,7 +171,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         has_following_shared_variant = re.match(
             r"\s*(?:ou|or)(?:\s+(?:o|a|um|uma))?\s*(?:iphone\s*)?"
             r"(?:pro\s+max|pro)\b",
-            normalized[match.end() :],
+            line_aware_normalized[match.end() :],
             flags=re.IGNORECASE,
         )
         if (
@@ -184,7 +190,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     inherited_variant = re.match(
         r"\s*(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das))?\s*(?:iphone\s*)?"
         r"(?P<variant>pro\s+max|pro)\b",
-        normalized[previous.end() :],
+        line_aware_normalized[previous.end() :],
         flags=re.IGNORECASE,
     )
     if inherited_variant:
@@ -196,8 +202,10 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             selected.append(inherited_key)
 
     if len(selected) == 1:
-        return (target,)
-    if target not in selected and not any(model[0] == target[0] for model in selected):
+        return (target,) if target is not None else ()
+    if target is not None and target not in selected and not any(
+        model[0] == target[0] for model in selected
+    ):
         selected.append(target)
     return tuple(selected)
 

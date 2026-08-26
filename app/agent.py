@@ -377,7 +377,7 @@ def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    if _is_generic_iphone_list_request(normalized):
+    if _is_generic_iphone_list_request(text):
         return True
     phrases = (
         "o que tem disponivel",
@@ -424,8 +424,8 @@ def _is_generic_iphone_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not re.search(r"\biphones?\b", normalized):
         return False
-    all_line_request = _is_all_iphone_17_line_request(normalized)
-    if _requested_iphone_model_keys(normalized) and not all_line_request:
+    all_line_request = _is_all_iphone_17_line_request(text)
+    if _requested_iphone_model_keys(text) and not all_line_request:
         return False
     if _is_accessory_catalog_request(normalized):
         return False
@@ -3324,8 +3324,11 @@ class AgentService:
     def _try_store_hours(self, text: str) -> AgentDecision | None:
         if not _is_store_hours_request(text):
             return None
+        reply = _store_hours_reply(self.faq)
+        if _is_physical_store_request(text):
+            reply = f"{reply} Endereço: {_store_address(self.faq)}."
         return AgentDecision(
-            reply=_store_hours_reply(self.faq),
+            reply=reply,
             confidence="high",
         )
 
