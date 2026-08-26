@@ -247,6 +247,37 @@ async def test_sealed_cell_phone_list_returns_only_iphones_from_both_sources(tmp
 
 
 @pytest.mark.asyncio
+async def test_explicit_iphone_sealed_list_excludes_seminew_section(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items.append(
+        InventoryItem(
+            external_id="mp:iphone-17-pro-max",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            price_brl=7460.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="LACRADO",
+            search_text="iphone 17 pro max 256 gb prateado celular lacrado",
+        )
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Gostaria de saber quais iphone lacrado vc tem e os valores?")
+
+    assert decision.handoff is False
+    assert "Seminovos disponíveis para venda" not in decision.reply
+    assert "iPhone 15" not in decision.reply
+    assert "Lacrados disponíveis para pronta entrega" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "Novos lacrados por encomenda" in decision.reply
+    assert "iPhone 16" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_photo_request_returns_only_approved_product_urls(tmp_path):
     cache, settings = build_cache(tmp_path, photos=True)
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
