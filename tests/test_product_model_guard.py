@@ -162,6 +162,25 @@ async def test_bare_model_capacity_value_question_returns_only_requested_iphone(
 
 
 @pytest.mark.asyncio
+async def test_all_iphone_17_line_request_returns_every_generation_17_option(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-17e", "iPhone 17e", "256 GB", 4500),
+        _sealed_item("iphone-17", "iPhone 17", "256 GB", 5600),
+        _sealed_item("iphone-17-air", "iPhone 17 Air", "256 GB", 5800),
+        _sealed_item("iphone-17-pro", "iPhone 17 Pro", "256 GB", 6900),
+        _sealed_item("iphone-17-pro-max", "iPhone 17 Pro Max", "256 GB", 7900),
+    ]
+
+    decision = await agent.respond("Qual valor dos iPhones 17 todos eles pode passar pra mim")
+
+    assert decision.handoff is False
+    for model in ("iPhone 17e", "iPhone 17", "iPhone 17 Air", "iPhone 17 Pro", "iPhone 17 Pro Max"):
+        assert model in decision.reply
+    assert "lista completa de produtos disponíveis" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
