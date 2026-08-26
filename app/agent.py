@@ -1919,8 +1919,13 @@ def _product_context_query(
                 context_content = re.sub(
                     r"\b(?:pelicula|capa|capinha|case|fonte|cabo|carregador|protetor|suporte)s?\b",
                     " ",
-                    _normalize(content),
+                    content,
                 ).strip()
+                context_content = "\n".join(
+                    re.sub(r"\s+", " ", line).strip()
+                    for line in context_content.splitlines()
+                    if line.strip()
+                )
                 if strip_assistant_constraints:
                     context_content = _strip_catalog_history_constraints(context_content)
                 if context_content and context_content not in parts:
@@ -3568,6 +3573,8 @@ class AgentService:
             )
         if current_color:
             query = f"foto_cor_atual: {current_color}\n{query}".strip()
+        requested_models = _requested_iphone_model_keys(query)
+        requested_capacities = _requested_capacity_keys(query)
         requested_condition = _requested_photo_condition(query)
         finder = getattr(self.cache, "find_product_photos", None)
 
@@ -3578,7 +3585,6 @@ class AgentService:
             return is_sealed if requested_condition == "sealed" else not is_sealed
 
         def exact_candidates(items: list[Any]) -> list[Any]:
-            requested_capacities = _requested_capacity_keys(query)
             candidates: list[Any] = []
             seen: set[str] = set()
             for item in items:
@@ -3608,6 +3614,65 @@ class AgentService:
             best_score = max(score for score, _item in positive)
             return [item for score, item in positive if score == best_score]
 
+        def multiple_photo_matches(items: list[Any]) -> list[Any]:
+            """Select the best photo item for each explicitly requested model/capacity."""
+            scored: list[tuple[int, Any]] = []
+            seen: set[str] = set()
+            for item in items:
+                external_id = str(getattr(item, "external_id", "") or "")
+                if external_id in seen:
+                    continue
+                if not _is_device_item(item):
+                    continue
+                if (
+                    getattr(item, "source", None) == "mercado_phone"
+                    and not _is_available_item(item)
+                ):
+                    continue
+                if not condition_matches(item) or not _matches_requested_model(query, item):
+                    continue
+                if requested_capacities and _capacity_key(
+                    getattr(item, "capacity", None) or getattr(item, "name", "")
+                ) not in requested_capacities:
+                    continue
+                score = _catalog_score(query, item)
+                if score <= 0:
+                    continue
+                seen.add(external_id)
+                scored.append((score, item))
+
+            selected: list[Any] = []
+            for requested_model in requested_models:
+                model_matches = [
+                    (score, item)
+                    for score, item in scored
+                    if _model_key(getattr(item, "name", "")) == requested_model
+                ]
+                capacities = requested_capacities or (None,)
+                for capacity in capacities:
+                    capacity_matches = [
+                        (score, item)
+                        for score, item in model_matches
+                        if capacity is None
+                        or _capacity_key(
+                            getattr(item, "capacity", None) or getattr(item, "name", "")
+                        )
+                        == capacity
+                    ]
+                    if not capacity_matches:
+                        continue
+                    best_score = max(score for score, _item in capacity_matches)
+                    selected.extend(
+                        item for score, item in capacity_matches if score == best_score
+                    )
+
+            selected_by_id: dict[str, Any] = {}
+            for item in selected:
+                external_id = str(getattr(item, "external_id", "") or "")
+                if external_id:
+                    selected_by_id[external_id] = item
+            return list(selected_by_id.values())
+
         def ambiguous_reply(items: list[Any]) -> AgentDecision:
             first = items[0]
             model = str(getattr(first, "name", "esse aparelho") or "esse aparelho").strip()
@@ -3635,7 +3700,13 @@ class AgentService:
                 confidence="high",
             )
 
-        if callable(finder):
+        if len(requested_models) > 1:
+            try:
+                items = await self.cache.search(query, limit=300)
+            except Exception:
+                return None
+            items = multiple_photo_matches(items)
+        elif callable(finder):
             try:
                 selected = await finder(query)
             except Exception:
@@ -3690,6 +3761,50 @@ class AgentService:
                 return None
         items = [item for item in items if condition_matches(item)]
         if items:
+            if len(requested_models) > 1:
+                approved_urls = [
+                    url
+                    for item in items
+                    for url in (getattr(item, "photo_urls", []) or [])
+                    if isinstance(url, str) and url.lower().startswith("https://")
+                ]
+                if approved_urls:
+                    labels = [
+                        " ".join(
+                            part
+                            for part in (
+                                str(getattr(item, "name", "aparelho") or "aparelho").strip(),
+                                str(getattr(item, "capacity", "") or "").strip(),
+                            )
+                            if part
+                        )
+                        for item in items
+                    ]
+                    label_text = ", ".join(labels[:-1])
+                    if label_text:
+                        label_text += f" e {labels[-1]}"
+                    else:
+                        label_text = labels[0]
+                    return AgentDecision(
+                        reply=(
+                            "Claro! Seguem as fotos dos aparelhos que você indicou: "
+                            f"{label_text}."
+                        ),
+                        image_urls=list(dict.fromkeys(approved_urls))[:MAX_PRODUCT_PHOTOS],
+                        product_references=[
+                            str(getattr(item, "external_id", ""))
+                            for item in items
+                            if getattr(item, "external_id", "")
+                        ],
+                        confidence="high",
+                    )
+                return AgentDecision(
+                    reply=(
+                        "Encontrei os aparelhos indicados, mas não há fotos cadastradas "
+                        "para eles no momento."
+                    ),
+                    confidence="medium",
+                )
             if len(items) > 1:
                 capacities = {
                     _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))

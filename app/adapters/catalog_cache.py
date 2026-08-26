@@ -128,6 +128,22 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     if target is None and not re.search(r"\biphones?\b", normalized):
         return ()
 
+    line_targets: list[tuple[int | str, str]] = []
+    for raw_line in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = re.sub(r"^\s*[-•*]\s*", "", raw_line)
+        line_normalized = _normalize(line)
+        if not re.match(
+            r"^\s*(?:iphone\s+(?:\d{1,2}\b|xr\b)|"
+            r"\d{1,2}\s+(?:pro\s+max|pro|max|plus|mini|air|e)\b)",
+            line_normalized,
+        ):
+            continue
+        line_target = _requested_iphone_model_key(line)
+        if line_target is not None and line_target not in line_targets:
+            line_targets.append(line_target)
+    if len(line_targets) > 1:
+        return tuple(line_targets)
+
     matches = list(_MODEL_PATTERN.finditer(line_aware_normalized))
 
     def is_usable(match: re.Match[str]) -> bool:

@@ -239,6 +239,101 @@ async def test_photo_request_for_unavailable_model_continues_with_stock_alternat
 
 
 @pytest.mark.asyncio
+async def test_photo_followup_after_three_product_cards_sends_all_requested_photos(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-three-product-cards.json",
+    )
+    photo_urls = {
+        "iphone-14-pro-max-128-roxo": "https://photos.example/iphone-14-pro-max-128-roxo.jpg",
+        "iphone-14-pro-max-256-preto": "https://photos.example/iphone-14-pro-max-256-preto.jpg",
+        "iphone-15-plus-128-preto": "https://photos.example/iphone-15-plus-128-preto.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-max-128-roxo",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3140,
+            battery_health=81,
+            source="mercado_phone",
+            search_text="iphone 14 pro max roxo profundo 128gb celular seminovo",
+            photo_urls=[photo_urls["iphone-14-pro-max-128-roxo"]],
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-256-preto",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3590,
+            battery_health=86,
+            source="mercado_phone",
+            search_text="iphone 14 pro max preto espacial 256gb celular seminovo",
+            photo_urls=[photo_urls["iphone-14-pro-max-256-preto"]],
+        ),
+        InventoryItem(
+            external_id="iphone-15-plus-128-preto",
+            name="iPhone 15 Plus",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2950,
+            battery_health=87,
+            source="mercado_phone",
+            search_text="iphone 15 plus preto 128gb celular seminovo",
+            photo_urls=[photo_urls["iphone-15-plus-128-preto"]],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": "iPhone 14 Pro Max 128GB — Roxo profundo — R$ 3.140 | Bateria 81%",
+        },
+        {
+            "role": "user",
+            "content": "iPhone 14 Pro Max 256GB — Preto espacial — R$ 3.590 | Bateria 86%",
+        },
+        {
+            "role": "user",
+            "content": "iPhone 15 Plus 128GB — Preto — R$ 2.950 | Bateria 87%",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPhone disponíveis:\n"
+                "• iPhone 14 Pro Max — ROXO PROFUNDO — 128GB — SEMINOVO — R$ 3.140,00 | Bat: 81%\n"
+                "• iPhone 14 Pro Max — PRETO ESPACIAL — 256GB — SEMINOVO — R$ 3.590,00 | Bat: 86%\n"
+                "• iPhone 15 Plus — PRETO — 128GB — SEMINOVO — R$ 2.950,00 | Bat: 87%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Você consegue me mandar foto desses 3 aparelhos", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == set(photo_urls.values())
+    assert set(decision.product_references) == set(photo_urls)
+    assert "14 pro max" in decision.reply.lower()
+    assert "15 plus" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_typo_photo_request_for_listed_16_pro_max_sends_all_same_capacity_units(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
