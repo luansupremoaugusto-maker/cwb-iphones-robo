@@ -582,8 +582,8 @@ def _is_product_availability_request(text: str) -> bool:
             "quero ver",
             "quero comprar",
             "procuro",
-            "preciso de",
-            "necessito de",
+            "preciso",
+            "necessito",
         )
     )
     has_broad_filter = any(
@@ -592,7 +592,10 @@ def _is_product_availability_request(text: str) -> bool:
     )
     return bool(
         (has_purchase_intent or has_broad_filter)
-        and re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+        and (
+            re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+            or _has_product_reference(normalized)
+        )
     )
 
 

@@ -1563,6 +1563,52 @@ async def test_specific_pro_max_price_includes_cheaper_ready_sealed_unit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_bare_pro_max_request_includes_ready_stock_and_sealed_order_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("sheet:17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 7900),
+        _sealed_item("sheet:17-pro-max-512", "iPhone 17 Pro Max", "512 GB", 8600),
+        _sealed_item("sheet:17-pro-max-1tb", "iPhone 17 Pro Max", "1 TB", 10300),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="mp:17-pro-max-256-ready",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            source="mercado_phone",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7460,
+            search_text="iphone 17 pro max 256 gb prateado celular lacrado",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("preciso 17 pro max")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "mp:17-pro-max-256-ready",
+        "sheet:17-pro-max-256",
+        "sheet:17-pro-max-512",
+        "sheet:17-pro-max-1tb",
+    }
+    for price in ("7.460,00", "7.900,00", "8.600,00", "10.300,00"):
+        assert price in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_shared_variant_question_returns_base_pro_and_pro_max(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
