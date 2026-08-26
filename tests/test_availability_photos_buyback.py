@@ -161,6 +161,7 @@ async def test_photo_request_returns_only_approved_product_urls(tmp_path):
 def test_generic_apple_buyback_question_uses_the_evaluation_flow():
     assert is_trade_in_request("Vocês compram algum produto Apple?") is True
     assert is_trade_in_request("A loja compra celular usado?") is True
+    assert is_trade_in_request("Vocês compram celulares usados?") is True
 
 
 @pytest.mark.asyncio
