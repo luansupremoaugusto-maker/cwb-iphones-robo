@@ -6,6 +6,10 @@ on:
     types: [completed]
     branches: [main]
 
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -53,9 +57,20 @@ jobs:
           cd /opt/cwb-iphones
           git fetch origin main
           test -z "$(git status --porcelain --untracked-files=no)"
+          latest_main_sha="$(git rev-parse origin/main)"
+          if [[ "$DEPLOY_SHA" != "$latest_main_sha" ]]; then
+            echo "Skipping stale Tests result $DEPLOY_SHA; current main is $latest_main_sha"
+            exit 0
+          fi
           git checkout --detach "$DEPLOY_SHA"
 
           docker compose --env-file .env.local config --quiet
+          git fetch origin main
+          latest_main_sha="$(git rev-parse origin/main)"
+          if [[ "$DEPLOY_SHA" != "$latest_main_sha" ]]; then
+            echo "Skipping stale deployment $DEPLOY_SHA; current main is $latest_main_sha"
+            exit 0
+          fi
           docker compose --env-file .env.local up -d --build
           docker compose --env-file .env.local ps
           curl -fsS https://bot.cwbiphones.cloud/ready
