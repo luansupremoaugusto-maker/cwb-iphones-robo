@@ -480,11 +480,14 @@ def _is_sealed_catalog_list_request(text: str) -> bool:
 def _is_sealed_iphone_list_request(text: str) -> bool:
     """Recognize a sealed-cell-phone request that must exclude Apple accessories."""
     normalized = _normalize(text)
-    if not normalized or _has_product_reference(normalized):
+    if not normalized:
         return False
-    if not re.search(r"\bcelulares?\b", normalized):
+    if not re.search(r"\bcelulares?\b|\biphones?\b", normalized):
         return False
     if not re.search(r"\blacrados?\b", normalized):
+        return False
+    requested_models = _requested_iphone_model_keys(normalized)
+    if requested_models and not _is_all_iphone_17_line_request(normalized):
         return False
     return bool(
         re.search(
@@ -2666,8 +2669,8 @@ class AgentService:
         return AgentDecision(reply=reply, confidence="high")
 
     async def _try_available_products(self, text: str) -> AgentDecision | None:
-        sealed_only = _is_sealed_catalog_list_request(text)
         sealed_iphone_only = _is_sealed_iphone_list_request(text)
+        sealed_only = _is_sealed_catalog_list_request(text) or sealed_iphone_only
         if not (_is_available_list_request(text) or sealed_only or sealed_iphone_only):
             return None
         method = getattr(self.cache, "list_available_products", None)
