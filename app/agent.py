@@ -549,6 +549,8 @@ def _is_product_availability_request(text: str) -> bool:
         "vende",
         "possui",
         "quanto custa",
+        "quanto esta",
+        "quanto fica",
         "qual o preco",
         "valor",
         "valores",
@@ -3209,9 +3211,33 @@ class AgentService:
                 _normalize(query)
             )
 
+            def include_ready_sealed_units(
+                selected_items: list[Any],
+                scored_items: list[tuple[int, Any]],
+            ) -> list[Any]:
+                """Keep physical sealed stock beside equally matching sheet prices."""
+                if (
+                    "seminovo" in requested_conditions
+                    or requested_quantity is not None
+                    or _requested_battery_health(query) is not None
+                    or _has_requested_catalog_color(query, public_candidates)
+                ):
+                    return selected_items
+
+                selected_ids = {str(getattr(item, "external_id", "")) for item in selected_items}
+                ready_items = [
+                    item
+                    for score, item in scored_items
+                    if score > 0
+                    and getattr(item, "source", "") == "mercado_phone"
+                    and _is_sealed_item(item)
+                    and str(getattr(item, "external_id", "")) not in selected_ids
+                ]
+                return [*ready_items, *selected_items]
+
             def select_best_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
                 if condition_was_requested:
-                    return best_matches(scored_items)
+                    return include_ready_sealed_units(best_matches(scored_items), scored_items)
 
                 grouped: dict[str, list[tuple[int, Any]]] = {
                     "seminovo": [],
@@ -3223,7 +3249,10 @@ class AgentService:
 
                 selected_by_condition: list[Any] = []
                 for condition in ("seminovo", "lacrado"):
-                    selected_by_condition.extend(best_matches(grouped[condition]))
+                    selected = best_matches(grouped[condition])
+                    if condition == "lacrado":
+                        selected = include_ready_sealed_units(selected, grouped[condition])
+                    selected_by_condition.extend(selected)
                 return selected_by_condition or best_matches(scored_items)
 
             def select_requested_model_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
