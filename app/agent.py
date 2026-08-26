@@ -400,11 +400,32 @@ def _is_available_list_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def _is_all_iphone_17_line_request(text: str) -> bool:
+    """Recognize an explicit request for every iPhone 17 line variant."""
+    normalized = _normalize(text)
+    if _requested_iphone_model_keys(normalized) != ((17, ""),):
+        return False
+    if _is_accessory_catalog_request(normalized):
+        return False
+    if not re.search(r"\biphones?\s+17\b", normalized):
+        return False
+    return bool(
+        re.search(
+            r"\btodos?\s+(?:eles|os\s+(?:modelos?|iphones?))\b|"
+            r"\btodas?\s+(?:as\s+)?(?:opcoes|versoes|variantes)\b|"
+            r"\b(?:linha|geracao|familia)\s+(?:completa|17)\b|"
+            r"\blinha\s+completa\b",
+            normalized,
+        )
+    )
+
+
 def _is_generic_iphone_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not re.search(r"\biphones?\b", normalized):
         return False
-    if _requested_iphone_model_keys(normalized):
+    all_line_request = _is_all_iphone_17_line_request(normalized)
+    if _requested_iphone_model_keys(normalized) and not all_line_request:
         return False
     if _is_accessory_catalog_request(normalized):
         return False
@@ -430,7 +451,7 @@ def _is_generic_iphone_list_request(text: str) -> bool:
         )
     ):
         return False
-    return bool(
+    return all_line_request or bool(
         re.search(
             r"\b(?:modelo|modelos|preco|precos|valor|valores|lista|catalogo|"
             r"tem|vende|possui|disponivel|disponibilidade|ver|mostrar|mostre|"
