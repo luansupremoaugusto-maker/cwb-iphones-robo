@@ -568,7 +568,7 @@ def _is_accessory_catalog_request(text: str) -> bool:
         )
     ):
         return False
-    return normalized in {"fonte", "carregador"} or bool(
+    return normalized in {"fonte", "fontes", "carregador", "carregadores"} or bool(
         re.search(
             r"\b(?:tem|vende\w*|possui|disponivel|estoque|a venda|valor|preco|custa|original|tipo|usb|20w)\b",
             normalized,
@@ -595,7 +595,7 @@ def _is_case_accessory_request(text: str) -> bool:
 
 def _is_accessory_inclusion_question(text: str) -> bool:
     normalized = _normalize(text)
-    if not re.search(r"\b(?:fonte|carregador|cabo|acessorio|acessorios)\b", normalized):
+    if not re.search(r"\b(?:fontes?|carregador(?:es)?|cabo|acessorio|acessorios)\b", normalized):
         return False
     return bool(
         re.search(

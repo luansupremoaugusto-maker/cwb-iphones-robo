@@ -351,7 +351,7 @@ def _is_device_item(item: Any) -> bool:
 def _is_phone_accessory_context(value: Any) -> bool:
     """Keep a phone question from becoming an accessory search by keyword."""
     normalized = _score_text(value)
-    accessory = re.search(r"\b(?:fonte|carregador)\b", normalized)
+    accessory = re.search(r"\b(?:fontes?|carregador(?:es)?)\b", normalized)
     if accessory is None:
         return False
 
@@ -378,7 +378,7 @@ def _is_phone_accessory_context(value: Any) -> bool:
 def _is_accessory_catalog_query(value: Any) -> bool:
     normalized = _score_text(value)
     return bool(
-        any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in ("fonte", "carregador"))
+        re.search(r"\b(?:fontes?|carregador(?:es)?)\b", normalized)
         and not _is_phone_accessory_context(normalized)
     )
 
@@ -388,10 +388,10 @@ def _accessory_kind(value: Any) -> str | None:
     if re.search(r"\b(?:inducao|magnetic\w*|magsafe|wireless|sem\s+fio)\b", normalized):
         return "wireless_charger"
     if re.search(r"\b(?:tipo\s+c|usb\s+c|20w)\b", normalized) or re.search(
-        r"\bfonte\b", normalized
+        r"\bfontes?\b", normalized
     ):
         return "type_c_charger"
-    if re.search(r"\b(?:carregador|fonte)\b", normalized):
+    if re.search(r"\b(?:carregador(?:es)?|fontes?)\b", normalized):
         return "charger"
     if re.search(r"\b(?:capinha|capa|case)\b", normalized):
         return "case"
