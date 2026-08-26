@@ -83,8 +83,9 @@ _APPLE_PRODUCT_RE = re.compile(
     re.IGNORECASE,
 )
 _DEVICE_RE = re.compile(
-    r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
-    r"smartphone|telefone|usado|usada|seminovo|seminova|apple|produto)\b",
+    r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular(?:es)?|"
+    r"aparelho(?:s)?|smartphone(?:s)?|telefone(?:s)?|usad(?:o|a)s?|"
+    r"seminov(?:o|a)s?|apple|produto(?:s)?)\b",
     re.IGNORECASE,
 )
 _NON_APPLE_RE = re.compile(
@@ -412,8 +413,9 @@ def _is_store_buyback_question(text: str) -> bool:
     )
     verb_first = re.search(
         r"\b(?:compram|compra|pegam|pegm|aceitam|recebem|avaliam)\b.{0,45}\b"
-        r"(?:algum|alguma|produto|iphone|ipad|macbook|apple\s+watch|"
-        r"airpods?|celular|aparelho|usado|seminovo)\b",
+        r"(?:algum(?:a|s|as)?|produto(?:s)?|iphone|ipad|macbook|apple\s+watch|"
+        r"airpods?|celular(?:es)?|aparelho(?:s)?|usad(?:o|a)s?|"
+        r"seminov(?:o|a)s?)\b",
         text,
         flags=re.IGNORECASE,
     )

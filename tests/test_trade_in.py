@@ -313,6 +313,40 @@ async def test_trade_in_response_is_form_and_handoff(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_plural_used_phone_buyback_after_catalog_reply_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês compram celulares usados?"
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Gostaria de saber o valor do iPhone 17 roxo 256gb"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de iPhone 17 disponíveis: "
+                    "iPhone 17 Lavanda 256 GB NOVO LACRADO por R$ 5.600,00."
+                ),
+            },
+        ],
+    )
+
+    assert is_trade_in_request(text) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_abbreviated_pegm_trade_in_question_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
