@@ -670,6 +670,37 @@ async def test_owned_iphone_for_sale_returns_evaluation_form(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_discount_for_delivering_old_phone_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês dão desconto se entregar o celular antigo?"
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "iPhone 17 - 256 GB - NOVO LACRADO - R$ 5.600,00\n"
+                "iPhone 17 Air - 256 GB - NOVO LACRADO - R$ 5.800,00\n"
+                "iPhone 17 Pro - 256 GB - NOVO LACRADO - R$ 6.900,00\n"
+                "iPhone 17 Pro Max - 1 TB - NOVO LACRADO - R$ 10.300,00"
+            ),
+        }
+    ]
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_trade_in_offer_with_screen_condition_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
