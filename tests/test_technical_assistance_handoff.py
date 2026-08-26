@@ -73,6 +73,37 @@ async def test_battery_health_question_is_not_treated_as_repair(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_screen_originality_question_is_forwarded_without_technical_assistance(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Já foi trocada a tela dele?\nOu está tudo original?",
+        history=[
+            {"role": "user", "content": "Para hoje não"},
+            {
+                "role": "assistant",
+                "content": "Tudo bem. Quando quiser visitar, me informe o dia e o horário.",
+            },
+            {"role": "user", "content": "Mais vamos conversar"},
+            {
+                "role": "assistant",
+                "content": "Claro! 😊 Podemos conversar sim. O que você gostaria de saber sobre o iPhone 12?",
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_catalog_buyer_condition_questions_are_forwarded_as_product_questions(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = InventoryCache(
