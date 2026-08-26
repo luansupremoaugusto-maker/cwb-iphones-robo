@@ -165,6 +165,16 @@ _IMPLICIT_UPGRADE_DETAIL_RE = re.compile(
     r"\b(?:\d{2,4}\s*(?:gb|tb)|bateria|tela|face\s*id|funcion\w*|original)\b",
     re.IGNORECASE,
 )
+_IMPLICIT_DEVICE_DISCOUNT_RE = re.compile(
+    r"\b(?:descont\w*|abatimento|promoc\w*)\b.{0,50}"
+    r"\b(?:dar|entregar|usar|oferecer|passar)\b.{0,25}"
+    r"\b(?:meu|minha|o|a)?\s*(?:celular|aparelho|iphone|smartphone|telefone)\b"
+    r".{0,15}\b(?:antigo|usado|velho)\b"
+    r"|\b(?:dar|entregar|usar|oferecer|passar)\b.{0,25}"
+    r"\b(?:meu|minha|o|a)?\s*(?:celular|aparelho|iphone|smartphone|telefone)\b"
+    r".{0,50}\b(?:descont\w*|abatimento|promoc\w*)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
@@ -303,6 +313,11 @@ def _has_device_offer(text: str) -> bool:
     # complete-device details so a repair question mentioning a model does not
     # enter the evaluation flow.
     if _has_implicit_device_upgrade_offer(text):
+        return True
+
+    # A discount request can imply a trade-in even when the customer does not
+    # use the words "troca" or "entrada".
+    if _IMPLICIT_DEVICE_DISCOUNT_RE.search(text) and not _NON_APPLE_RE.search(text):
         return True
 
     # Customers commonly state ownership before the sale intent: "tenho um
