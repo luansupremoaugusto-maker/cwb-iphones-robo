@@ -657,6 +657,9 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
         unit = "tb" if match.group(2) == "tb" else "gb"
         if number.endswith(".0"):
             number = number[:-2]
+        # Accept the common customer shorthand for the iPhone 512 GB option.
+        if unit == "gb" and number == "500":
+            number = "512"
         key = f"{number}{unit}"
         if key not in keys:
             keys.append(key)
@@ -720,6 +723,8 @@ def _capacity_key(value: Any) -> str | None:
     unit = "tb" if match.group(2) == "tb" else "gb"
     if number.endswith(".0"):
         number = number[:-2]
+    if unit == "gb" and number == "500":
+        number = "512"
     return f"{number}{unit}"
 
 
@@ -2188,7 +2193,7 @@ def _format_available_products(result: dict[str, Any]) -> str:
             "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
             "despacho; na retirada na loja, o pagamento é feito na hora."
         )
-    if not seminovos and not lacrados:
+    if not seminovos and not lacrados_pronta_entrega and not lacrados:
         return "No momento não localizei modelos disponíveis para informar. Vou encaminhar para um atendente confirmar."
     return "\n".join(lines)
 
@@ -2880,6 +2885,7 @@ class AgentService:
             return None
 
         seminovos = result.get("seminovos") or []
+        lacrados_pronta_entrega = result.get("lacrados_pronta_entrega") or []
         lacrados = result.get("lacrados") or []
         requested_family = _catalog_family(query)
         requested_models = _requested_iphone_model_keys(query)
@@ -2917,16 +2923,35 @@ class AgentService:
         available_seminovos = [entry for entry in seminovos if same_family(entry) and within_budget(entry)]
         matching_seminovos = [entry for entry in available_seminovos if same_requested_model(entry)]
         other_seminovos = [entry for entry in available_seminovos if not same_requested_model(entry)]
-        other_lacrados = [
+        available_lacrados_pronta_entrega = [
             entry
-            for entry in lacrados
-            if same_family(entry) and not same_requested_model(entry) and within_budget(entry)
+            for entry in lacrados_pronta_entrega
+            if same_family(entry) and within_budget(entry)
+        ]
+        matching_lacrados_pronta_entrega = [
+            entry
+            for entry in available_lacrados_pronta_entrega
+            if same_requested_model(entry)
+        ]
+        other_lacrados_pronta_entrega = [
+            entry
+            for entry in available_lacrados_pronta_entrega
+            if not same_requested_model(entry)
+        ]
+        available_lacrados = [entry for entry in lacrados if same_family(entry) and within_budget(entry)]
+        matching_lacrados = [entry for entry in available_lacrados if same_requested_model(entry)]
+        other_lacrados = [
+            entry for entry in available_lacrados if not same_requested_model(entry)
         ]
         alternatives = {
             "seminovos": [*matching_seminovos, *other_seminovos],
-            "lacrados": other_lacrados,
+            "lacrados_pronta_entrega": [
+                *matching_lacrados_pronta_entrega,
+                *other_lacrados_pronta_entrega,
+            ],
+            "lacrados": [*matching_lacrados, *other_lacrados],
         }
-        if not alternatives["seminovos"] and not alternatives["lacrados"]:
+        if not any(alternatives.values()):
             return AgentDecision(
                 reply=(
                     "N\u00e3o localizei esse modelo novo lacrado na tabela de lacrados. "

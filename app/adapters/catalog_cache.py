@@ -230,6 +230,9 @@ def _capacity_key(value: Any) -> str | None:
         unit = "tb" if match.group(2).lower() == "tb" else "gb"
         if number.endswith(".0"):
             number = number[:-2]
+        # Customers sometimes call the iPhone's 512 GB option "500 GB".
+        if unit == "gb" and number == "500":
+            number = "512"
         return f"{number}{unit}"
     for number in ("1024", "512", "256", "128", "64", "32"):
         if re.search(rf"\b{number}\b", normalized):
