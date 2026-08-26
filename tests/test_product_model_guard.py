@@ -1212,6 +1212,73 @@ async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_multi_model_pro_max_request_returns_all_units_of_available_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-512",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="512GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5480,
+            battery_health=100,
+            search_text="iphone 16 pro max titanio deserto 512gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-a",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5500,
+            battery_health=100,
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-b",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5290,
+            battery_health=90,
+            search_text="iphone 16 preto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Oi teria iPhone 15 ou 16 pro max ?")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-512",
+        "iphone-16-pro-max-256-a",
+        "iphone-16-pro-max-256-b",
+    }
+    assert "iPhone 15 Pro Max" not in decision.reply
+    assert decision.reply.count("R$") == 3
+
+
+@pytest.mark.asyncio
 async def test_single_pro_max_value_question_returns_all_available_units(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

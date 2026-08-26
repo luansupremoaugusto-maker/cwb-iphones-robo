@@ -3186,9 +3186,17 @@ class AgentService:
                     confidence="medium",
                 )
 
+            requested_variants = {variant for _number, variant in requested_models if variant}
+            same_variant_multi_model_request = (
+                len(requested_models) > 1
+                and len(requested_variants) == 1
+                and not requested_capacities
+            )
             return_all_matching_units = (
-                len(requested_models) == 1
-                and bool(requested_conditions)
+                (
+                    (len(requested_models) == 1 and bool(requested_conditions))
+                    or same_variant_multi_model_request
+                )
                 and requested_quantity is None
                 and _requested_battery_health(query) is None
                 and not _has_requested_catalog_color(query, public_candidates)
