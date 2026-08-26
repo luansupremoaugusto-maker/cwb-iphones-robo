@@ -269,6 +269,7 @@ async def test_explicit_iphone_sealed_list_excludes_seminew_section(tmp_path):
     decision = await agent.respond("Gostaria de saber quais iphone lacrado vc tem e os valores?")
 
     assert decision.handoff is False
+    assert decision.product_references == []
     assert "Seminovos disponíveis para venda" not in decision.reply
     assert "SEMINOVO" not in decision.reply.upper()
     assert "iPhone 15" not in decision.reply
