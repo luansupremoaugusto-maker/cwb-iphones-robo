@@ -683,6 +683,27 @@ def is_trade_in_negotiation(text: str | None) -> bool:
     return bool(closing and (money or context))
 
 
+_TRADE_IN_FORM_FIELD_RE = re.compile(
+    r"\b(?:marcas de uso|riscos na tela|tem algo quebrado/defeituoso|"
+    r"possui algo que ja foi trocado|desbloqueado chip|saude da bateria|"
+    r"valor que pretende no seu usado|garantia apple)\b",
+    re.IGNORECASE,
+)
+_TRADE_IN_FORM_ANSWER_RE = re.compile(
+    r"(?im)^[ \t]*(?:r|gb|cor)[ \t]*:[ \t]*(\S.*)$"
+)
+
+
+def is_completed_trade_in_form(text: str | None) -> bool:
+    """Detect a filled evaluation form, rather than the blank form itself."""
+    if not text:
+        return False
+    normalized = _normalize(text)
+    field_count = len(_TRADE_IN_FORM_FIELD_RE.findall(normalized))
+    answer_count = len(_TRADE_IN_FORM_ANSWER_RE.findall(text))
+    return field_count >= 4 and answer_count >= 4
+
+
 def is_trade_in_context_request(
     text: str | None,
     history: list[dict[str, str]] | None,

@@ -9,6 +9,7 @@ from app.runtime import build_runtime
 from app.trade_in import (
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
+    is_completed_trade_in_form,
     is_trade_in_negotiation,
     is_trade_in_context_request,
     is_trade_in_request,
@@ -200,6 +201,16 @@ def test_trade_in_history_marker_only_counts_assistant_form():
     assert is_trade_in_negotiation("buscar na loja") is False
 
 
+def test_completed_trade_in_form_requires_non_empty_answers():
+    assert is_completed_trade_in_form(TRADE_IN_FORM) is False
+    assert is_completed_trade_in_form(
+        "Marcas de uso?\nR: nao\n"
+        "Riscos na tela?\nR: nao\n"
+        "Tem algo quebrado/defeituoso?\nR: nao\n"
+        "Qual a % da Saúde da bateria?\nR: 71%"
+    ) is True
+
+
 @pytest.mark.asyncio
 async def test_trade_in_negotiation_after_form_is_handed_off_without_price(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
@@ -218,6 +229,69 @@ async def test_trade_in_negotiation_after_form_is_handed_off_without_price(tmp_p
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
     assert "400" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_filled_evaluation_form_after_bot_form_is_forwarded_to_attendant(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    filled_form = (
+        "R: nao\n"
+        "Marcas de uso?\n"
+        "R: nao\n"
+        "Riscos na tela?\n"
+        "R: nao\n"
+        "Tem algo quebrado/defeituoso?\n"
+        "(Mesmo que simples informar qualquer anormalidade)\n"
+        "R: nao\n"
+        "Possui algo que já foi trocado ou feito algum reparo?\n"
+        "R: nao\n"
+        "É desbloqueado chip todas operadoras?\n"
+        "R: sim\n"
+        "Qual a % da Saúde da bateria? (Veja em Ajustes > Bateria > Saúde da bateria)\n"
+        "R: 71%\n"
+        "Valor que pretende no seu usado? (Lembrando que precisamos de margem para revenda)\n"
+        "R: R$ 3.000,00\n"
+        "Ainda tem garantia Apple? Se sim, quanto?\n"
+        "R:\n"
+        "Se puder mandar fotos agradecemos.\n"
+        "Com essas informações já podemos fazer uma avaliação prévia!!\n"
+        "Só avaliamos produtos da marca Apple. Após preencher, vou encaminhar o atendimento para um atendente concluir a avaliação."
+    )
+
+    decision = await service.respond(
+        filled_form,
+        history=[{"role": "assistant", "content": TRADE_IN_FORM}],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_repair_after_evaluation_form_remains_technical_assistance(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Quero trocar a bateria do meu iPhone.",
+        history=[{"role": "assistant", "content": TRADE_IN_FORM}],
+    )
+
+    assert decision.handoff is True
+    assert "assistência técnica" in decision.reply.lower()
 
 
 @pytest.mark.asyncio
