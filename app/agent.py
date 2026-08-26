@@ -3879,6 +3879,18 @@ def _is_device_condition_question(text: str | None) -> bool:
         normalized,
     ):
         return True
+    if re.search(
+        r"\b(?:"
+        r"(?:ja\s+)?foi\s+(?:trocad\w*|substituid\w*)\b.{0,20}"
+        r"(?:tela|display|vidro|peca\w*)"
+        r"|(?:tela|display|vidro|peca\w*)\b.{0,20}"
+        r"(?:ja\s+)?foi\s+(?:trocad\w*|substituid\w*)"
+        r"|(?:tela|display|vidro)\s+(?:e|esta|sao)?\s*original\w*"
+        r"|(?:tudo|todas?\s+as\s+pecas?)\s+(?:e|esta|sao)?\s*original\w*"
+        r")\b",
+        normalized,
+    ):
+        return True
     return bool(
         re.search(r"\b(?:o\s+que|que)\s+(?:seria|e|significa)\b", normalized)
         and re.search(r"\b(?:branc\w*|pret\w*|manch\w*|pont\w*|marc\w*|suj\w*)\b", normalized)
