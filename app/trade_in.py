@@ -162,6 +162,11 @@ _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_IMPLICIT_GENERIC_UPGRADE_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,20}"
+    r"\btrocar\s+por\s+(?:um|uma|outro|outra)?\s*(?:modelo\s+)?mais\s+nov\w*\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_UPGRADE_DETAIL_RE = re.compile(
     r"\b(?:\d{2,4}\s*(?:gb|tb)|bateria|tela|face\s*id|funcion\w*|original)\b",
     re.IGNORECASE,
@@ -179,10 +184,14 @@ _IMPLICIT_DEVICE_DISCOUNT_RE = re.compile(
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
-    return bool(
-        _OWNED_NUMBERED_IPHONE_RE.search(text)
-        and _IMPLICIT_UPGRADE_TARGET_RE.search(text)
+    owned_device = _OWNED_NUMBERED_IPHONE_RE.search(text)
+    explicit_model_upgrade = (
+        _IMPLICIT_UPGRADE_TARGET_RE.search(text)
         and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
+    )
+    return bool(
+        owned_device
+        and (explicit_model_upgrade or _IMPLICIT_GENERIC_UPGRADE_RE.search(text))
         and not _NON_APPLE_RE.search(text)
     )
 
@@ -310,9 +319,9 @@ def _has_device_offer(text: str) -> bool:
         return True
 
     # Some customers imply the exchange by describing their owned iPhone and
-    # asking for a newer model, without saying "troca" or "entrada". Require
-    # complete-device details so a repair question mentioning a model does not
-    # enter the evaluation flow.
+    # asking for a newer model. An explicit model target still requires
+    # complete-device details, while "trocar por um mais novo" is explicit
+    # exchange language even without a target model or device details.
     if _has_implicit_device_upgrade_offer(text):
         return True
 
