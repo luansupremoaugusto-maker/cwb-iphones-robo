@@ -1645,6 +1645,86 @@ async def test_single_pro_max_value_question_returns_all_available_units(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_color_followup_after_256_pro_max_value_question_lists_all_units(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-a",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5500,
+            battery_health=100,
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-b",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5290,
+            battery_health=90,
+            search_text="iphone 16 pro max preto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Qual o valor do iPhone 16 pro max de 256g?\nQuais cores teria?",
+        history=[
+            {"role": "user", "content": "Td bem ?"},
+            {"role": "assistant", "content": "Bom dia! Tudo bem? 😊 Como posso ajudar?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-256-a",
+        "iphone-16-pro-max-256-b",
+    }
+    assert "TITÂNIO DESERTO" in decision.reply
+    assert "PRETO" in decision.reply
+    assert decision.reply.count("256GB") == 2
+
+    followup = await agent.respond(
+        "Quais cores teria?",
+        history=[
+            {"role": "user", "content": "Qual o valor do iPhone 16 pro max de 256g?"},
+        ],
+    )
+
+    assert set(followup.product_references) == {
+        "iphone-16-pro-max-256-a",
+        "iphone-16-pro-max-256-b",
+    }
+    assert "TITÂNIO DESERTO" in followup.reply
+    assert "PRETO" in followup.reply
+    assert followup.reply.count("256GB") == 2
+
+    color_specific = await agent.respond("Qual o valor do iPhone 16 pro max 256GB preto?")
+
+    assert color_specific.product_references == ["iphone-16-pro-max-256-b"]
+    assert "PRETO" in color_specific.reply
+    assert "TITÂNIO DESERTO" not in color_specific.reply
+
+
+@pytest.mark.asyncio
 async def test_specific_pro_max_price_includes_cheaper_ready_sealed_unit(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
