@@ -511,6 +511,21 @@ def _is_broad_airpods_request(text: str) -> bool:
         return False
     return not re.search(r"\b(?:pro|anc|max|mini|plus|\d+)\b", normalized)
 
+
+def _is_cheapest_catalog_request(text: str) -> bool:
+    """Recognize a request for the lowest-priced available catalog item."""
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    return bool(
+        re.search(
+            r"\bmais\s+barat(?:o|a|os|as)\b"
+            r"|\bmais\s+em\s+conta\b"
+            r"|\bmenor\s+(?:preco|valor)\b",
+            normalized,
+        )
+    )
+
 def _is_product_availability_request(text: str) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
@@ -543,6 +558,8 @@ def _is_product_availability_request(text: str) -> bool:
     ):
         return False
     if accessory_request:
+        return True
+    if _is_cheapest_catalog_request(normalized):
         return True
     availability_phrases = (
         "tem",
@@ -3282,25 +3299,28 @@ class AgentService:
                 confidence="medium",
             )
 
+        cheapest_request = _is_cheapest_catalog_request(query)
         broad_request = (
             requested_budget is not None
             or requested_quantity is not None
             or _is_broad_airpods_request(query)
         )
-        if broad_request:
-            def price_sort_key(item: Any) -> tuple[float, str, str, str]:
-                price = getattr(item, "price_brl", None)
-                try:
-                    numeric_price = float(price) if price is not None else float("inf")
-                except (TypeError, ValueError):
-                    numeric_price = float("inf")
-                return (
-                    numeric_price,
-                    _normalize(str(getattr(item, "name", "") or "")),
-                    _normalize(str(getattr(item, "capacity", "") or "")),
-                    _normalize(str(getattr(item, "color", None) or getattr(item, "colors", "") or "")),
-                )
+        def price_sort_key(item: Any) -> tuple[float, str, str, str]:
+            price = getattr(item, "price_brl", None)
+            try:
+                numeric_price = float(price) if price is not None else float("inf")
+            except (TypeError, ValueError):
+                numeric_price = float("inf")
+            return (
+                numeric_price,
+                _normalize(str(getattr(item, "name", "") or "")),
+                _normalize(str(getattr(item, "capacity", "") or "")),
+                _normalize(str(getattr(item, "color", None) or getattr(item, "colors", "") or "")),
+            )
 
+        if cheapest_request:
+            selected = sorted(public_candidates, key=price_sort_key)[:1]
+        elif broad_request:
             selected = sorted(public_candidates, key=price_sort_key)
         else:
             scored = [(_catalog_score(query, item), item) for item in public_candidates]

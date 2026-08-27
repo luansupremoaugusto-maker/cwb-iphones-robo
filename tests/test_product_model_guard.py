@@ -183,6 +183,57 @@ async def test_bare_model_capacity_value_question_returns_only_requested_iphone(
 
 
 @pytest.mark.asyncio
+async def test_cheapest_iphone_question_returns_lowest_available_price(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-3750",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3750,
+            battery_health=90,
+            search_text="iphone 16 128 gb preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="64 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=86,
+            search_text="iphone 12 64 gb branco celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quanto tá o iPhone mais barato de vocês")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-12-1300"]
+    assert "iPhone 12" in decision.reply
+    assert "1.300,00" in decision.reply
+    assert "iPhone 16" not in decision.reply
+    assert "3.750,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_all_iphone_17_line_request_returns_every_generation_17_option(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items = [
