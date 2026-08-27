@@ -2129,8 +2129,9 @@ def _format_product_availability(items: list[Any]) -> str:
         model = "iPhone"
     else:
         model = "produto"
-    lines = [f"Sim 😊 Encontrei estas opções de {model} disponíveis:"]
-    for item in items:
+    header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
+
+    def item_line(item: Any) -> str:
         color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
         capacity = str(getattr(item, "capacity", None) or "").strip()
         if not capacity:
@@ -2149,14 +2150,44 @@ def _format_product_availability(items: list[Any]) -> str:
             battery_text = _format_battery(getattr(item, "battery_health", None))
         price = getattr(item, "price_brl", None)
         price_text = format_brl(float(price)) if price is not None else "preço a confirmar"
-        lines.append(f"• {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}")
-    formatted_lines = [lines[0]]
-    separator = "\u2014"
-    for item, line in zip(items, lines[1:]):
         item_name = str(getattr(item, "name", None) or "produto").strip()
-        _, _, details = line.partition(" ")
-        formatted_lines.append(f"\u2022 {item_name} {separator} {details}")
-    return "\n".join(formatted_lines)
+        return f"• {item_name} — {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}"
+
+    groups = (
+        ("📱 Seminovos disponíveis para pronta entrega:", [item for item in items if not _is_sealed_item(item)]),
+        (
+            "📦 Lacrados disponíveis para pronta entrega:",
+            [
+                item
+                for item in items
+                if _is_sealed_item(item) and not _is_made_to_order_sealed_item(item)
+            ],
+        ),
+        ("📦 Novos lacrados por encomenda:", [item for item in items if _is_made_to_order_sealed_item(item)]),
+    )
+    populated_groups = [group for _heading, group in groups if group]
+    if len(populated_groups) > 1:
+        formatted_lines = [header]
+        for heading, group in groups:
+            if not group:
+                continue
+            formatted_lines.extend(["", heading])
+            formatted_lines.extend(item_line(item) for item in group)
+        if groups[-1][1]:
+            formatted_lines.extend(
+                [
+                    "",
+                    "Os lacrados são por encomenda, com prazo de 1 semana. Em qualquer envio, "
+                    "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
+                    "despacho; na retirada na loja, o pagamento é feito na hora.",
+                ]
+            )
+        return "\n".join(formatted_lines)
+
+    lines = [header]
+    for item in items:
+        lines.append(item_line(item))
+    return "\n".join(lines)
 
 
 def _format_available_products(result: dict[str, Any]) -> str:

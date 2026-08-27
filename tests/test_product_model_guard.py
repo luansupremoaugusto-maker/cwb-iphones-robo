@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from app.adapters.catalog_cache import StoreCatalogCache
+from app.adapters.catalog_cache import StoreCatalogCache, _requested_iphone_model_keys
 from app.agent import (
     AgentService,
     CATALOG_BUYER_DETAILS_REPLY,
@@ -13,6 +13,7 @@ from app.agent import (
     _is_available_list_request,
     _is_product_availability_request,
     _normalize,
+    _requested_device_quantity,
 )
 from app.config import Settings
 from app.faq import FAQStore
@@ -61,6 +62,19 @@ class SealedCatalog:
 
     async def get(self, product_id: str):
         return next((item for item in self.items if item.external_id == product_id), None)
+
+
+def test_shared_pro_max_suffix_extracts_each_number_as_a_requested_model():
+    assert _requested_iphone_model_keys("Queria saber sobre valores 15 16 17 pro Max") == (
+        (15, "pro max"),
+        (16, "pro max"),
+        (17, "pro max"),
+    )
+
+
+def test_past_purchase_count_is_not_treated_as_requested_quantity():
+    assert _requested_device_quantity("Já comprei 2 celular com vc") is None
+    assert _requested_device_quantity("Preciso de 2 aparelhos") == 2
 
 
 def build_agent(tmp_path):
@@ -1364,6 +1378,122 @@ async def test_line_separated_pro_max_prices_return_only_requested_models(tmp_pa
     assert "iPhone 11 Pro Max" not in decision.reply
     assert "iPhone 12" not in decision.reply
     assert "lista completa de produtos disponíveis" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_batched_three_pro_max_models_returns_all_units_and_separates_delivery_sources(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("sheet:17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 7900),
+        _sealed_item("sheet:17-pro-max-512", "iPhone 17 Pro Max", "512 GB", 8600),
+        _sealed_item("sheet:17-pro-max-1tb", "iPhone 17 Pro Max", "1 TB", 10300),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-three-pro-max.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="mp:15-pro-max-256-ready",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO NATURAL",
+            source="mercado_phone",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4200,
+            search_text="iphone 15 pro max 256 gb titanio natural celular lacrado",
+        ),
+        InventoryItem(
+            external_id="mp:16-pro-max-256-a",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5500,
+            battery_health=100,
+            search_text="iphone 16 pro max 256 gb preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="mp:16-pro-max-256-b",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5300,
+            battery_health=90,
+            search_text="iphone 16 pro max 256 gb branco celular seminovo",
+        ),
+        InventoryItem(
+            external_id="mp:16-pro-max-512",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="512 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5480,
+            battery_health=100,
+            search_text="iphone 16 pro max 512 gb titanio deserto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="mp:17-pro-max-256-ready",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            source="mercado_phone",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7460,
+            search_text="iphone 17 pro max 256 gb prateado celular lacrado",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Queria saber sobre valores 15 16 17 pro Max\n"
+        "E a saúde\n"
+        "Já comprei 2 celular com vc"
+    )
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "mp:15-pro-max-256-ready",
+        "mp:16-pro-max-256-a",
+        "mp:16-pro-max-256-b",
+        "mp:16-pro-max-512",
+        "mp:17-pro-max-256-ready",
+        "sheet:17-pro-max-256",
+        "sheet:17-pro-max-512",
+        "sheet:17-pro-max-1tb",
+    }
+    assert decision.reply.count("iPhone 16 Pro Max") == 3
+    assert decision.reply.count("R$") == 8
+    assert "iPhone 15 Pro Max" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "Seminovos disponíveis para pronta entrega" in decision.reply
+    assert "Lacrados disponíveis para pronta entrega" in decision.reply
+    assert "Novos lacrados por encomenda" in decision.reply
+    assert decision.reply.index("Lacrados disponíveis para pronta entrega") < decision.reply.index(
+        "Novos lacrados por encomenda"
+    )
 
 
 @pytest.mark.asyncio

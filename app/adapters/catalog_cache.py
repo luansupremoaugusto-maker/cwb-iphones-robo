@@ -40,6 +40,12 @@ _MODEL_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_SHARED_MODEL_VARIANT_PATTERN = re.compile(
+    r"(?<!\w)(?P<numbers>1[0-9](?:\s+1[0-9]|\s*(?:[,/;]|\b(?:e|ou|or)\b)\s*1[0-9])+)"
+    r"\s+(?P<variant>pro\s+max|pro|max|plus|mini|air|e)\b",
+    flags=re.IGNORECASE,
+)
+
 
 def _model_key(value: Any) -> tuple[int | str, str] | None:
     """Return the last explicit iPhone model/variant mentioned in a text."""
@@ -118,6 +124,16 @@ def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
     normalized = _normalize(value)
+    if any(marker in normalized for marker in ("ipad", "macbook", "airpods", "apple watch")):
+        return ()
+
+    shared_variant = _SHARED_MODEL_VARIANT_PATTERN.search(normalized)
+    if shared_variant:
+        variant = " ".join(shared_variant.group("variant").split()).lower()
+        numbers = [int(number) for number in re.findall(r"1[0-9]", shared_variant.group("numbers"))]
+        if len(set(numbers)) > 1:
+            return tuple((number, variant) for number in numbers)
+
     line_aware_normalized = _normalize(
         str(value or "")
         .replace("\r\n", "\n")
