@@ -118,7 +118,7 @@ _PARTS_RE = re.compile(
     re.IGNORECASE,
 )
 _BUYBACK_VERB_RE = re.compile(
-    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos)|pegm|aceit(?:a|am|amos)|"
+    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
@@ -392,9 +392,9 @@ def _has_device_offer(text: str) -> bool:
         return True
 
     if re.search(
-        r"\b(?:aceita|aceitam|pega|pegam|pegm|recebe|recebem|avalia|avaliam)\b"
+        r"\b(?:aceita|aceitam|pega|pegam|pegando|pegm|recebe|recebem|avalia|avaliam)\b"
         r".{0,40}\b(?:meu|minha|meus|minhas|celular|iphone|aparelho|"
-        r"usado|seminovo|ele|ela)\b",
+        r"usad(?:o|a)s?|seminov(?:o|a)s?|ele|ela)\b",
         text,
         flags=re.IGNORECASE,
     ):
@@ -559,6 +559,8 @@ def is_trade_in_request(text: str | None) -> bool:
     if is_catalog_price_recall_request(normalized):
         return False
     if is_catalog_purchase_advice_request(normalized):
+        return False
+    if is_parts_buyback_request(normalized):
         return False
 
     if re.search(
