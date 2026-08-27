@@ -10,6 +10,7 @@ from app.agent import (
     CATALOG_BUYER_DETAILS_REPLY,
     _extract_budget_limit,
     _format_product_availability,
+    _is_cheapest_catalog_request,
     _is_available_list_request,
     _is_product_availability_request,
     _normalize,
@@ -802,6 +803,11 @@ def test_availability_lines_identify_each_model_when_candidates_differ():
 
 def test_price_table_request_is_treated_as_complete_available_list():
     assert _is_available_list_request("Tem uma tabela de pre\u00e7o dos iPhone") is True
+
+
+def test_plural_cheapest_iphone_request_is_not_treated_as_single_item():
+    assert _is_cheapest_catalog_request("Qual o iPhone mais em conta?") is True
+    assert _is_cheapest_catalog_request("Quais iPhones mais em conta vocês têm?") is False
 
 
 def test_availability_header_does_not_name_only_first_model_when_candidates_differ():

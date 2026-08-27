@@ -518,11 +518,16 @@ def _is_cheapest_catalog_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    return bool(
+    if not re.search(
+        r"\bmais\s+barat[oa]\b"
+        r"|\bmais\s+em\s+conta\b"
+        r"|\bmenor\s+(?:preco|valor)\b",
+        normalized,
+    ):
+        return False
+    return not bool(
         re.search(
-            r"\bmais\s+barat[oa]\b"
-            r"|\bmais\s+em\s+conta\b"
-            r"|\bmenor\s+(?:preco|valor)\b",
+            r"\b(?:quais|todos|todas|iphones|modelos|opcoes|aparelhos|unidades)\b",
             normalized,
         )
     )
