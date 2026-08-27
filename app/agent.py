@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -519,12 +520,21 @@ def _is_cheapest_catalog_request(text: str) -> bool:
         return False
     return bool(
         re.search(
-            r"\bmais\s+barat(?:o|a|os|as)\b"
+            r"\bmais\s+barat[oa]\b"
             r"|\bmais\s+em\s+conta\b"
             r"|\bmenor\s+(?:preco|valor)\b",
             normalized,
         )
     )
+
+
+def _confirmed_catalog_price(item: Any) -> float | None:
+    try:
+        price = float(getattr(item, "price_brl", None))
+    except (TypeError, ValueError):
+        return None
+    return price if math.isfinite(price) and price >= 0 else None
+
 
 def _is_product_availability_request(text: str) -> bool:
     """Route a product-specific availability question without an LLM guess."""
@@ -3306,10 +3316,8 @@ class AgentService:
             or _is_broad_airpods_request(query)
         )
         def price_sort_key(item: Any) -> tuple[float, str, str, str]:
-            price = getattr(item, "price_brl", None)
-            try:
-                numeric_price = float(price) if price is not None else float("inf")
-            except (TypeError, ValueError):
+            numeric_price = _confirmed_catalog_price(item)
+            if numeric_price is None:
                 numeric_price = float("inf")
             return (
                 numeric_price,
@@ -3319,7 +3327,18 @@ class AgentService:
             )
 
         if cheapest_request:
-            selected = sorted(public_candidates, key=price_sort_key)[:1]
+            priced_candidates = [
+                item for item in public_candidates if _confirmed_catalog_price(item) is not None
+            ]
+            if not priced_candidates:
+                return AgentDecision(
+                    reply=(
+                        "No momento não localizei nenhum aparelho com preço confirmado para comparar. "
+                        "Posso verificar outra opção?"
+                    ),
+                    confidence="medium",
+                )
+            selected = sorted(priced_candidates, key=price_sort_key)[:1]
         elif broad_request:
             selected = sorted(public_candidates, key=price_sort_key)
         else:
