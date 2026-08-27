@@ -298,7 +298,7 @@ def _current_catalog_context(text: str, image_description: str | None = None) ->
 
 
 def _is_catalog_followup(text: str) -> bool:
-    """Recognize a short price/condition follow-up for a prior product."""
+    """Recognize a short price/condition/color follow-up for a prior product."""
     normalized = _normalize(text)
     if not normalized:
         return False
@@ -323,6 +323,8 @@ def _is_catalog_followup(text: str) -> bool:
             "tem em",
             "fonte",
             "carregador",
+            "cor",
+            "cores",
         )
     )
 
@@ -3290,7 +3292,10 @@ class AgentService:
             )
             return_all_matching_units = (
                 (
-                    (len(requested_models) == 1 and bool(requested_conditions))
+                    (
+                        len(requested_models) == 1
+                        and (bool(requested_conditions) or len(requested_capacities) == 1)
+                    )
                     or same_variant_multi_model_request
                 )
                 and requested_quantity is None
