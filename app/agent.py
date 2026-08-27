@@ -1354,6 +1354,25 @@ def _has_seminovo_reference(normalized: str) -> bool:
     return any(marker in normalized for marker in ("seminovo", "seminovos", "semi novo", "semi novos", "usado", "usados"))
 
 
+def _has_explicit_sealed_condition(normalized: str) -> bool:
+    """Recognize a direct sealed condition, excluding fulfillment wording."""
+    return bool(re.search(r"\blacrados?\b", normalized))
+
+
+def _is_neutral_encomenda_availability(normalized: str) -> bool:
+    """Keep "para encomenda" from hiding an explicitly available used device."""
+    return bool(re.search(r"\bencomendas?\b", normalized)) and not (
+        _has_explicit_sealed_condition(normalized) or _has_seminovo_reference(normalized)
+    )
+
+
+def _availability_catalog_query(query: str) -> str:
+    normalized = _normalize(query)
+    if not _is_neutral_encomenda_availability(normalized):
+        return query
+    return re.sub(r"\bencomendas?\b", " ", query, flags=re.IGNORECASE)
+
+
 def _is_photo_retry_request(text: str) -> bool:
     normalized = _normalize(text)
     retry_phrases = (
@@ -2946,7 +2965,7 @@ class AgentService:
         requested_budget: float | None = None,
     ) -> AgentDecision | None:
         normalized_query = _normalize(query)
-        if not _has_sealed_reference(normalized_query):
+        if not _has_explicit_sealed_condition(normalized_query):
             return None
 
         method = getattr(self.cache, "list_available_products", None)
@@ -3053,7 +3072,7 @@ class AgentService:
         if not _has_installment_product_context(query):
             return None
 
-        if _has_sealed_reference(_normalize(query)):
+        if _has_explicit_sealed_condition(_normalize(query)):
             return None
 
         method = getattr(self.cache, "list_available_products", None)
@@ -3167,7 +3186,7 @@ class AgentService:
         requested_budget = _extract_budget_limit(query)
         requested_quantity = _requested_device_quantity(query)
         try:
-            candidates = await self.cache.search(query, limit=300)
+            candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
         except Exception:
             alternative = await self._try_unavailable_lacrado_alternative(
                 query, requested_budget=requested_budget
@@ -3210,7 +3229,8 @@ class AgentService:
 
         normalized_query = _normalize(query)
         requested_conditions: set[str] = set()
-        if _has_sealed_reference(normalized_query):
+        has_explicit_sealed_condition = _has_explicit_sealed_condition(normalized_query)
+        if has_explicit_sealed_condition:
             requested_conditions.add("lacrado")
         if _has_seminovo_reference(normalized_query):
             requested_conditions.add("seminovo")
@@ -3316,9 +3336,7 @@ class AgentService:
                 best = max(score for score, _item in positive)
                 return [item for score, item in positive if score == best]
 
-            condition_was_requested = _has_sealed_reference(_normalize(query)) or _has_seminovo_reference(
-                _normalize(query)
-            )
+            condition_was_requested = has_explicit_sealed_condition or _has_seminovo_reference(normalized_query)
 
             def include_ready_sealed_units(
                 selected_items: list[Any],
