@@ -10,6 +10,7 @@ from app.agent import (
     CATALOG_BUYER_DETAILS_REPLY,
     _extract_budget_limit,
     _format_product_availability,
+    _is_cheapest_catalog_request,
     _is_available_list_request,
     _is_product_availability_request,
     _normalize,
@@ -180,6 +181,181 @@ async def test_bare_model_capacity_value_question_returns_only_requested_iphone(
     assert "iPhone 17 Pro" not in decision.reply
     assert "iPhone 17 Pro Max" not in decision.reply
     assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_cheapest_iphone_question_returns_lowest_available_price(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-3750",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3750,
+            battery_health=90,
+            search_text="iphone 16 128 gb preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="64 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=86,
+            search_text="iphone 12 64 gb branco celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quanto tá o iPhone mais barato de vocês")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-12-1300"]
+    assert "iPhone 12" in decision.reply
+    assert "1.300,00" in decision.reply
+    assert "iPhone 16" not in decision.reply
+    assert "3.750,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_cheapest_iphone_question_requires_a_confirmed_price(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-no-price",
+            name="iPhone 11",
+            category="Celular",
+            capacity="64 GB",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=None,
+            search_text="iphone 11 64 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quanto tá o iPhone mais barato de vocês")
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "preço confirmado" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_cheapest_iphone_question_uses_stable_tie_breaking(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-12-preto",
+            name="iPhone 12",
+            category="Celular",
+            capacity="64 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1300,
+            search_text="iphone 12 64 gb preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-branco",
+            name="iPhone 12",
+            category="Celular",
+            capacity="64 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1300,
+            search_text="iphone 12 64 gb branco celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quanto tá o iPhone mais barato de vocês")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-12-branco"]
+    assert "BRANCO" in decision.reply
+    assert "PRETO" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_cheapest_iphone_question_keeps_an_explicit_model_filter(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-3750",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3750,
+            search_text="iphone 16 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="64 GB",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1300,
+            search_text="iphone 12 64 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quanto tá o iPhone 16 mais barato de vocês")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-3750"]
+    assert "iPhone 16" in decision.reply
+    assert "iPhone 12" not in decision.reply
 
 
 @pytest.mark.asyncio
@@ -627,6 +803,11 @@ def test_availability_lines_identify_each_model_when_candidates_differ():
 
 def test_price_table_request_is_treated_as_complete_available_list():
     assert _is_available_list_request("Tem uma tabela de pre\u00e7o dos iPhone") is True
+
+
+def test_plural_cheapest_iphone_request_is_not_treated_as_single_item():
+    assert _is_cheapest_catalog_request("Qual o iPhone mais em conta?") is True
+    assert _is_cheapest_catalog_request("Quais iPhones mais em conta vocês têm?") is False
 
 
 def test_availability_header_does_not_name_only_first_model_when_candidates_differ():
