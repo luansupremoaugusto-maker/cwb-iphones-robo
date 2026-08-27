@@ -2462,6 +2462,7 @@ class AgentService:
         if (
             _is_catalog_buyer_details_question(combined_request, history)
             and not _is_store_hours_request(combined_request)
+            and not _is_delivery_or_pickup_request(combined_request)
             and not trade_in_em_andamento(history)
             and not is_trade_in_context_request(combined_request, history)
         ):
