@@ -761,6 +761,18 @@ def _is_physical_store_request(text: str) -> bool:
     )
 
 
+def _has_catalog_condition_signal(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        re.search(
+            r"\b(?:bateria|tela|display|vidro|pecas?|face\s+id|c[aâ]meras?|"
+            r"alto\s+falante|microfone|carregamento|botoes?|bloqueio|icloud|"
+            r"restric\w*|manuten\w*|trocad\w*|substituid\w*)\b",
+            normalized,
+        )
+    )
+
+
 def _is_delivery_or_pickup_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or _has_sealed_reference(normalized):
@@ -2462,6 +2474,10 @@ class AgentService:
         if (
             _is_catalog_buyer_details_question(combined_request, history)
             and not _is_store_hours_request(combined_request)
+            and not (
+                _is_delivery_or_pickup_request(combined_request)
+                and not _has_catalog_condition_signal(combined_request)
+            )
             and not trade_in_em_andamento(history)
             and not is_trade_in_context_request(combined_request, history)
         ):

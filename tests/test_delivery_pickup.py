@@ -93,6 +93,74 @@ async def test_delivery_followup_answers_without_handoff_after_payment_batch(tmp
 
 
 @pytest.mark.asyncio
+async def test_delivery_and_pickup_question_after_product_context_uses_faq(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Gostaria de saber como funciona para retirada ou entrega",
+        history=[
+            {
+                "role": "user",
+                "content": "Gostaria de saber se esse ainda está disponível",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Oii! Sim, ainda está disponível 😊 É um iPhone 12 seminovo, 64GB, "
+                    "branco, com 86% de saúde da bateria, por R$ 1.300 à vista. "
+                    "Acompanha cabo e fonte novos, homologados pela Anatel."
+                ),
+            },
+            {"role": "user", "content": "Que bom, bem também"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Que bom 😊 Se quiser, posso te enviar mais detalhes ou simular o "
+                    "parcelamento desse iPhone 12 64GB."
+                ),
+            },
+            {"role": "user", "content": "Seria a vista mesmo"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Perfeito 😊 À vista fica R$ 1.300 no iPhone 12 64GB seminovo. "
+                    "Aceitamos PIX, dinheiro ou cartão de débito, sem taxas."
+                ),
+            },
+        ],
+    )
+
+    reply = decision.reply
+    assert decision.handoff is False
+    assert "Enviamos para Curitiba e região por motoboy" in reply
+    assert "Fazemos retirada na loja com horário marcado" in reply
+    assert "vou encaminhar suas dúvidas sobre esse aparelho" not in reply.lower()
+    assert decision.handoff_reason is None
+
+
+@pytest.mark.asyncio
+async def test_mixed_product_condition_and_pickup_question_still_handoffs(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "A bateria é original e como funciona a retirada?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "O iPhone 13 Pro Max 256GB seminovo está disponível por R$ 3.160,00, "
+                    "com 90% de bateria."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
+    assert "dúvida" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_sealed_shipping_followup_requires_advance_payment(tmp_path):
     agent = build_agent(tmp_path)
 
