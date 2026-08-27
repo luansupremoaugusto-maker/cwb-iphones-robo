@@ -324,3 +324,32 @@ async def test_generic_hours_question_uses_faq_and_marked_appointment(tmp_path):
     assert "18:00" in decision.reply
     assert "marcad" in decision.reply.lower()
     assert "confirmar" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_hours_followup_after_ipad_installment_reply_uses_faq_without_handoff(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Perfeito qual horario de funcionamento de vcs?",
+        history=[
+            {
+                "role": "user",
+                "content": "Para fazer em 12x quanto fica por favor e prazo para retirar?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Bom dia! 😊 Para o iPad 11 128 GB novo lacrado: preço à vista R$ 3.100,00. "
+                    "Parcelamento no cartão de crédito na máquina física. O novo lacrado é por "
+                    "encomenda, com prazo de 1 semana. A retirada é feita na loja com horário marcado."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "horário marcado" in decision.reply
+    assert "atendente" not in decision.reply.lower()
