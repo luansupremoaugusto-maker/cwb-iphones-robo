@@ -347,6 +347,42 @@ async def test_plural_used_phone_buyback_after_catalog_reply_sends_evaluation_fo
 
 
 @pytest.mark.asyncio
+async def test_owned_iphone_entry_difference_after_catalog_reply_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Dando o meu 13 pro max de 128gb dourado, bateria 78%, sem marcas de uso, "
+        "sem peças trocadas. Quanto eu teria que dar na volta?"
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Boa noite, você tem o iPhone 16 Plus rosa de 256gb disponível?",
+        },
+        {
+            "role": "assistant",
+            "content": "16 plus 256gb rosa seminovo: 4.100,00\nO que acha?",
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_parts_buyback_request(text) is False
+    assert is_trade_in_request(text) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_progressive_used_iphone_buyback_question_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):

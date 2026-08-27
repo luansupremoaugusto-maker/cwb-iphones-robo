@@ -191,6 +191,11 @@ _IMPLICIT_DEVICE_DISCOUNT_RE = re.compile(
     r".{0,50}\b(?:descont\w*|abatimento|promoc\w*)\b",
     re.IGNORECASE,
 )
+_IMPLICIT_DEVICE_ENTRY_RE = re.compile(
+    r"\bdando\b.{0,25}\b(?:o|a|um|uma)?\s*(?:meu|minha)\b"
+    r".{0,180}\b(?:na\s+volta|volta|diferenc\w*|troco)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
@@ -199,12 +204,18 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         _IMPLICIT_UPGRADE_TARGET_RE.search(text)
         and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
     )
+    explicit_device_entry = (
+        _IMPLICIT_DEVICE_ENTRY_RE.search(text)
+        and _BARE_IPHONE_MODEL_RE.search(text)
+        and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
+    )
     return bool(
         owned_device
         and (
             explicit_model_upgrade
             or _IMPLICIT_GENERIC_UPGRADE_RE.search(text)
             or _IMPLICIT_MODEL_EXCHANGE_RE.search(text)
+            or explicit_device_entry
         )
         and not _NON_APPLE_RE.search(text)
     )
