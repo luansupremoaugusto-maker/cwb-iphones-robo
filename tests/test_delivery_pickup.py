@@ -134,6 +134,30 @@ async def test_delivery_and_pickup_question_after_product_context_uses_faq(tmp_p
     assert decision.handoff is False
     assert "Enviamos para Curitiba e região por motoboy" in reply
     assert "Fazemos retirada na loja com horário marcado" in reply
+    assert "vou encaminhar suas dúvidas sobre esse aparelho" not in reply.lower()
+    assert decision.handoff_reason is None
+
+
+@pytest.mark.asyncio
+async def test_mixed_product_condition_and_pickup_question_still_handoffs(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "A bateria é original e como funciona a retirada?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "O iPhone 13 Pro Max 256GB seminovo está disponível por R$ 3.160,00, "
+                    "com 90% de bateria."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
+    assert "dúvida" in decision.reply.lower()
 
 
 @pytest.mark.asyncio
