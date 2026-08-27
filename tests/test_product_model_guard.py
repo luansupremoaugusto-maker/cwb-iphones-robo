@@ -72,6 +72,13 @@ def test_shared_pro_max_suffix_extracts_each_number_as_a_requested_model():
     )
 
 
+def test_pro_max_conjunction_with_do_keeps_both_requested_models():
+    assert _requested_iphone_model_keys(
+        "Gostaria de saber quais cores do iPhone 14 Pro Max e do 15 pro Max "
+        "tem disponível para encomenda"
+    ) == ((14, "pro max"), (15, "pro max"))
+
+
 def test_past_purchase_count_is_not_treated_as_requested_quantity():
     assert _requested_device_quantity("Já comprei 2 celular com vc") is None
     assert _requested_device_quantity("Preciso de 2 aparelhos") == 2
@@ -1295,6 +1302,79 @@ async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
     }
     assert "iPhone 15 Pro Max" in decision.reply
     assert "iPhone 16 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_exact_two_pro_max_color_request_returns_available_used_units(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-exact-14-15-pro-max.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-max-128-roxo",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3140,
+            battery_health=81,
+            search_text="iphone 14 pro max roxo profundo 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-256-preto",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3590,
+            battery_health=86,
+            search_text="iphone 14 pro max preto espacial 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-256-titanio",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4130,
+            battery_health=83,
+            search_text="iphone 15 pro max titanio natural 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Gostaria de saber quais cores do iPhone 14 Pro Max e do 15 pro Max "
+        "tem disponível para encomenda"
+    )
+    normalized = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-14-pro-max-128-roxo",
+        "iphone-14-pro-max-256-preto",
+        "iphone-15-pro-max-256-titanio",
+    }
+    assert "não localizei" not in normalized
+    assert "novo lacrado" not in normalized
+    assert "SEMINOVO" in decision.reply
+    for color in ("ROXO PROFUNDO", "PRETO ESPACIAL", "TITÂNIO NATURAL"):
+        assert color in decision.reply
+    assert "iPhone 14 Pro Max" in decision.reply
+    assert "iPhone 15 Pro Max" in decision.reply
 
 
 @pytest.mark.asyncio
