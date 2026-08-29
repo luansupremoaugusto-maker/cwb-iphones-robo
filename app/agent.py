@@ -1339,13 +1339,15 @@ def _is_warranty_service_request(text: str) -> bool:
         or re.search(
             r"\bgarantia\b.{0,60}\b(?:problema\w*|defeit\w*|troca\w*|repar\w*|"
             r"consert\w*|quebrad\w*|trincad\w*|danificad\w*|nao\s+funcion\w*|"
-            r"nao\s+liga\w*|parou\s+de\s+funcion\w*)\b",
+            r"nao\s+liga\w*|nao\s+(?:esta\s+)?carreg\w*|"
+            r"parou\s+de\s+(?:funcion|carreg)\w*)\b",
             normalized,
         )
         or re.search(
             r"\b(?:problema\w*|defeit\w*|troca\w*|repar\w*|consert\w*|"
             r"quebrad\w*|trincad\w*|danificad\w*|nao\s+funcion\w*|nao\s+liga\w*|"
-            r"parou\s+de\s+funcion\w*)\b.{0,60}\bgarantia\b",
+            r"nao\s+(?:esta\s+)?carreg\w*|parou\s+de\s+(?:funcion|carreg)\w*)\b"
+            r".{0,60}\bgarantia\b",
             normalized,
         )
     )
@@ -1358,7 +1360,8 @@ def _is_warranty_problem_request(text: str) -> bool:
     has_problem = bool(
         re.search(
             r"\b(?:problema\w*|defeit\w*|nao\s+funcion\w*|nao\s+liga\w*|"
-            r"parou\s+de\s+funcion\w*|quebrad\w*|trincad\w*|danificad\w*|"
+            r"nao\s+(?:esta\s+)?carreg\w*|parou\s+de\s+(?:funcion|carreg)\w*|"
+            r"quebrad\w*|trincad\w*|danificad\w*|"
             r"consert\w*|repar\w*)\b",
             normalized,
         )
@@ -1383,11 +1386,11 @@ def _is_customer_service_issue_request(text: str) -> bool:
         r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
         r"smartphone|telefone)\b.{0,40}"
         r"\b(?:problema\w*|defeit\w*|nao\s+funcion\w*|nao\s+liga\w*|"
-        r"parou\s+de\s+funcion\w*)\b",
+        r"nao\s+(?:esta\s+)?carreg\w*|parou\s+de\s+(?:funcion|carreg)\w*)\b",
         normalized,
     ) or re.search(
         r"\b(?:problema\w*|defeit\w*|nao\s+funcion\w*|nao\s+liga\w*|"
-        r"parou\s+de\s+funcion\w*)\b.{0,40}"
+        r"nao\s+(?:esta\s+)?carreg\w*|parou\s+de\s+(?:funcion|carreg)\w*)\b.{0,40}"
         r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
         r"smartphone|telefone)\b",
         normalized,
