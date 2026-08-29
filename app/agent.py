@@ -4,7 +4,7 @@ import json
 import math
 import re
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -59,6 +59,34 @@ from app.trade_in import (
 
 
 STORE_TIMEZONE = "America/Sao_Paulo"
+TRAVEL_MODE_START_DATE = date(2026, 8, 29)
+TRAVEL_MODE_END_DATE = date(2026, 9, 9)
+TRAVEL_MODE_RESUME_DATE = date(2026, 9, 10)
+TRAVEL_MODE_RESUME_LABEL = TRAVEL_MODE_RESUME_DATE.strftime("%d/%m/%Y")
+TRAVEL_MODE_OPERATION_REPLY = (
+    "Durante a viagem, continuo atendendo online com informações sobre estoque, preços, fotos, "
+    "condições e dúvidas gerais. Retiradas, envios e atendimento presencial serão retomados em "
+    f"{TRAVEL_MODE_RESUME_LABEL}, assim como as confirmações com atendente."
+)
+TRAVEL_MODE_HUMAN_REPLY = (
+    "Durante a viagem, continuo atendendo online com informações sobre estoque, preços, fotos, "
+    "condições e dúvidas gerais. O atendimento e as confirmações com um atendente serão "
+    f"retomados em {TRAVEL_MODE_RESUME_LABEL}."
+)
+TRAVEL_MODE_GENERAL_REPLY = (
+    "Durante a viagem, continuo atendendo online com informações sobre estoque, preços, fotos, "
+    "condições e dúvidas gerais. Solicitações que dependem de verificação ou atendimento "
+    f"serão retomadas em {TRAVEL_MODE_RESUME_LABEL}."
+)
+TRAVEL_MODE_WARRANTY_REPLY = (
+    "Problemas no aparelho relacionados à garantia serão verificados por um atendente a partir "
+    f"de {TRAVEL_MODE_RESUME_LABEL}. Até lá, continuo atendendo online com informações sobre estoque, "
+    "preços, fotos, condições e dúvidas gerais."
+)
+TRAVEL_MODE_STORE_NOTICE = (
+    "Durante a viagem, o atendimento presencial, as retiradas e os envios serão retomados em "
+    f"{TRAVEL_MODE_RESUME_LABEL}."
+)
 TECHNICAL_ASSISTANCE_REPLY = (
     "A assistência técnica, incluindo troca de bateria, tela e outros reparos, "
     "é tratada por um atendente. Vou encaminhar sua mensagem para ele confirmar "
@@ -107,6 +135,11 @@ def _today_label(now: datetime | None = None) -> str:
 def _is_business_weekday(now: datetime | None = None) -> bool:
     current = now or _store_now()
     return current.weekday() < 5
+
+
+def _travel_mode_active(now: datetime | None = None) -> bool:
+    current = now or _store_now()
+    return TRAVEL_MODE_START_DATE <= current.date() <= TRAVEL_MODE_END_DATE
 
 
 AGENT_INSTRUCTIONS = """
@@ -819,6 +852,82 @@ def _is_delivery_or_pickup_request(text: str) -> bool:
     return has_delivery or has_pickup
 
 
+def _is_travel_delivery_request(text: str) -> bool:
+    """Recognize fulfillment requests, including sealed-device shipping wording."""
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    photo_reference = bool(re.search(r"\b(?:foto|fotos|imagem|imagens|video)\b", normalized))
+    shipping_marker = bool(
+        re.search(
+            r"\b(?:motoboy|sedex|correios?|frete|transportadora|despach\w*|"
+            r"envio\w*|retir\w*)\b",
+            normalized,
+        )
+    )
+    delivery_marker = bool(re.search(r"\bentreg\w*\b", normalized))
+    if _is_delivery_or_pickup_request(text) and (not photo_reference or shipping_marker):
+        return True
+
+    if photo_reference:
+        if shipping_marker:
+            return True
+        if not delivery_marker:
+            return False
+        past_delivery = bool(
+            re.search(r"\b(?:foi|foram|ja|que)\b.{0,12}\bentreg\w*\b", normalized)
+        )
+        return not past_delivery
+
+    return shipping_marker or delivery_marker or bool(
+        re.search(
+            r"\b(?:envi\w*|mand\w*|busc\w*|peg\w*)\b.{0,30}"
+            r"\b(?:aparelho|produto|pedido|curitiba|regiao|loja|para|pra|pro|"
+            r"fora|cidade|estado|pais)\b",
+            normalized,
+        )
+    )
+
+
+def _is_travel_service_availability_request(text: str) -> bool:
+    """Recognize questions about whether customer service is currently open."""
+    normalized = _normalize(text)
+    if not normalized or _is_store_hours_request(text) or _is_today_store_status_request(text):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:quando|que dia|a partir de|volta|retoma|retomar|retomada)\b"
+            r".{0,45}\b(?:atend\w*|presencial|humano)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:quando|que dia|a partir de|em que dia)\b.{0,45}"
+            r"\b(?:reabr\w*|retorn\w*|volt\w*|retom\w*)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:abert\w*|fechad\w*|atend\w*|funcion\w*)\b.{0,30}"
+            r"\b(?:agora|atualmente|neste momento|momento)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:agora|atualmente|neste momento|momento)\b.{0,30}"
+            r"\b(?:abert\w*|fechad\w*|atend\w*|funcion\w*)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:atend\w*|presencial|humano)\b.{0,45}"
+            r"\b(?:est(?:a|ao)|funcion\w*|disponivel|abert\w*|fechad\w*)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:est(?:a|ao)|funcion\w*|disponivel|abert\w*|fechad\w*)\b.{0,45}"
+            r"\b(?:atend\w*|presencial|humano)\b",
+            normalized,
+        )
+    )
+
+
 def _has_delivery_context(history: list[dict[str, str]] | None) -> bool:
     delivery_markers = (
         "enviamos para curitiba",
@@ -965,10 +1074,16 @@ def _is_visit_request(text: str) -> bool:
         "visitar hoje",
         "passar hoje",
         "comparecer hoje",
+        "visita na loja",
+        "visita a loja",
+        "visita ao escritorio",
+        "vou na loja",
+        "vou ate a loja",
+        "vou ao escritorio",
     )
     return any(phrase in normalized for phrase in phrases) or bool(
         re.search(
-            r"\b(?:posso|consigo|da para|da pra|gostaria de)\s+"
+            r"\b(?:posso|consigo|da para|da pra|gostaria de|tem como|quero)\s+"
             r"(?:ir|visitar|passar|comparecer)\b",
             normalized,
         )
@@ -1212,11 +1327,95 @@ def _is_warranty_request(text: str) -> bool:
     return bool(normalized and "garantia" in normalized)
 
 
+def _is_warranty_service_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or "garantia" not in normalized:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:acionar|acionamento|ativar|ativacao|usar|utilizar|solicitar|abrir|reclamar)\b",
+            normalized,
+        )
+        or re.search(
+            r"\bgarantia\b.{0,60}\b(?:problema\w*|defeit\w*|troca\w*|repar\w*|"
+            r"consert\w*|quebrad\w*|trincad\w*|danificad\w*|nao\s+funcion\w*|"
+            r"nao\s+liga\w*|parou\s+de\s+funcion\w*)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:problema\w*|defeit\w*|troca\w*|repar\w*|consert\w*|"
+            r"quebrad\w*|trincad\w*|danificad\w*|nao\s+funcion\w*|nao\s+liga\w*|"
+            r"parou\s+de\s+funcion\w*)\b.{0,60}\bgarantia\b",
+            normalized,
+        )
+    )
+
+
+def _is_warranty_problem_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or not _is_warranty_service_request(text):
+        return False
+    has_problem = bool(
+        re.search(
+            r"\b(?:problema\w*|defeit\w*|nao\s+funcion\w*|nao\s+liga\w*|"
+            r"parou\s+de\s+funcion\w*|quebrad\w*|trincad\w*|danificad\w*|"
+            r"consert\w*|repar\w*)\b",
+            normalized,
+        )
+    )
+    has_device = bool(
+        re.search(
+            r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+            r"smartphone|telefone)\b",
+            normalized,
+        )
+    )
+    return has_problem and has_device
+
+
+def _is_customer_service_issue_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    if re.search(r"\breclam\w*\b", normalized):
+        return True
+    if re.search(
+        r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+        r"smartphone|telefone)\b.{0,40}"
+        r"\b(?:problema\w*|defeit\w*|nao\s+funcion\w*|nao\s+liga\w*|"
+        r"parou\s+de\s+funcion\w*)\b",
+        normalized,
+    ) or re.search(
+        r"\b(?:problema\w*|defeit\w*|nao\s+funcion\w*|nao\s+liga\w*|"
+        r"parou\s+de\s+funcion\w*)\b.{0,40}"
+        r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+        r"smartphone|telefone)\b",
+        normalized,
+    ):
+        return True
+    if re.search(
+        r"\b(?:deu|tenho|estou\s+com|apresentou|apareceu|ocorreu|aconteceu)\b"
+        r".{0,30}\b(?:problema|defeito)\b",
+        normalized,
+    ) or re.search(
+        r"\b(?:problema|defeito)\b.{0,30}\b(?:meu|minha|aparelho|celular|iphone)\b",
+        normalized,
+    ):
+        return True
+    return bool(
+        re.search(r"\b(?:trocas?|devolucoes?)\b", normalized)
+        and not re.search(
+            r"\b(?:na troca|para troca|parte do pagamento|como entrada)\b",
+            normalized,
+        )
+    )
+
+
 def _is_technical_assistance_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    if re.search(r"\bassistencia\s+tecnica\b", normalized):
+    if re.search(r"\bassistencia(?:\s+tecnica)?\b", normalized):
         return True
 
     component = r"(?:bateria|tela|display|vidro|conector|camera|carcaca|microfone|alto\s+falante)"
@@ -2321,6 +2520,82 @@ def _format_available_products(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _travel_mode_intent(
+    text: str,
+    history: list[dict[str, str]] | None = None,
+) -> str | None:
+    if (
+        _is_travel_delivery_request(text)
+        or _is_visit_request(text)
+        or _is_reservation_request(text)
+        or _is_appointment_followup(text, history)
+    ):
+        return "operation"
+
+    if _is_travel_service_availability_request(text):
+        return "operation" if "presencial" in _normalize(text) else "human"
+
+    if _is_warranty_problem_request(text):
+        return "service"
+
+    if _is_explicit_human_request(text) or _is_handoff_confirmation(text, history):
+        return "human"
+
+    if (
+        _is_technical_assistance_request(text)
+        or _is_warranty_service_request(text)
+        or _is_customer_service_issue_request(text)
+        or (
+            is_trade_in_context_request(text, history)
+            and not is_purchase_without_trade_in_request(text)
+        )
+        or (
+            _is_device_condition_question(text)
+            and not is_trade_in_context_request(text, history)
+        )
+    ):
+        return "limited"
+    return None
+
+
+def _travel_mode_information_fragments(text: str) -> list[str]:
+    return [
+        fragment.strip()
+        for fragment in re.split(
+            r"(?:\r?\n|[;!?]|(?<!\d)\.(?!\d)|(?<!\d),(?!\d)|"
+            r"\s+\b(?:e|ou|mas|porem|porém|tambem|também)\b\s+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if fragment.strip()
+    ]
+
+
+def _is_travel_information_request(text: str) -> bool:
+    return bool(
+        _is_available_list_request(text)
+        or _is_sealed_catalog_list_request(text)
+        or _is_product_availability_request(text)
+        or _is_photo_request(text)
+        or (_is_warranty_request(text) and not _is_warranty_service_request(text))
+        or _is_current_date_request(text)
+        or _is_today_store_status_request(text)
+        or _is_store_hours_request(text)
+        or (
+            _is_physical_store_request(text)
+            and not _is_visit_request(text)
+            and not _is_reservation_request(text)
+        )
+        or _is_payment_link_request(text)
+        or _is_payment_methods_question(text)
+        or _is_boleto_installment_request(text)
+        or _is_installment_rate_question(text)
+        or _is_full_installment_request(text)
+        or _is_cash_discount_question(text)
+        or _is_price_validity_question(text)
+    )
+
+
 def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Settings) -> Agent:
     @function_tool
     async def search_catalog(query: str) -> str:
@@ -2471,13 +2746,113 @@ class AgentService:
         ][:MAX_PRODUCT_PHOTOS]
         return decision.model_copy(update={"image_urls": urls})
 
+    @staticmethod
+    def _travel_mode_reply(intent: str | None) -> str:
+        if intent == "operation":
+            return TRAVEL_MODE_OPERATION_REPLY
+        if intent == "service":
+            return TRAVEL_MODE_WARRANTY_REPLY
+        if intent == "human":
+            return TRAVEL_MODE_HUMAN_REPLY
+        return TRAVEL_MODE_GENERAL_REPLY
+
+    def _apply_travel_mode(
+        self,
+        decision: AgentDecision,
+        text: str,
+        history: list[dict[str, str]] | None,
+        image_description: str | None,
+    ) -> AgentDecision:
+        if not _travel_mode_active() or not decision.handoff:
+            return decision
+        combined_request = " ".join(part for part in (text, image_description) if part)
+        return AgentDecision(
+            reply=self._travel_mode_reply(_travel_mode_intent(combined_request, history)),
+            confidence="high",
+        )
+
+    async def _try_travel_mode_information(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+        image_description: str | None,
+    ) -> AgentDecision | None:
+        fragments = _travel_mode_information_fragments(text)
+        if len(fragments) < 2:
+            return None
+
+        decisions: list[AgentDecision] = []
+        for fragment in fragments:
+            if _travel_mode_intent(fragment, history) is not None:
+                continue
+            if not _is_travel_information_request(fragment):
+                continue
+            fragment_image_description = image_description if _is_photo_request(fragment) else None
+            decision = await self._respond(
+                fragment,
+                history=history,
+                image_description=fragment_image_description,
+            )
+            if not decision.handoff:
+                decisions.append(decision)
+
+        if not decisions:
+            return None
+
+        product_references = list(
+            dict.fromkeys(
+                reference
+                for decision in decisions
+                for reference in decision.product_references
+            )
+        )
+        image_urls = list(
+            dict.fromkeys(url for decision in decisions for url in decision.image_urls)
+        )[:MAX_PRODUCT_PHOTOS]
+        return AgentDecision(
+            reply="\n\n".join(decision.reply for decision in decisions),
+            product_references=product_references,
+            image_urls=image_urls,
+            confidence="high",
+        )
+
     async def respond(
         self,
         text: str,
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        decision = await self._respond(text, history=history, image_description=image_description)
+        return self._apply_travel_mode(decision, text, history, image_description)
+
+    async def _respond(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+        image_description: str | None = None,
+    ) -> AgentDecision:
         combined_request = " ".join(part for part in (text, image_description) if part)
+        if _travel_mode_active():
+            travel_intent = _travel_mode_intent(combined_request, history)
+            if travel_intent is not None:
+                information_decision = await self._try_travel_mode_information(
+                    text,
+                    history,
+                    image_description,
+                )
+                if information_decision is not None:
+                    return information_decision.model_copy(
+                        update={
+                            "reply": (
+                                f"{information_decision.reply}\n\n"
+                                f"{self._travel_mode_reply(travel_intent)}"
+                            )
+                        }
+                    )
+                return AgentDecision(
+                    reply=self._travel_mode_reply(travel_intent),
+                    confidence="high",
+                )
         if is_parts_buyback_request(combined_request):
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
         if is_non_apple_trade_in_request(combined_request):
@@ -3494,6 +3869,17 @@ class AgentService:
         if _is_current_date_request(text):
             return AgentDecision(reply=f"Hoje é {_today_label()}.", confidence="high")
         if _is_today_store_status_request(text):
+            if _travel_mode_active():
+                current = _store_now()
+                return AgentDecision(
+                    reply=(
+                        f"Hoje é {_today_label(current)}. O atendimento presencial está suspenso "
+                        f"durante a viagem e será retomado em {TRAVEL_MODE_RESUME_LABEL}. "
+                        f"Horário normal: {_store_hours(self.faq)} "
+                        f"Endereço: {_store_address(self.faq)}."
+                    ),
+                    confidence="high",
+                )
             return AgentDecision(
                 reply=_today_store_reply(self.faq, include_physical_store=False),
                 confidence="high",
@@ -3506,6 +3892,8 @@ class AgentService:
         reply = _store_hours_reply(self.faq)
         if _is_physical_store_request(text):
             reply = f"{reply} Endereço: {_store_address(self.faq)}."
+        if _travel_mode_active():
+            reply = f"{reply} {TRAVEL_MODE_STORE_NOTICE}"
         return AgentDecision(
             reply=reply,
             confidence="high",
@@ -3560,6 +3948,14 @@ class AgentService:
     def _try_physical_store(self, text: str) -> AgentDecision | None:
         if not _is_physical_store_request(text):
             return None
+        if _travel_mode_active():
+            return AgentDecision(
+                reply=(
+                    f"Sim, temos loja física. Endereço: {_store_address(self.faq)}. "
+                    f"Horário normal: {_store_hours(self.faq)} {TRAVEL_MODE_STORE_NOTICE}"
+                ),
+                confidence="high",
+            )
         reply = _today_store_reply(self.faq)
         return AgentDecision(reply=reply, confidence="high")
 
