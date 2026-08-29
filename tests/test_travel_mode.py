@@ -453,3 +453,159 @@ async def test_travel_mode_is_removed_after_resume_date(tmp_path, monkeypatch):
     assert decision.handoff is True
     assert "assistência técnica" in decision.reply.lower()
     assert "retomado em 10/09/2026" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Meu celular não carrega.",
+        "Meu iPhone não está carregando.",
+        "Meu aparelho parou de carregar.",
+    ],
+)
+async def test_travel_mode_treats_charging_failure_as_service_issue(
+    tmp_path, monkeypatch, text
+):
+    freeze_store_clock(monkeypatch, datetime(2026, 9, 2, 10, 0, tzinfo=STORE_TZ))
+    agent = build_agent(
+        tmp_path,
+        items=[
+            InventoryItem(
+                external_id="iphone-13-128",
+                name="iPhone 13",
+                category="Celular",
+                capacity="128GB",
+                color="PRETO",
+                condition="SEMINOVO",
+                availability="Disponível para venda",
+                quantity=1,
+                price_brl=2200.0,
+                battery_health=92,
+                search_text="iphone 13 128gb preto celular seminovo",
+            )
+        ],
+    )
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "Encontrei estas opções" not in decision.reply
+    assert "informações sobre estoque" in decision.reply.lower()
+    assert "10/09/2026" in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Meu iPhone não carrega e está na garantia.",
+        "Na garantia, meu celular parou de carregar.",
+    ],
+)
+async def test_travel_mode_defers_warranty_charging_failure_to_resume_date(
+    tmp_path, monkeypatch, text
+):
+    freeze_store_clock(monkeypatch, datetime(2026, 9, 2, 10, 0, tzinfo=STORE_TZ))
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert "problemas no aparelho relacionados à garantia" in decision.reply.lower()
+    assert "10/09/2026" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_travel_mode_keeps_catalog_answer_when_human_request_is_explicitly_mixed(
+    tmp_path, monkeypatch
+):
+    freeze_store_clock(monkeypatch, datetime(2026, 9, 2, 10, 0, tzinfo=STORE_TZ))
+    agent = build_agent(
+        tmp_path,
+        items=[
+            InventoryItem(
+                external_id="iphone-13-128",
+                name="iPhone 13",
+                category="Celular",
+                capacity="128GB",
+                color="PRETO",
+                condition="SEMINOVO",
+                availability="Disponível para venda",
+                quantity=1,
+                price_brl=2200.0,
+                battery_health=92,
+                search_text="iphone 13 128gb preto celular seminovo",
+            )
+        ],
+    )
+
+    decision = await agent.respond(
+        "Quero falar com um atendente. Tem iPhone 13 128GB?"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-128"]
+    assert "iPhone 13" in decision.reply
+    assert "R$" in decision.reply
+    assert "atendimento" in decision.reply.lower()
+    assert "10/09/2026" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_travel_mode_keeps_catalog_answer_when_warranty_problem_is_mixed(
+    tmp_path, monkeypatch
+):
+    freeze_store_clock(monkeypatch, datetime(2026, 9, 2, 10, 0, tzinfo=STORE_TZ))
+    agent = build_agent(
+        tmp_path,
+        items=[
+            InventoryItem(
+                external_id="iphone-13-128",
+                name="iPhone 13",
+                category="Celular",
+                capacity="128GB",
+                color="PRETO",
+                condition="SEMINOVO",
+                availability="Disponível para venda",
+                quantity=1,
+                price_brl=2200.0,
+                battery_health=92,
+                search_text="iphone 13 128gb preto celular seminovo",
+            )
+        ],
+    )
+
+    decision = await agent.respond(
+        "Meu iPhone não carrega e está na garantia. Tem iPhone 13 128GB?"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-128"]
+    assert "problemas no aparelho relacionados à garantia" in decision.reply.lower()
+    assert "iPhone 13" in decision.reply
+    assert "R$" in decision.reply
+    assert "10/09/2026" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_travel_mode_defers_handoff_confirmation_from_history(
+    tmp_path, monkeypatch
+):
+    freeze_store_clock(monkeypatch, datetime(2026, 9, 2, 10, 0, tzinfo=STORE_TZ))
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Sim, por favor.",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Posso encaminhar seu pedido para um atendente finalizar?",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "atendimento" in decision.reply.lower()
+    assert "10/09/2026" in decision.reply
