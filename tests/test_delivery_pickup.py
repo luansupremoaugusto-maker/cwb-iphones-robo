@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
 import time
+from zoneinfo import ZoneInfo
 
 import pytest
 
+import app.agent as agent_module
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.agent import AgentService
 from app.config import Settings
@@ -187,3 +190,17 @@ async def test_sealed_shipping_followup_requires_advance_payment(tmp_path):
     assert "para fora de curitiba, enviamos por sedex" in reply
     assert "pagamento deve ser antecipado antes do despacho" in reply
     assert "hora da entrega" not in reply
+
+
+@pytest.mark.asyncio
+async def test_delivery_policy_is_normal_after_temporary_trip_mode(tmp_path, monkeypatch):
+    current = datetime(2026, 9, 9, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Vocês entregam por motoboy?")
+
+    assert decision.handoff is False
+    assert "Enviamos para Curitiba e região por motoboy" in decision.reply
+    assert "Durante a viagem" not in decision.reply
+    assert "10/09/2026" not in decision.reply
