@@ -771,6 +771,50 @@ async def test_complete_device_offer_with_photo_returns_evaluation_form(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_contextual_device_offer_after_catalog_reply_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    device_details = (
+        "Então eu tenho um iPhone 16 128 nunca aberto sem estrico de peça "
+        "só a tampa traseira quebrada em t caixa tudo"
+    )
+    current_message = "Queria ver se n pegava ele e me dava uma volta"
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Temos iPhone 14 Pro Max seminovos disponíveis:\n"
+                "• 128GB, preto espacial, bateria 85% — R$ 3.450\n"
+                "• 256GB, preto espacial, bateria 90% — R$ 3.600"
+            ),
+        },
+        {"role": "user", "content": device_details},
+    ]
+    image_description = (
+        "Descrição visual da imagem recebida: fotos de um iPhone 16 azul completo, "
+        "com a tampa traseira quebrada."
+    )
+
+    decision = await service.respond(
+        current_message,
+        history=history,
+        image_description=image_description,
+    )
+
+    assert is_trade_in_context_request(
+        f"{current_message} {image_description}", history
+    ) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_grouped_tem_interesse_offer_returns_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
