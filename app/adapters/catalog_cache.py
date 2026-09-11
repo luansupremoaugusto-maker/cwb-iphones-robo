@@ -58,6 +58,14 @@ def _model_key(value: Any) -> tuple[int | str, str] | None:
         # Battery percentages, installment counts, and other numeric details
         # can appear after the model in an assistant summary. They are not
         # product models and must not replace an explicit iPhone reference.
+        # The fractional part of a quoted price (for example the "00" in
+        # "3050,00") is another numeric detail, not a model number.
+        if (
+            match.start() >= 2
+            and normalized[match.start() - 1] in ".,"
+            and normalized[match.start() - 2].isdigit()
+        ):
+            return False
         suffix = normalized[match.end() :]
         return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
 
