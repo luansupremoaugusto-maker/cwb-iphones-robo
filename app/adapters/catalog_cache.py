@@ -46,6 +46,13 @@ _SHARED_MODEL_VARIANT_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_PRICE_THOUSANDS_SUFFIX_RE = re.compile(r"^[.,]\d{3}(?:[.,]\d{2})?\b")
+
+
+def _is_price_fragment(text: str, match: re.Match[str]) -> bool:
+    """Keep a formatted price such as 7.040 from becoming a model number."""
+    return bool(_PRICE_THOUSANDS_SUFFIX_RE.match(text[match.end() :]))
+
 
 def _model_key(value: Any) -> tuple[int | str, str] | None:
     """Return the last explicit iPhone model/variant mentioned in a text."""
@@ -65,6 +72,8 @@ def _model_key(value: Any) -> tuple[int | str, str] | None:
             and normalized[match.start() - 1] in ".,"
             and normalized[match.start() - 2].isdigit()
         ):
+            return False
+        if _is_price_fragment(normalized, match):
             return False
         suffix = normalized[match.end() :]
         return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
@@ -172,7 +181,10 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
 
     def is_usable(match: re.Match[str]) -> bool:
         suffix = line_aware_normalized[match.end() :]
-        return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
+        return not (
+            _is_price_fragment(line_aware_normalized, match)
+            or re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
+        )
 
     def key_for(match: re.Match[str]) -> tuple[int | str, str]:
         legacy = match.group("legacy")

@@ -2034,6 +2034,58 @@ async def test_specific_pro_max_price_includes_cheaper_ready_sealed_unit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_price_after_pro_max_does_not_replace_requested_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="mp:17-pro-max-7040",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7040,
+            search_text="iphone 17 pro max 256 gb preto celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Ainda tá disponível o 17 pro Max de 7.040?",
+        history=[
+            {"role": "user", "content": "Oie"},
+            {"role": "user", "content": "Retornaram?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Oie! Sim, retornamos 😊 Podemos dar continuidade e finalizar sua compra. "
+                    "Você decidiu pela retirada na loja ou entrega?"
+                ),
+            },
+        ],
+    )
+
+    assert _requested_iphone_model_keys("Ainda tá disponível o 17 pro Max de 7.040?") == (
+        (17, "pro max"),
+    )
+    assert decision.handoff is False
+    assert decision.product_references == ["mp:17-pro-max-7040"]
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "7.040,00" in decision.reply
+    assert "não localizei" not in _normalize(decision.reply)
+    assert "lista completa" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_bare_pro_max_request_includes_ready_stock_and_sealed_order_options(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
