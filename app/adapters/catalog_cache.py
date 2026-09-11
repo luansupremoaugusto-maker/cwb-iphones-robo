@@ -630,7 +630,11 @@ class StoreCatalogCache(InventoryCache):
                 # A photo failure must not break an otherwise valid product
                 # answer. Do not cache failures so a later request can retry.
                 return item
-            self._remote_photo_cache[product_id] = urls
+            # An empty response can be transient (the attachment service may
+            # lag behind the inventory update). Keep it retryable so a prior
+            # catalog lookup cannot suppress a later customer photo request.
+            if urls:
+                self._remote_photo_cache[product_id] = urls
 
         return item.model_copy(update={"photo_urls": urls}) if urls else item
 
