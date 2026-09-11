@@ -3860,6 +3860,33 @@ class AgentService:
                 selected = await finder(query)
             except Exception:
                 return None
+            if (
+                selected is None
+                and current_color
+                and _requested_photo_condition(current_query) is None
+            ):
+                # The preceding assistant card can carry a stale condition
+                # label after the catalog row changes. Preserve that label on
+                # the first lookup, but let the current explicit color select
+                # the live item when the constrained lookup finds nothing.
+                relaxed_query = _product_context_query(
+                    current_query,
+                    history,
+                    strip_assistant_constraints=True,
+                )
+                if len(explicit_capacity_keys) == 1:
+                    relaxed_query = (
+                        f"capacidade solicitada {explicit_capacity_keys[0]}\n{relaxed_query}"
+                    ).strip()
+                relaxed_query = f"foto_cor_atual: {current_color}\n{relaxed_query}".strip()
+                if relaxed_query != query:
+                    try:
+                        selected = await finder(relaxed_query)
+                    except Exception:
+                        return None
+                    if selected is not None:
+                        query = relaxed_query
+                        requested_condition = _requested_photo_condition(query)
             if selected is None:
                 fallback: list[Any] = []
                 sealed_cache = getattr(self.cache, "sealed_cache", None)

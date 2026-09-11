@@ -472,6 +472,72 @@ async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_color_photo_followup_recovers_when_history_condition_drifts(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-17-condition-drift.json",
+        sealed_cache=None,
+    )
+    blue_url = "https://photos.example/iphone-17-pro-max-azul-intenso.jpg"
+    silver_url = "https://photos.example/iphone-17-pro-max-prateado.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="10382800",
+            name="IPHONE 17 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="PRATEADO",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7040.0,
+            source="mercado_phone",
+            search_text="iphone 17 pro max prateado 256gb celular lacrado",
+            photo_urls=[silver_url],
+        ),
+        InventoryItem(
+            external_id="10403807",
+            name="IPHONE 17 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="AZUL INTENSO",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=6930.0,
+            source="mercado_phone",
+            search_text="iphone 17 pro max azul intenso 256gb celular lacrado",
+            photo_urls=[blue_url],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Poderia mandar a foto desse azul intenso",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontrei estas opções de iPhone 17 Pro Max seminovo: "
+                    "256 GB — Prateado — R$ 7.040,00 — bateria 100%; "
+                    "256 GB — Azul intenso — R$ 6.930,00 — bateria 100%; "
+                    "Quer fotos de alguma opção?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [blue_url]
+    assert decision.product_references == ["10403807"]
+    assert "não localizei" not in decision.reply.lower()
+    assert silver_url not in decision.image_urls
+
+
+@pytest.mark.asyncio
 async def test_promotion_photo_request_returns_all_available_iphone_photos(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
