@@ -2321,6 +2321,73 @@ async def test_explicit_iphone_xr_availability_does_not_append_unrelated_sealed_
 
 
 @pytest.mark.asyncio
+async def test_14_pro_price_followup_keeps_the_exact_unit_from_the_previous_list(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-roxo-256",
+            name="IPHONE 14 PRO",
+            category="Celular",
+            capacity="256GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3050,
+            battery_health=100,
+            source="mercado_phone",
+            search_text="iphone 14 pro roxo profundo 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-preto-256",
+            name="IPHONE 14 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3600,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iphone 14 pro max preto espacial 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Eu queria saber mais sobre esse 14 pro semi-novo de 3050,00",
+        history=[
+            {
+                "role": "user",
+                "content": "Queria saber o preço do 14 pro e o pro Max de 256g e 512g",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de iPhone disponíveis:\n"
+                    "• IPHONE 14 PRO — ROXO PROFUNDO — 256GB — SEMINOVO — R$ 3.050,00 | Bat: 100%\n"
+                    "• IPHONE 14 PRO MAX — PRETO ESPACIAL — 256GB — SEMINOVO — R$ 3.600,00 | Bat: 90%"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-14-pro-roxo-256"]
+    assert "ROXO PROFUNDO — 256GB — SEMINOVO — R$ 3.050,00" in decision.reply
+    assert "IPHONE 14 PRO MAX" not in decision.reply
+    assert "NÃO LOCALIZEI" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
 async def test_availability_confirmation_uses_last_product_clarification(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
