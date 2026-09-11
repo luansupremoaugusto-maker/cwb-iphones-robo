@@ -148,6 +148,88 @@ async def test_catalog_loads_product_photos_on_demand_from_mercado_phone(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_photo_request_retries_after_an_empty_catalog_file_response(tmp_path):
+    calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(
+            200,
+            json={"items": [{"url": "https://cdn.example/iphone-13-midnight.jpg"}]},
+        )
+
+    settings = Settings(
+        mercado_phone_api_key="mpk-test",
+        mercado_phone_files_url="https://app.mercadophone.tech/api.php?class=ArquivoApiController&method=index",
+        mercado_cache_ttl_seconds=60,
+    )
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    class MercadoStub:
+        def __init__(self):
+            self.settings = settings
+            self._client = http_client
+            self.headers = {
+                "Accept": "application/json",
+                "X-API-Key": "mpk-test",
+                "X-Unit-Id": "2620",
+            }
+
+        async def fetch_all_inventory(self):
+            return []
+
+    cache = StoreCatalogCache(
+        MercadoStub(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-midnight-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA-NOITE",
+            colors="MEIA-NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            search_text="iphone 13 128gb meia-noite celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    # The earlier catalog listing can legitimately receive no files. That
+    # result must not suppress the later, customer-facing photo lookup.
+    await cache.search("IPHONE 13", limit=1)
+    history = [
+        {"role": "user", "content": "Queria saber o valor dos aparelhos mais baratos"},
+        {
+            "role": "assistant",
+            "content": (
+                "Os aparelhos mais baratos disponíveis são: iPhone 13 128GB — "
+                "R$ 1.900 | Meia-noite | bateria 95%."
+            ),
+        },
+    ]
+
+    try:
+        decision = await agent.respond("Tem foto do iPhone 13 meia-noite", history=history)
+    finally:
+        await http_client.aclose()
+
+    assert decision.handoff is False
+    assert decision.image_urls == ["https://cdn.example/iphone-13-midnight.jpg"]
+    assert decision.product_references == ["iphone-13-midnight-128"]
+    assert len(calls) == 2
+    assert calls[0]["filters"] == calls[1]["filters"]
+
+
+@pytest.mark.asyncio
 async def test_short_photo_abbreviation_uses_existing_mercado_phone_files(tmp_path):
     calls: list[dict[str, object]] = []
 
