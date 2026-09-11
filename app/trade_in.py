@@ -441,7 +441,7 @@ def _is_store_buyback_question(text: str) -> bool:
 
     store_subject = re.search(
         r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
-        r"(?:compram|compra|pegam|pegm|aceitam|recebem|avaliam)\b",
+        r"(?:compram|compra|comprar|pegam|pegm|aceitam|recebem|avaliam)\b",
         text,
         flags=re.IGNORECASE,
     )
