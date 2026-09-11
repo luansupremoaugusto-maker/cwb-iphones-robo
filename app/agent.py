@@ -902,7 +902,7 @@ def _is_current_date_request(text: str) -> bool:
 
 
 def _is_today_store_status_request(text: str) -> bool:
-    normalized = _normalize(text)
+    normalized = re.sub(r"\bhj\b", "hoje", _normalize(text))
     if "hoje" not in normalized:
         return False
     return any(
