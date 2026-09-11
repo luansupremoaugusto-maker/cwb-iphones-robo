@@ -2440,6 +2440,54 @@ async def test_14_pro_price_followup_keeps_the_exact_unit_from_the_previous_list
 
 
 @pytest.mark.asyncio
+async def test_batched_14_pro_information_request_returns_catalog_instead_of_handoff(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-batched-14-pro.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-256-purple",
+            name="IPHONE 14 PRO",
+            category="Celular",
+            capacity="256GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3050,
+            battery_health=100,
+            source="mercado_phone",
+            search_text="iphone 14 pro roxo profundo 256gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vi no perfil do insta\n"
+        "iPhone 14 pro\n"
+        "Gostaria de saber mais informações sobre o aparelho\n"
+        "Quero um que tenha a câmera boa sabe",
+        history=[
+            {"role": "user", "content": "Olá boa noite"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-14-pro-256-purple"]
+    assert "IPHONE 14 PRO" in decision.reply
+    assert "R$ 3.050,00" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_availability_confirmation_uses_last_product_clarification(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
