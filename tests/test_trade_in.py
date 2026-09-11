@@ -132,6 +132,7 @@ def test_new_phone_payment_split_is_not_trade_in():
     "text",
     [
         "quero comprar um iphone",
+        "quero comprar um iphone usado",
         "tem iphone usado?",
         "tem usado?",
         "vou dar 2000 de entrada",
@@ -188,6 +189,43 @@ async def test_non_apple_exchange_question_returns_policy_reply_without_form(tmp
 )
 def test_trade_in_guard_keeps_buyback_and_device_entry_requests(text):
     assert is_trade_in_request(text) is True
+
+
+@pytest.mark.asyncio
+async def test_malformed_store_buyback_question_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês comprar iPhone usados aí ?"
+    history = [
+        {"role": "user", "content": "Bom dia"},
+        {
+            "role": "assistant",
+            "content": (
+                "Cwb.iphones agradece seu contato. Como podemos ajudar?\n\n"
+                "Estamos em recesso até o dia 09/09, retornamos ao normal dia 10/09. "
+                "Agradecemos a compreensão."
+            ),
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
 
 
 def test_trade_in_history_marker_only_counts_assistant_form():
