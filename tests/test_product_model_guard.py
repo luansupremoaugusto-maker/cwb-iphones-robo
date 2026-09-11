@@ -119,6 +119,31 @@ async def test_explicit_iphone_13_pro_keeps_model_and_requested_capacities(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_real_17_pro_max_request_returns_both_bare_capacity_options(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = []
+    agent.cache.sealed_cache.items = [
+        _sealed_item("sheet:bot:10", "iPhone 17 Pro Max", "512 GB", 8700).model_copy(
+            update={"colors": "Laranja-cósmico | Azul-intenso | Prateado"}
+        ),
+        _sealed_item("sheet:bot:11", "iPhone 17 Pro Max", "1 TB", 10500).model_copy(
+            update={"colors": "Laranja-cósmico | Azul-intenso | Prateado"}
+        ),
+    ]
+
+    decision = await agent.respond(
+        "queria saber se vcs tem disponível algum iPhone 17 pro max de 512gb "
+        "ou de 1t na cor branca"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:bot:10", "sheet:bot:11"]
+    assert "512 GB" in decision.reply
+    assert "1 TB" in decision.reply
+    assert decision.reply.count("NOVO LACRADO") == 2
+
+
+@pytest.mark.asyncio
 async def test_missing_iphone_13_pro_512_does_not_return_17_pro_options(tmp_path):
     agent = build_agent(tmp_path)
 

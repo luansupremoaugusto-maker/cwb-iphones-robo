@@ -694,9 +694,9 @@ def _is_accessory_inclusion_question(text: str) -> bool:
 def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     normalized = _normalize(text)
     keys: list[str] = []
-    for match in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g)\b", normalized):
+    for match in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g|t)\b", normalized):
         number = match.group(1).replace(",", ".")
-        unit = "tb" if match.group(2) == "tb" else "gb"
+        unit = "tb" if match.group(2) in {"tb", "t"} else "gb"
         if number.endswith(".0"):
             number = number[:-2]
         # Accept the common customer shorthand for the iPhone 512 GB option.
