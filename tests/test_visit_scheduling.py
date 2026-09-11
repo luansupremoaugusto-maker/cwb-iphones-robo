@@ -327,6 +327,50 @@ async def test_generic_hours_question_uses_faq_and_marked_appointment(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_today_hours_question_with_whatsapp_shorthand_returns_real_hours(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 8, 14, 14, 57, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Até q horas a loja de vcs ficam abertas hj?",
+        history=[
+            {"role": "user", "content": "Posso pagar on-line agora ?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Não aceitamos pagamento por cartão online ou link. 😊\n"
+                    "Se for retirar na loja, o pagamento é feito na hora, com horário marcado. "
+                    "Para envio, o pagamento deve ser antecipado antes do despacho; aceitamos "
+                    "PIX, dinheiro ou cartão na máquina física. A taxa e o prazo de entrega "
+                    "precisam ser cotados com um atendente."
+                ),
+            },
+            {"role": "user", "content": "Pq n vou conseguir ir buscar hoje"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Não aceitamos pagamento por cartão online ou link. 😊\n"
+                    "Se for retirar na loja, o pagamento é feito na hora, com horário marcado. "
+                    "Para envio, o pagamento deve ser antecipado antes do despacho; aceitamos "
+                    "PIX, dinheiro ou cartão na máquina física. A taxa e o prazo de entrega "
+                    "precisam ser cotados com um atendente."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sexta-feira, 14/08/2026" in decision.reply
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "confirmar" not in decision.reply.lower()
+    assert "não localizei esse produto" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_hours_followup_after_ipad_installment_reply_uses_faq_without_handoff(tmp_path):
     agent = build_agent(tmp_path)
 
