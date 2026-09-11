@@ -76,14 +76,17 @@ def _model_key(value: Any) -> tuple[int | str, str] | None:
         if _is_price_fragment(normalized, match):
             return False
         suffix = normalized[match.end() :]
-        return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
+        return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)(?!\w)", suffix)
 
+    usable_matches = [match for match in matches if is_usable(match)]
+    if not usable_matches:
+        return None
     explicit_iphone = [
         match
         for match in matches
         if match.group(0).lower().startswith("iphone") and is_usable(match)
     ]
-    match = (explicit_iphone or [match for match in matches if is_usable(match)])[-1]
+    match = (explicit_iphone or usable_matches)[-1]
     legacy = match.group("legacy")
     if legacy:
         return legacy.lower(), ""
@@ -183,7 +186,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         suffix = line_aware_normalized[match.end() :]
         return not (
             _is_price_fragment(line_aware_normalized, match)
-            or re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)", suffix)
+            or re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)(?!\w)", suffix)
         )
 
     def key_for(match: re.Match[str]) -> tuple[int | str, str]:

@@ -612,6 +612,7 @@ def _is_product_availability_request(text: str) -> bool:
         phrase in normalized
         for phrase in (
             "gostaria de ver",
+            "gostaria de saber mais",
             "gostaria de informacoes sobre",
             "quero ver",
             "quero comprar",
