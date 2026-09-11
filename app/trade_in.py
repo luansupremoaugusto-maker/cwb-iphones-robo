@@ -122,6 +122,11 @@ _BUYBACK_VERB_RE = re.compile(
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
+_PRICE_BUYBACK_RE = re.compile(
+    r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voces|vcs|a\s+loja)\s+"
+    r"(?:estao\s+)?(?:pagando|pagam)\s+(?:pelo|por)\b",
+    re.IGNORECASE,
+)
 _NON_APPLE_EXCHANGE_RE = re.compile(
     r"\b(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
     r"como\s+entrada|de\s+entrada|retoma\w*|retomar)\b",
@@ -438,6 +443,14 @@ def _is_store_buyback_question(text: str) -> bool:
         return False
     if _PAYMENT_METHOD_RE.search(text) and not _has_device_reference(text):
         return False
+
+    price_buyback = _PRICE_BUYBACK_RE.search(text)
+    if (
+        price_buyback
+        and _has_device_reference(text)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+    ):
+        return True
 
     store_subject = re.search(
         r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
