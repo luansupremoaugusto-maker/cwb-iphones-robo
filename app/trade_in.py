@@ -201,6 +201,12 @@ _IMPLICIT_DEVICE_ENTRY_RE = re.compile(
     r".{0,180}\b(?:na\s+volta|volta|diferenc\w*|troco)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE = re.compile(
+    r"\b(?:peg\w*|aceit\w*|receb\w*|fic\w*|dar\w*|pass\w*)\b"
+    r".{0,45}\b(?:ele|ela|isso|esse|essa)\b"
+    r".{0,45}\b(?:volta|diferenc\w*|troco|entrada|pagamento)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
@@ -801,6 +807,24 @@ def is_trade_in_context_request(
         "beleza",
     }:
         return trade_in_offer_pending
+
+    # A customer may describe their own iPhone first and ask in a second
+    # message whether the store takes "ele" and gives "uma volta". Keep the
+    # entry intent when that recent context contains an owned Apple device;
+    # otherwise a damage/photo word in the follow-up incorrectly routes to
+    # technical assistance.
+    if _CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE.search(normalized):
+        recent_user_context = " ".join(
+            _normalize(entry.get("content", ""))
+            for entry in history[-8:]
+            if entry.get("role") == "user" and entry.get("content")
+        )
+        if (
+            _APPLE_PRODUCT_RE.search(recent_user_context)
+            and _has_complete_device_reference(recent_user_context)
+            and not _NON_APPLE_RE.search(recent_user_context)
+        ):
+            return True
 
     # Some customers omit "iPhone" in a short follow-up such as
     # "Tenho 14, quanto ficaria dai?" after a product price was discussed.
