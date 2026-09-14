@@ -24,6 +24,7 @@ from app.admin import (
     public_catalog_payload,
 )
 from app.adapters.zapi import normalize_received_callback
+from app.admin_page import render_admin_page
 from app.config import get_settings
 from app.runtime import Runtime, build_runtime
 
@@ -170,10 +171,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_page(request: Request) -> HTMLResponse:
         _require_admin_operator(request)
-        return HTMLResponse(
-            "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><title>Administração</title>"
-            "</head><body><h1>Administração do robô</h1></body></html>"
-        )
+        current: Runtime = request.app.state.runtime
+        return HTMLResponse(render_admin_page(build_admin_csrf_token(current.settings)))
 
     @app.get("/admin/api/catalog")
     async def admin_catalog(request: Request) -> dict[str, Any]:
