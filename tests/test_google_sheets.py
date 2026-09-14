@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -98,6 +99,27 @@ async def test_sheet_cache_simulates_installment_and_catalog_search(tmp_path):
     assert simulation["encontrado"] is True
     assert simulation["valor_parcela_brl"] == 275.03
     assert "taxa_percentual" not in simulation
+
+
+@pytest.mark.asyncio
+async def test_sheet_search_ignores_question_punctuation_for_ipad_availability(tmp_path):
+    settings = Settings(google_sheets_cache_ttl_seconds=60)
+    sheets = GoogleSheetsCache(
+        FakeSheetsClient(),
+        settings,
+        cache_path=tmp_path / "sheets.json",
+    )
+    sheets.items = parse_catalog_rows(
+        [
+            BOT_VALUES[0],
+            ["iPad 11", "128 GB", "Azul", "R$ 3.100", "R$ 213,15"],
+        ]
+    )
+    sheets.last_refresh = time.time()
+
+    products = await sheets.search("Oi, vocês tem iPad?", limit=3)
+
+    assert [product.name for product in products] == ["iPad 11"]
 
 
 def test_disabled_sheet_cache_does_not_load_persisted_products(tmp_path):

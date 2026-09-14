@@ -14,6 +14,7 @@ from agents.tracing import set_tracing_disabled
 from app.adapters.catalog_cache import (
     _catalog_score,
     _catalog_family,
+    _catalog_families,
     _is_available_item,
     _is_accessory_catalog_query,
     _is_device_item,
@@ -274,7 +275,7 @@ def _has_product_reference(normalized: str) -> bool:
     # Keep numeric shorthand only when it carries a model variant or an
     # explicit catalog condition, such as "16 novo" or "16 lacrado".
     return bool(
-        re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+        _catalog_families(normalized)
         or re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", normalized)
         or re.search(
             r"\b\d{1,2}\s+(?:novo|nova|lacrado|lacrados|encomenda|"
@@ -606,7 +607,7 @@ def _is_product_availability_request(text: str) -> bool:
     )
     if any(re.search(rf"\b{re.escape(phrase)}\b", normalized) for phrase in availability_phrases):
         return True
-    if re.match(r"^(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized):
+    if re.match(r"^(?:iphones?|ipads?|mac(?:books?)?|airpods?|apple\s+watch)\b", normalized):
         return True
     has_purchase_intent = any(
         phrase in normalized
@@ -628,7 +629,7 @@ def _is_product_availability_request(text: str) -> bool:
     return bool(
         (has_purchase_intent or has_broad_filter)
         and (
-            re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+            _catalog_families(normalized)
             or _has_product_reference(normalized)
         )
     )
@@ -2854,7 +2855,7 @@ class AgentService:
         if _is_generic_iphone_list_request(text) or sealed_iphone_only:
             normalized = _normalize(text)
             other_family_requested = bool(
-                re.search(r"\b(?:ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
+                re.search(r"\b(?:ipads?|mac(?:books?)?|airpods?|apple\s+watch)\b", normalized)
             )
             if not other_family_requested:
                 def is_iphone_entry(entry: dict[str, Any]) -> bool:
@@ -3277,6 +3278,7 @@ class AgentService:
             public_candidates = within_budget
 
         requested_capacities = _requested_capacity_keys(query)
+        requested_families = _catalog_families(query)
         requested_models = _requested_iphone_model_keys(query)
         if requested_capacities:
             public_candidates = [
@@ -3330,6 +3332,7 @@ class AgentService:
             requested_budget is not None
             or requested_quantity is not None
             or _is_broad_airpods_request(query)
+            or len(requested_families) > 1
         )
         def price_sort_key(item: Any) -> tuple[float, str, str, str]:
             numeric_price = _confirmed_catalog_price(item)
