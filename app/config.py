@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     zapi_expected_instance_id: str | None = None
 
     admin_phones: str = ""
+    admin_username: str | None = None
+    admin_password: str | None = None
+    admin_csrf_secret: str | None = None
     test_phones: str = ""
     outbound_mode: Literal["disabled", "test_only", "live"] = "disabled"
     faq_path: str = "data/faq.yaml"
@@ -75,6 +78,13 @@ class Settings(BaseSettings):
     @property
     def admin_phone_set(self) -> set[str]:
         return split_phones(self.admin_phones)
+
+    @property
+    def admin_panel_configured(self) -> bool:
+        return all(
+            bool(value and value.strip())
+            for value in (self.admin_username, self.admin_password, self.admin_csrf_secret)
+        )
 
     @property
     def test_phone_set(self) -> set[str]:
