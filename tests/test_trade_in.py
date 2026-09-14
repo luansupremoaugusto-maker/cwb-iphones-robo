@@ -994,6 +994,45 @@ async def test_owned_iphone_for_sale_returns_evaluation_form(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_repassar_complete_iphone_with_battery_photo_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Quero repassar meu iPhone 15\n"
+        "Tá zerado original nunca troquei nenhuma peça! Sem arranhão ou quebrado.\n"
+        "Ele é verde 126g"
+    )
+    image_description = (
+        "Descrição visual da imagem recebida: tela de saúde da bateria do iPhone com "
+        "capacidade máxima de 87%, 864 ciclos, fabricação em outubro de 2023 e "
+        "primeiro uso em julho de 2024."
+    )
+    request_context = f"{text} {image_description}"
+
+    assert is_trade_in_request(request_context) is True
+    assert is_parts_buyback_request(request_context) is False
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_exchange_for_newer_model_returns_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
