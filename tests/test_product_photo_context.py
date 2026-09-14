@@ -119,6 +119,77 @@ def _model_history() -> list[dict[str, str]]:
 
 
 @pytest.mark.asyncio
+async def test_capacity_availability_followup_does_not_send_previous_variant_photos(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-14-pro-max-capacity.json",
+        sealed_cache=SealedCatalog(),
+    )
+    photo_128 = "https://photos.example/iphone-14-pro-max-128.jpg"
+    photo_256 = "https://photos.example/iphone-14-pro-max-256.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-max-128",
+            name="IPHONE 14 PRO MAX",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3450.0,
+            battery_health=85,
+            source="mercado_phone",
+            search_text="iphone 14 pro max preto espacial 128gb celular seminovo",
+            photo_urls=[photo_128],
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-256",
+            name="IPHONE 14 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="PRATA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3590.0,
+            battery_health=86,
+            source="mercado_phone",
+            search_text="iphone 14 pro max prata 256gb celular seminovo",
+            photo_urls=[photo_256],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Tem esse msm modelo com 256gb?",
+        history=[
+            {
+                "role": "user",
+                "content": "Descricao visual da imagem recebida: anuncio de iPhone 14 Pro Max 128GB preto espacial.",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 O iPhone 14 Pro Max 128GB Preto Espacial está disponível "
+                    "para venda por R$ 3.450,00. A bateria está com 85%."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert decision.product_references == ["iphone-14-pro-max-256"]
+    assert "256gb" in decision.reply.lower()
+    assert "128gb" not in decision.reply.lower()
+    assert "3.590" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_ambiguous_used_photo_request_does_not_fall_back_to_unrelated_sealed_catalog(tmp_path):
     agent = _build_agent(tmp_path)
 

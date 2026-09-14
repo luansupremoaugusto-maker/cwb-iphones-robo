@@ -2236,6 +2236,26 @@ def _is_photo_context_followup(
     )
 
 
+def _is_capacity_availability_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a stock question that follows a previous photo exchange."""
+    if not _is_photo_context_followup(text, history):
+        return False
+    normalized = _normalize(text)
+    if not _requested_capacity_keys(text) or any(
+        marker in normalized for marker in ("foto", "imagem")
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:tem|teria|disponivel|disponibilidade|estoque|vende|vender|possui)\b",
+            normalized,
+        )
+    )
+
+
 def _public_item(item: Any) -> dict[str, Any]:
     return {
         "nome": item.name,
@@ -3304,7 +3324,8 @@ class AgentService:
         # A short clarification after a photo request is still a photo
         # selection, even when it contains availability wording such as
         # "tem um 11 verde". Let the photo resolver preserve that context.
-        if _is_photo_context_followup(text, history):
+        capacity_availability_followup = _is_capacity_availability_followup(text, history)
+        if _is_photo_context_followup(text, history) and not capacity_availability_followup:
             return None
         current_query = _current_catalog_context(text, image_description)
         if _is_bare_model_availability_request(current_query):
@@ -3320,6 +3341,7 @@ class AgentService:
             and (
                 _is_catalog_followup(current_query)
                 or _is_catalog_availability_confirmation(current_query, history)
+                or capacity_availability_followup
             )
         ):
             query = _product_context_query(
@@ -3327,6 +3349,11 @@ class AgentService:
                 history,
                 strip_assistant_constraints=True,
             )
+        if capacity_availability_followup:
+            # Photo metadata from the previous turn must not veto the current
+            # stock question or remain an active intent marker.
+            query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
+            query = re.sub(r"\s+", " ", query).strip()
         if not _is_product_availability_request(query):
             return None
 
@@ -3364,7 +3391,7 @@ class AgentService:
                     continue
             public_candidates = within_budget
 
-        requested_capacities = _requested_capacity_keys(query)
+        requested_capacities = _requested_capacity_keys(text) or _requested_capacity_keys(query)
         requested_families = _catalog_families(query)
         requested_models = _requested_iphone_model_keys(query)
         if requested_capacities:
