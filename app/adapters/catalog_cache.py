@@ -911,8 +911,10 @@ class StoreCatalogCache(InventoryCache):
                 "ambiguo": True,
                 "candidatos": [
                     {
+                        "referencia": item.external_id,
                         "nome": item.name,
                         "capacidade": item.capacity,
+                        "cor": getattr(item, "color", None) or getattr(item, "colors", None),
                         "preco_brl": item.price_brl,
                         "saude_bateria": getattr(item, "battery_health", None),
                     }
