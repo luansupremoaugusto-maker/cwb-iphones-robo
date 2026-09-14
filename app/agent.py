@@ -1921,6 +1921,70 @@ def _is_rate_model_followup(text: str, history: list[dict[str, str]] | None) -> 
     return _has_installment_product_context(text)
 
 
+def _has_installment_model_prompt(history: list[dict[str, str]] | None) -> bool:
+    """Recognize the assistant asking for the product to simulate."""
+    for entry in reversed(history or []):
+        if entry.get("role") != "assistant":
+            continue
+        normalized = _normalize(entry.get("content", ""))
+        if not normalized or "capacidade" not in normalized:
+            continue
+        if not re.search(
+            r"\bqual(?:\s+e)?\s+(?:o\s+)?(?:modelo|aparelho)\b",
+            normalized,
+        ):
+            continue
+        if any(marker in normalized for marker in ("simul", "parcel", "vezes")):
+            return True
+    return False
+
+
+def _is_installment_model_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Let a model/capacity answer continue an explicit installment prompt."""
+    return _has_installment_model_prompt(history) and _has_installment_product_context(text)
+
+
+def _format_ambiguous_installment_decision(result: dict[str, Any]) -> AgentDecision | None:
+    candidates = result.get("candidatos") or []
+    lines: list[str] = []
+    references: list[str] = []
+    for candidate in candidates[:3]:
+        if not isinstance(candidate, dict):
+            continue
+        reference = str(candidate.get("referencia") or "")
+        if reference and reference not in references:
+            references.append(reference)
+        name = str(candidate.get("nome") or "Produto")
+        color = candidate.get("cor")
+        capacity = candidate.get("capacidade")
+        battery = candidate.get("saude_bateria")
+        price = candidate.get("preco_brl")
+        details = [name]
+        if color:
+            details.append(str(color))
+        if capacity:
+            details.append(str(capacity))
+        if battery is not None:
+            details.append(f"bateria {float(battery):g}%")
+        if price is not None:
+            details.append(format_brl(float(price)))
+        lines.append(" — ".join(details))
+    if not lines:
+        return None
+    return AgentDecision(
+        reply=(
+            "Encontrei mais de uma unidade compatível:\n"
+            + "\n".join(f"• {line}" for line in lines)
+            + "\nQual delas você quer simular?"
+        ),
+        product_references=references,
+        confidence="medium",
+    )
+
+
 def _strip_catalog_history_constraints(value: str) -> str:
     cleaned = re.sub(
         r"\b(?:lacrados?|encomendas?|seminovos?|usados?|entregas?|pagamentos?|"
@@ -2629,6 +2693,10 @@ class AgentService:
         if rate_followup_decision is not None:
             return protect_customer_decision(rate_followup_decision)
 
+        model_installment_decision = await self._try_model_installment_followup(text, history)
+        if model_installment_decision is not None:
+            return protect_customer_decision(model_installment_decision)
+
         case_accessory_decision = self._try_case_accessory_information(text)
         if case_accessory_decision is not None:
             return protect_customer_decision(case_accessory_decision)
@@ -2741,6 +2809,15 @@ class AgentService:
         specific = await self._try_specific_installment(text, history)
         if specific is not None:
             return specific
+        return await self._try_full_installment_table(text, history)
+
+    async def _try_model_installment_followup(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not _is_installment_model_followup(text, history):
+            return None
         return await self._try_full_installment_table(text, history)
 
     async def _try_payment_link(
@@ -4071,46 +4148,24 @@ class AgentService:
                 reply=format_installment_table(result),
                 confidence="high",
             )
+        if result.get("ambiguo"):
+            return _format_ambiguous_installment_decision(result)
         if not result.get("ambiguo"):
             alternative = await self._try_unavailable_seminew_alternative(query)
             if alternative is not None:
                 return alternative
             return None
 
-        candidates = result.get("candidatos") or []
-        lines: list[str] = []
-        for candidate in candidates[:3]:
-            if not isinstance(candidate, dict):
-                continue
-            name = str(candidate.get("nome") or "Produto")
-            capacity = candidate.get("capacidade")
-            battery = candidate.get("saude_bateria")
-            price = candidate.get("preco_brl")
-            details = [name]
-            if capacity:
-                details.append(str(capacity))
-            if battery is not None:
-                details.append(f"bateria {float(battery):g}%")
-            if price is not None:
-                details.append(format_brl(float(price)))
-            lines.append(" - ".join(details))
-        if not lines:
-            return None
-        return AgentDecision(
-            reply=(
-                "Encontrei mais de uma unidade compativel:\n"
-                + "\n".join(lines)
-                + "\nQual delas voce quer simular?"
-            ),
-            confidence="medium",
-        )
-
     async def _try_full_installment_table(
         self,
         text: str,
         history: list[dict[str, str]] | None,
     ) -> AgentDecision | None:
-        if not (_is_full_installment_request(text) or _is_rate_model_followup(text, history)):
+        if not (
+            _is_full_installment_request(text)
+            or _is_rate_model_followup(text, history)
+            or _is_installment_model_followup(text, history)
+        ):
             return None
         method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
@@ -4120,6 +4175,8 @@ class AgentService:
         except Exception:
             return None
         if not result.get("encontrado"):
+            if result.get("ambiguo"):
+                return _format_ambiguous_installment_decision(result)
             return await self._try_unavailable_seminew_alternative(
                 _installment_context_query(text, history)
             )
