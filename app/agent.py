@@ -904,13 +904,11 @@ def _is_current_date_request(text: str) -> bool:
 
 def _is_today_store_status_request(text: str) -> bool:
     normalized = re.sub(r"\bhj\b", "hoje", _normalize(text))
-    if "hoje" not in normalized:
-        return False
-    return any(
+    has_status_marker = bool(
+        re.search(r"\b(?:abert\w*|fechad\w*)\b", normalized)
+    ) or any(
         marker in normalized
         for marker in (
-            "aberto",
-            "fechado",
             "funcionamento",
             "atendimento",
             "horario",
@@ -918,6 +916,18 @@ def _is_today_store_status_request(text: str) -> bool:
             "abre",
             "fecha",
         )
+    )
+    if not has_status_marker:
+        return False
+    if "hoje" in normalized:
+        return True
+    # In WhatsApp, "a loja está aberta?" commonly omits "hoje" but still
+    # asks for the current-day status. Keep hour questions on the FAQ path.
+    if _is_store_hours_request(text):
+        return False
+    return bool(
+        "loja" in normalized
+        and re.search(r"\b(?:abert\w*|fechad\w*)\b", normalized)
     )
 
 
