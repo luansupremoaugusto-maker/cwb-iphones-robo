@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.admin import (
     catalog_csv_bytes,
     public_catalog_payload,
@@ -92,3 +94,31 @@ def test_catalog_csv_has_excel_columns_and_all_sections():
     ) in text
     assert "Seminovos;iPhone 15" in text
     assert "Lacrados por encomenda;iPhone 17" in text
+
+
+def test_catalog_csv_can_export_only_selected_sections():
+    payload = public_catalog_payload(SAMPLE_CATALOG, 100.0, 200.0, "now")
+
+    csv_data = catalog_csv_bytes(payload, sections=["seminovos"])
+
+    text = csv_data.decode("utf-8-sig")
+    assert "Seminovos;iPhone 15" in text
+    assert "Lacrados por encomenda;iPhone 17" not in text
+
+
+def test_catalog_csv_can_export_multiple_selected_sections_in_catalog_order():
+    payload = public_catalog_payload(SAMPLE_CATALOG, 100.0, 200.0, "now")
+
+    csv_data = catalog_csv_bytes(payload, sections=["lacrados", "seminovos"])
+
+    text = csv_data.decode("utf-8-sig")
+    assert "Seminovos;iPhone 15" in text
+    assert "Lacrados por encomenda;iPhone 17" in text
+    assert "Lacrados para pronta entrega" not in text
+
+
+def test_catalog_csv_rejects_unknown_sections():
+    payload = public_catalog_payload(SAMPLE_CATALOG, 100.0, 200.0, "now")
+
+    with pytest.raises(ValueError, match=r"Categoria\(s\) de catálogo inválida\(s\)"):
+        catalog_csv_bytes(payload, sections=["seminovos", "desconhecida"])
