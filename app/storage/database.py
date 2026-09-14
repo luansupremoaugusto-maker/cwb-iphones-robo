@@ -175,20 +175,38 @@ class Repository:
     ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), 200))
         with Session(self.engine) as session:
-            statement = select(ConversationRecord).order_by(
+            latest_messages = (
+                select(
+                    MessageRecord.conversation_id.label("conversation_id"),
+                    MessageRecord.direction.label("direction"),
+                    MessageRecord.text.label("text"),
+                    MessageRecord.created_at.label("created_at"),
+                    func.row_number()
+                    .over(
+                        partition_by=MessageRecord.conversation_id,
+                        order_by=(MessageRecord.created_at.desc(), MessageRecord.id.desc()),
+                    )
+                    .label("row_number"),
+                )
+                .subquery()
+            )
+            statement = select(
+                ConversationRecord,
+                latest_messages.c.direction,
+                latest_messages.c.text,
+                latest_messages.c.created_at,
+            ).outerjoin(
+                latest_messages,
+                (latest_messages.c.conversation_id == ConversationRecord.id)
+                & (latest_messages.c.row_number == 1),
+            ).order_by(
                 ConversationRecord.updated_at.desc(), ConversationRecord.id.desc()
             )
             if statuses:
                 statement = statement.where(ConversationRecord.status.in_(statuses))
-            records = session.scalars(statement.limit(safe_limit)).all()
+            rows = session.execute(statement.limit(safe_limit)).all()
             result: list[dict[str, Any]] = []
-            for record in records:
-                latest = session.scalar(
-                    select(MessageRecord)
-                    .where(MessageRecord.conversation_id == record.id)
-                    .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
-                    .limit(1)
-                )
+            for record, last_direction, last_text, last_created_at in rows:
                 result.append(
                     {
                         "phone": record.phone,
@@ -196,9 +214,9 @@ class Repository:
                         "status": record.status,
                         "paused_reason": record.paused_reason,
                         "updated_at": record.updated_at,
-                        "last_message": (latest.text or "")[:400] if latest else "",
-                        "last_message_direction": latest.direction if latest else None,
-                        "last_message_at": latest.created_at if latest else None,
+                        "last_message": (last_text or "")[:400],
+                        "last_message_direction": last_direction,
+                        "last_message_at": last_created_at,
                     }
                 )
             return result
