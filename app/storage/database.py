@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, create_engine, select, update
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, create_engine, func, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
@@ -153,6 +153,55 @@ class Repository:
     def get_conversation(self, phone: str) -> ConversationRecord | None:
         with Session(self.engine, expire_on_commit=False) as session:
             return session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))
+
+    def conversation_status_counts(self) -> dict[str, int]:
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(ConversationRecord.status, func.count(ConversationRecord.id)).group_by(
+                    ConversationRecord.status
+                )
+            ).all()
+        counts = {str(status): int(total) for status, total in rows}
+        for status in ("bot_active", "human_pending", "human_active", "closed"):
+            counts.setdefault(status, 0)
+        counts["total"] = sum(value for key, value in counts.items() if key != "total")
+        return counts
+
+    def list_conversations(
+        self,
+        statuses: tuple[str, ...] | None = None,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 200))
+        with Session(self.engine) as session:
+            statement = select(ConversationRecord).order_by(
+                ConversationRecord.updated_at.desc(), ConversationRecord.id.desc()
+            )
+            if statuses:
+                statement = statement.where(ConversationRecord.status.in_(statuses))
+            records = session.scalars(statement.limit(safe_limit)).all()
+            result: list[dict[str, Any]] = []
+            for record in records:
+                latest = session.scalar(
+                    select(MessageRecord)
+                    .where(MessageRecord.conversation_id == record.id)
+                    .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
+                    .limit(1)
+                )
+                result.append(
+                    {
+                        "phone": record.phone,
+                        "chat_name": record.chat_name,
+                        "status": record.status,
+                        "paused_reason": record.paused_reason,
+                        "updated_at": record.updated_at,
+                        "last_message": (latest.text or "")[:400] if latest else "",
+                        "last_message_direction": latest.direction if latest else None,
+                        "last_message_at": latest.created_at if latest else None,
+                    }
+                )
+            return result
 
     def set_conversation_status(self, phone: str, status: str, reason: str | None = None) -> None:
         with Session(self.engine) as session:
@@ -425,6 +474,31 @@ class Repository:
         with Session(self.engine) as session:
             session.add(AuditEventRecord(event_type=event_type, subject=subject, detail=detail or {}))
             session.commit()
+
+    def list_audit_events(
+        self,
+        *,
+        limit: int = 50,
+        event_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 200))
+        with Session(self.engine) as session:
+            statement = select(AuditEventRecord).order_by(
+                AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc()
+            )
+            if event_type:
+                statement = statement.where(AuditEventRecord.event_type == event_type)
+            records = session.scalars(statement.limit(safe_limit)).all()
+            return [
+                {
+                    "id": int(record.id),
+                    "event_type": record.event_type,
+                    "subject": record.subject,
+                    "detail": dict(record.detail or {}),
+                    "created_at": record.created_at,
+                }
+                for record in records
+            ]
 
     def cleanup(self, older_than: datetime) -> dict[str, int]:
         with Session(self.engine) as session:

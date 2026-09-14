@@ -47,6 +47,11 @@ A página consulta o catálogo pelo mesmo caminho
 do robô, mostra seminovos, lacrados em pronta entrega e lacrados por encomenda,
 e permite baixar `catalogo-disponiveis.csv`.
 
+O painel mostra ainda o resumo dos estados das conversas, a saúde do banco e das
+integrações, a fila de atendimento humano com a última mensagem e uma auditoria
+recente. Os botões da fila apenas preparam o comando correspondente; a execução
+continua exigindo confirmação no navegador.
+
 O painel também oferece `Assumir conversa`, `Retomar conversa para o robô`,
 `Fechar conversa` e `Liberar todos os clientes`. Os três primeiros exigem o
 telefone da conversa; o último libera apenas `human_pending` e `human_active` e

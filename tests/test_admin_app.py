@@ -167,3 +167,61 @@ def test_admin_command_requires_csrf_and_executes_release_all(configured_runtime
     assert accepted.status_code == 200
     assert accepted.json()["released_count"] == 2
     assert configured_runtime.repository.get_conversation("5511666666666").status == "closed"
+
+
+def test_admin_dashboard_returns_conversation_counts_and_source_health(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get("/admin/api/dashboard", auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["conversations"] == {
+        "total": 3,
+        "bot_active": 0,
+        "human_pending": 1,
+        "human_active": 1,
+        "human_total": 2,
+        "closed": 1,
+    }
+    assert payload["sources"]["database"]["ok"] is True
+    assert isinstance(payload["sources"]["zapi"]["ok"], bool)
+
+
+def test_admin_queue_returns_human_conversations_with_latest_message(configured_runtime):
+    configured_runtime.repository.get_or_create_conversation("5511888888888", "Maria")
+    configured_runtime.repository.add_message(
+        "5511888888888",
+        "inbound",
+        "text",
+        "Quero confirmar o prazo de entrega.",
+    )
+
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get("/admin/api/conversations?status=human", auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    item = next(item for item in items if item["phone"] == "5511888888888")
+    assert item["chat_name"] == "Maria"
+    assert item["status"] == "human_pending"
+    assert item["status_label"] == "Aguardando atendimento"
+    assert item["last_message"] == "Quero confirmar o prazo de entrega."
+    assert item["last_message_direction"] == "inbound"
+
+
+def test_admin_audit_endpoint_returns_recent_events(configured_runtime):
+    configured_runtime.repository.audit(
+        "admin_command",
+        "5511888888888",
+        {"action": "assume", "channel": "web", "operator": "admin", "released_count": 0},
+    )
+
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get("/admin/api/audit?event_type=admin_command", auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["event_type"] == "admin_command"
+    assert item["subject"] == "5511888888888"
+    assert item["detail"]["operator"] == "admin"
+    assert item["detail"]["action"] == "assume"
