@@ -85,6 +85,25 @@ Não existe cadastro manual de fotos no projeto. Para não fazer uma chamada por
 cada item, os anexos são buscados sob demanda, somente quando o cliente solicita
 um modelo.
 
+## Painel administrativo
+
+O painel privado fica em `/admin` no mesmo domínio HTTPS do robô. Configure
+`ADMIN_USERNAME`, `ADMIN_PASSWORD` e `ADMIN_CSRF_SECRET` no `.env.local`; se
+qualquer uma estiver ausente, o painel permanece desabilitado. Não versione
+essas credenciais.
+
+Após a autenticação Basic, o painel permite atualizar e baixar em CSV a mesma
+lista completa usada pelo robô. Ela separa seminovos, lacrados em estoque para
+pronta entrega e lacrados por encomenda. O estoque físico continua sendo
+consultado no Mercado Phone; uma linha da planilha fornece preço de lacrado,
+mas não prova estoque.
+
+A área de comandos permite assumir, retomar ou fechar uma conversa específica
+e liberar todas as conversas em atendimento humano para o robô. Toda ação
+exige confirmação no navegador e é auditada. `release_all` altera somente
+`human_pending` e `human_active`; conversas `closed` permanecem encerradas. O
+painel não edita estoque/preços nem envia mensagens para clientes.
+
 ## Docker na VPS
 
 1. Instale Docker e Docker Compose.

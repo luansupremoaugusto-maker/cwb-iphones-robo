@@ -12,6 +12,8 @@
   à planilha de preços.
 - Arquivo da conta de serviço salvo em
   `secrets/google-service-account.json`.
+- `ADMIN_USERNAME`, `ADMIN_PASSWORD` e `ADMIN_CSRF_SECRET` definidos no
+  `.env.local` para habilitar o painel administrativo privado.
 
 ## Subida
 
@@ -36,6 +38,23 @@ https://SEU_DOMINIO/webhooks/zapi/SEU_WEBHOOK_SECRET
 
 Use `ZAPI_EXPECTED_INSTANCE_ID` quando a conta tiver mais de uma instância.
 Eventos de grupos, mensagens próprias, newsletters, status e duplicatas são ignorados.
+
+## Painel administrativo
+
+Acesse `https://SEU_DOMINIO/admin` e informe as credenciais de HTTP Basic Auth
+configuradas no `.env.local`. A página consulta o catálogo pelo mesmo caminho
+do robô, mostra seminovos, lacrados em pronta entrega e lacrados por encomenda,
+e permite baixar `catalogo-disponiveis.csv`.
+
+O painel também oferece `Assumir conversa`, `Retomar conversa para o robô`,
+`Fechar conversa` e `Liberar todos os clientes`. Os três primeiros exigem o
+telefone da conversa; o último libera apenas `human_pending` e `human_active` e
+preserva `closed` (`release_all`). As ações exigem confirmação no navegador e ficam auditadas;
+elas não enviam mensagens aos clientes nem alteram o estoque do Mercado Phone.
+
+Mantenha o domínio atrás de HTTPS e nunca coloque as credenciais administrativas
+na URL ou no repositório. Se as três variáveis não estiverem preenchidas, as
+rotas `/admin` ficam desabilitadas.
 
 ## Operação segura
 
