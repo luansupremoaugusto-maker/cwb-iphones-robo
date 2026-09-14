@@ -148,6 +148,78 @@ async def test_catalog_loads_product_photos_on_demand_from_mercado_phone(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_available_catalog_can_hydrate_photo_counts_for_admin(tmp_path):
+    calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"items": [{"url": "https://cdn.example/iphone-15-front.jpg"}]},
+        )
+
+    settings = Settings(
+        mercado_phone_api_key="mpk-test",
+        mercado_phone_files_url=(
+            "https://app.mercadophone.tech/api.php?"
+            "class=ArquivoApiController&method=index"
+        ),
+        mercado_cache_ttl_seconds=60,
+    )
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    class MercadoStub:
+        def __init__(self):
+            self.settings = settings
+            self._client = http_client
+            self.headers = {
+                "Accept": "application/json",
+                "X-API-Key": "mpk-test",
+                "X-Unit-Id": "2620",
+            }
+
+        async def fetch_all_inventory(self):
+            return []
+
+    cache = StoreCatalogCache(
+        MercadoStub(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="123",
+            name="iPhone 15",
+            category="Celular",
+            quantity=1,
+            availability="Disponível para venda",
+            search_text="iphone 15 celular",
+            source="mercado_phone",
+        )
+    ]
+    cache.last_refresh = time.time()
+
+    try:
+        default_result = await cache.list_available_products()
+        assert default_result["seminovos"][0]["fotos_disponiveis"] == 0
+        assert calls == []
+        result = await cache.list_available_products(include_photos=True)
+    finally:
+        await http_client.aclose()
+
+    assert result["seminovos"][0]["fotos_disponiveis"] == 1
+    assert calls == [
+        {
+            "page": 1,
+            "order": "id",
+            "direction": "desc",
+            "filters": {"id": "", "origem": "1", "objetoId": "123"},
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_photo_request_retries_after_an_empty_catalog_file_response(tmp_path):
     calls: list[dict[str, object]] = []
 

@@ -57,7 +57,7 @@ CATALOG = {
 class FakeCache:
     last_refresh = 100.0
 
-    async def list_available_products(self):
+    async def list_available_products(self, *, include_photos=False):
         return CATALOG
 
 
