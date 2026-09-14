@@ -23,6 +23,14 @@ def test_admin_page_does_not_render_catalog_values_as_inner_html():
     assert "textContent" in html
 
 
+def test_admin_page_uses_matching_lacrados_stock_counter_id():
+    from app.admin_page import render_admin_page
+
+    html = render_admin_page("csrf-token")
+
+    assert 'id="count-lacrados_pronta_entrega"' in html
+
+
 def test_admin_login_page_contains_browser_friendly_form():
     from app.admin_page import render_admin_login_page
 
