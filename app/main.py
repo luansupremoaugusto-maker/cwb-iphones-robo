@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import logging
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from app.admin import (
+    AdminCommandRequest,
+    AdminCommandService,
+    build_admin_csrf_token,
+    catalog_csv_bytes,
+    public_catalog_payload,
+)
 from app.adapters.zapi import normalize_received_callback
 from app.config import get_settings
 from app.runtime import Runtime, build_runtime
@@ -20,6 +30,64 @@ from app.runtime import Runtime, build_runtime
 
 CONTROL_CALLBACK_MARKERS = ("delivery", "status", "disconnect", "connection")
 logger = logging.getLogger(__name__)
+
+
+def _parse_basic_authorization(value: str | None) -> tuple[str, str] | None:
+    if not value:
+        return None
+    scheme, separator, encoded = value.partition(" ")
+    if not separator or scheme.lower() != "basic":
+        return None
+    try:
+        decoded = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return None
+    return username, password
+
+
+def _require_admin_operator(request: Request) -> str:
+    current: Runtime = request.app.state.runtime
+    settings = current.settings
+    if not settings.admin_panel_configured:
+        raise HTTPException(status_code=404, detail="Not found")
+    credentials = _parse_basic_authorization(request.headers.get("authorization"))
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticação administrativa necessária",
+            headers={"WWW-Authenticate": 'Basic realm="admin"'},
+        )
+    username, password = credentials
+    if not (
+        secrets.compare_digest(username, settings.admin_username.strip())
+        and secrets.compare_digest(password, settings.admin_password)
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciais administrativas inválidas",
+            headers={"WWW-Authenticate": 'Basic realm="admin"'},
+        )
+    return username
+
+
+def _require_admin_csrf(request: Request, settings: Any) -> None:
+    expected = build_admin_csrf_token(settings)
+    provided = request.headers.get("x-admin-csrf", "")
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Token CSRF inválido")
+
+
+async def _admin_catalog_payload(current: Runtime) -> dict[str, Any]:
+    result = await current.cache.list_available_products()
+    return public_catalog_payload(
+        result,
+        mercado_refresh=getattr(current.cache, "last_refresh", None),
+        sheets_refresh=getattr(current.google_sheets, "last_refresh", None),
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def _source_has_snapshot(source: Any, *, require_rates: bool = False) -> bool:
@@ -98,6 +166,61 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         }
         payload = {"ready": all(checks.values()), "checks": checks}
         return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_page(request: Request) -> HTMLResponse:
+        _require_admin_operator(request)
+        return HTMLResponse(
+            "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\"><title>Administração</title>"
+            "</head><body><h1>Administração do robô</h1></body></html>"
+        )
+
+    @app.get("/admin/api/catalog")
+    async def admin_catalog(request: Request) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        try:
+            return await _admin_catalog_payload(current)
+        except Exception as exc:
+            logger.exception("admin catalog refresh failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Catálogo temporariamente indisponível") from exc
+
+    @app.get("/admin/api/catalog.csv")
+    async def admin_catalog_csv(request: Request) -> Response:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        try:
+            payload = await _admin_catalog_payload(current)
+            data = catalog_csv_bytes(payload)
+        except Exception as exc:
+            logger.exception("admin catalog CSV export failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Catálogo temporariamente indisponível") from exc
+        return Response(
+            content=data,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="catalogo-disponiveis.csv"'},
+        )
+
+    @app.post("/admin/api/commands")
+    async def admin_command(request: Request, command: AdminCommandRequest) -> dict[str, Any]:
+        operator = _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        service = getattr(current.processor, "admin_commands", None)
+        if service is None:
+            service = AdminCommandService(current.repository)
+        try:
+            return service.execute(
+                command.action or "",
+                operator=operator,
+                channel="web",
+                phone=command.phone,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("admin command failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Não foi possível executar o comando") from exc
 
     @app.post("/webhooks/zapi/{webhook_secret}")
     async def zapi_webhook(webhook_secret: str, request: Request) -> dict[str, Any]:

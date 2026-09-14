@@ -6,6 +6,8 @@ import hmac
 import io
 from typing import Any
 
+from pydantic import BaseModel
+
 from app.config import Settings, normalize_phone
 from app.storage.database import Repository
 
@@ -33,6 +35,11 @@ _PUBLIC_ITEM_FIELDS = (
     "saude_bateria",
     "fotos_disponiveis",
 )
+
+
+class AdminCommandRequest(BaseModel):
+    action: str | None = None
+    phone: str | None = None
 
 
 def build_admin_csrf_token(settings: Settings) -> str:
