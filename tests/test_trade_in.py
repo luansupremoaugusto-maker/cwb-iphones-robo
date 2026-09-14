@@ -550,6 +550,42 @@ async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evalua
 
 
 @pytest.mark.asyncio
+async def test_batched_buyback_price_and_upgrade_request_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Gostaria de verificar o preço que vcs pagam em um\n"
+        "iPhone 12\n"
+        "Cor branca\n"
+        "64 gb\n"
+        "76% de bateria\n"
+        "Queria trocar por iPhone 13 com 128gb"
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+    decision = await service.respond(text)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_implicit_owned_iphone_upgrade_offer_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):

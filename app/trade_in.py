@@ -124,7 +124,9 @@ _BUYBACK_VERB_RE = re.compile(
 )
 _PRICE_BUYBACK_RE = re.compile(
     r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voces|vcs|a\s+loja)\s+"
-    r"(?:estao\s+)?(?:pagando|pagam)\s+(?:pelo|por)\b",
+    r"(?:estao\s+)?(?:pagando|pagam)\s+(?:pelo|por)\b"
+    r"|\b(?:preco|valor)\s+(?:que\s+)?(?:voces|vcs|a\s+loja)\s+"
+    r"(?:estao\s+)?(?:pagando|pagam)\s+(?:em|pelo|por)\b",
     re.IGNORECASE,
 )
 _NON_APPLE_EXCHANGE_RE = re.compile(
@@ -166,6 +168,11 @@ _OWNED_NUMBERED_IPHONE_RE = re.compile(
 _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
     r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+(?:o|a|um|uma)?\s*"
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
+_IMPLICIT_EXCHANGE_TARGET_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,25}"
+    r"\btrocar\s+por\s+(?:um|uma)?\s*(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
 _IMPLICIT_GENERIC_UPGRADE_RE = re.compile(
@@ -220,13 +227,29 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         and _BARE_IPHONE_MODEL_RE.search(text)
         and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
     )
+    # WhatsApp may batch a buyback-price question and the follow-up upgrade
+    # request into one text. The device is introduced as "um iPhone 12" rather
+    # than "meu iPhone 12", so the ordinary owned-device pattern does not see
+    # it; the buyback wording, condition detail, and explicit target together
+    # still identify a complete-device evaluation.
+    batched_price_upgrade = (
+        _PRICE_BUYBACK_RE.search(text)
+        and _APPLE_PRODUCT_RE.search(text)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+        and _IMPLICIT_EXCHANGE_TARGET_RE.search(text)
+    )
     return bool(
-        owned_device
-        and (
-            explicit_model_upgrade
-            or _IMPLICIT_GENERIC_UPGRADE_RE.search(text)
-            or _IMPLICIT_MODEL_EXCHANGE_RE.search(text)
-            or explicit_device_entry
+        (
+            batched_price_upgrade
+            or (
+                owned_device
+                and (
+                    explicit_model_upgrade
+                    or _IMPLICIT_GENERIC_UPGRADE_RE.search(text)
+                    or _IMPLICIT_MODEL_EXCHANGE_RE.search(text)
+                    or explicit_device_entry
+                )
+            )
         )
         and not _NON_APPLE_RE.search(text)
     )
