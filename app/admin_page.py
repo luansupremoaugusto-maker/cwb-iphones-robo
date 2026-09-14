@@ -124,12 +124,19 @@ _PAGE_TEMPLATE = """<!doctype html>
     .sources { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; }
     .source-note { font-size: 12px; }
     .health-grid { display: grid; gap: 10px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 16px; }
-    .health-card { align-items: center; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; display: flex; gap: 8px; min-height: 48px; padding: 10px 12px; }
+    .health-card { align-items: center; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; display: flex; gap: 8px; justify-content: space-between; min-height: 48px; padding: 10px 12px; }
+    .health-card > div { align-items: center; display: flex; gap: 8px; min-width: 0; }
     .health-card strong { display: block; font-size: 13px; }
     .health-card small { color: var(--muted); display: block; font-size: 11px; }
     .health-dot { background: var(--muted); border-radius: 50%; flex: 0 0 9px; height: 9px; width: 9px; }
     .health-card.ok .health-dot { background: var(--success); }
     .health-card.bad .health-dot { background: var(--danger); }
+    .health-card.stale .health-dot { background: #b54708; }
+    .health-refresh { font-size: 11px; padding: 6px 8px; white-space: nowrap; }
+    .monitoring-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+    .monitoring-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+    .monitoring-card strong { display: block; font-size: 13px; margin-bottom: 4px; }
+    .monitoring-card p { color: var(--muted); font-size: 13px; margin: 0; }
     .badge { background: #eef3ff; border-radius: 999px; color: var(--brand-dark); display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; white-space: nowrap; }
     .badge.pending { background: #fffaeb; color: #7a2e0b; }
     .badge.active { background: #ecfdf3; color: var(--success); }
@@ -140,7 +147,12 @@ _PAGE_TEMPLATE = """<!doctype html>
     .queue-actions button { font-size: 12px; padding: 7px 9px; }
     .audit-detail { color: var(--muted); font-size: 12px; max-width: 330px; overflow-wrap: anywhere; }
     .nowrap { white-space: nowrap; }
-    .command-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; }
+    .command-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) minmax(260px, 1.4fr) auto; }
+    .command-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .command-actions button { white-space: nowrap; }
+    .preview-box { background: #eef3ff; border: 1px solid #c7d7fe; border-radius: 9px; color: var(--brand-dark); font-size: 13px; margin-top: 14px; padding: 10px 12px; }
+    .control-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.2fr) minmax(260px, 1.4fr) auto; }
+    .sessions-table table { min-width: 720px; }
     .field { display: grid; gap: 5px; }
     label { font-size: 13px; font-weight: 700; }
     .warning { background: #fffaeb; border: 1px solid #fedf89; border-radius: 9px; color: #7a2e0b; font-size: 13px; margin: 14px 0 0; padding: 10px 12px; }
@@ -150,10 +162,10 @@ _PAGE_TEMPLATE = """<!doctype html>
       .actions { width: 100%; }
       .actions > * { flex: 1; text-align: center; }
       .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .operational-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .operational-summary, .health-grid, .monitoring-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .panel-heading { flex-direction: column; }
-      .command-grid { grid-template-columns: 1fr; }
-      .command-grid button { width: 100%; }
+      .command-grid, .control-grid { grid-template-columns: 1fr; }
+      .command-grid button, .control-grid button { width: 100%; }
     }
   </style>
 </head>
@@ -190,6 +202,11 @@ _PAGE_TEMPLATE = """<!doctype html>
         <div class="summary-card"><span>Encerradas</span><strong id="conversation-closed">—</strong></div>
       </div>
       <div id="health-grid" class="health-grid" aria-label="Saúde das integrações"></div>
+      <div class="monitoring-grid" aria-label="Monitoramento operacional">
+        <div class="monitoring-card"><strong>Estado global do robô</strong><p id="bot-control-status">Carregando…</p></div>
+        <div class="monitoring-card"><strong>Fontes desatualizadas</strong><p id="monitoring-stale-status">Verificando…</p></div>
+        <div class="monitoring-card"><strong>Falhas nas últimas 24 horas</strong><p id="monitoring-error-status">Verificando…</p></div>
+      </div>
     </section>
 
     <section class="panel" aria-labelledby="catalog-title">
@@ -203,12 +220,35 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
       <div class="toolbar">
         <input id="catalog-search" type="search" placeholder="Buscar modelo, capacidade ou cor" autocomplete="off" aria-label="Buscar no catálogo">
+        <div class="toolbar" style="margin:0; justify-content:flex-end">
+          <select id="catalog-category-filter" aria-label="Filtrar por categoria">
+            <option value="">Todas as categorias</option>
+          </select>
+          <select id="catalog-capacity-filter" aria-label="Filtrar por capacidade">
+            <option value="">Todas as capacidades</option>
+          </select>
+          <select id="catalog-color-filter" aria-label="Filtrar por cor">
+            <option value="">Todas as cores</option>
+          </select>
+          <select id="catalog-condition-filter" aria-label="Filtrar por condição">
+            <option value="">Todas as condições</option>
+          </select>
+          <select id="catalog-stock-filter" aria-label="Filtrar por disponibilidade">
+            <option value="">Toda disponibilidade</option>
+            <option value="Em estoque">Somente em estoque</option>
+            <option value="Por encomenda">Somente por encomenda</option>
+            <option value="Sem estoque">Sem estoque</option>
+          </select>
+          <input id="catalog-price-min" type="number" min="0" step="0.01" placeholder="Preço mínimo" aria-label="Preço mínimo">
+          <input id="catalog-price-max" type="number" min="0" step="0.01" placeholder="Preço máximo" aria-label="Preço máximo">
+          <label class="field" style="display:flex; align-items:center; gap:6px; white-space:nowrap"><input id="catalog-photos-filter" type="checkbox"> Com fotos</label>
+        </div>
         <span id="catalog-status" class="status muted" role="status" aria-live="polite">Carregando catálogo…</span>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Categoria</th><th>Produto</th><th>Capacidade</th><th>Condição</th><th>Cor(es)</th><th>Preço(s)</th><th>Quantidade</th><th>Bateria</th><th>Fotos</th></tr>
+            <tr><th>Categoria</th><th>Produto</th><th>Capacidade</th><th>Condição</th><th>Cor(es)</th><th>Preço(s)</th><th>Quantidade</th><th>Disponibilidade</th><th>Bateria</th><th>Fotos</th></tr>
           </thead>
           <tbody id="catalog-body"></tbody>
         </table>
@@ -260,11 +300,65 @@ _PAGE_TEMPLATE = """<!doctype html>
             <label for="command-phone">Telefone da conversa</label>
             <input id="command-phone" name="phone" inputmode="tel" placeholder="5541999999999" autocomplete="off">
           </div>
-          <button id="command-submit" class="danger" type="submit">Executar comando</button>
+          <div class="field">
+            <label for="command-justification">Justificativa</label>
+            <input id="command-justification" name="justification" maxlength="250" placeholder="Por que esta ação é necessária?" autocomplete="off" required>
+          </div>
+          <div class="command-actions">
+            <button id="command-preview" class="secondary" type="submit">Pré-visualizar impacto</button>
+            <button id="command-submit" class="danger" type="button" disabled>Executar após a prévia</button>
+          </div>
         </div>
         <p class="warning">“Liberar todos” reativa somente conversas em atendimento humano; conversas encerradas permanecem encerradas.</p>
+        <div id="command-preview-box" class="preview-box" hidden></div>
         <p id="command-status" class="status" role="status" aria-live="polite"></p>
       </form>
+    </section>
+
+    <section class="panel" aria-labelledby="control-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="control-title">Controles gerais</h2>
+          <p class="muted">Pause as respostas do robô, ative manutenção e acompanhe os acessos ao painel.</p>
+        </div>
+        <span id="control-role" class="badge">Perfil: —</span>
+      </div>
+      <form id="admin-control-form">
+        <div class="control-grid">
+          <div class="field">
+            <label for="control-action">Ação global</label>
+            <select id="control-action" name="action">
+              <option value="pause_bot">Pausar respostas do robô</option>
+              <option value="resume_bot">Retomar respostas do robô</option>
+              <option value="maintenance_on">Ativar manutenção</option>
+              <option value="maintenance_off">Desativar manutenção</option>
+              <option value="logout_sessions">Desconectar sessões administrativas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="control-reason">Motivo exibido no estado</label>
+            <input id="control-reason" maxlength="255" placeholder="Ex.: manutenção programada" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="control-justification">Justificativa</label>
+            <input id="control-justification" maxlength="250" placeholder="Por que esta ação é necessária?" autocomplete="off" required>
+          </div>
+          <button id="control-submit" class="danger" type="submit">Aplicar controle</button>
+        </div>
+        <p id="control-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+      <div class="toolbar">
+        <strong>Sessões ativas no navegador</strong>
+        <button id="refresh-sessions" class="secondary" type="button">Atualizar sessões</button>
+      </div>
+      <p class="muted">Sessões de Basic Auth não aparecem nesta lista. “Desconectar sessões” revoga os logins por navegador.</p>
+      <div class="table-wrap compact-table sessions-table">
+        <table>
+          <thead><tr><th>Operador</th><th>Início</th><th>Última atividade</th><th>Expira</th></tr></thead>
+          <tbody id="sessions-body"></tbody>
+        </table>
+      </div>
+      <p id="sessions-status" class="status muted" role="status" aria-live="polite">Carregando sessões…</p>
     </section>
 
     <section class="panel" aria-labelledby="audit-title">
@@ -303,11 +397,11 @@ _PAGE_TEMPLATE = """<!doctype html>
       let humanQueue = [];
       let auditEvents = [];
       const healthDefinitions = [
-        ["database", "Banco de dados"],
-        ["mercado_phone", "Mercado Phone"],
-        ["google_sheets", "Google Sheets"],
-        ["zapi", "Z-API"],
-        ["openai", "OpenAI"]
+        ["database", "Banco de dados", null],
+        ["mercado_phone", "Mercado Phone", "mercado_phone"],
+        ["google_sheets", "Google Sheets", "google_sheets"],
+        ["zapi", "Z-API", null],
+        ["openai", "OpenAI", null]
       ];
 
       const byId = (id) => document.getElementById(id);
@@ -317,7 +411,7 @@ _PAGE_TEMPLATE = """<!doctype html>
         const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
         return Number.isNaN(date.getTime()) ? "não disponível" : date.toLocaleString("pt-BR");
       };
-      const itemText = (item) => [item.nome, item.capacidade, item.condicao, item.cor, ...(item.cores || [])].join(" ").toLocaleLowerCase();
+      const itemText = (item) => [item.nome, item.capacidade, item.condicao, item.cor, item.disponibilidade, ...(item.cores || [])].join(" ").toLocaleLowerCase();
       const asText = (value, fallback = "—") => value === null || value === undefined || value === "" ? fallback : String(value);
       const batteryText = (value) => value === null || value === undefined || value === "" ? "—" : `${value}%`;
       const queueText = (item) => [item.chat_name, item.phone, item.status, item.status_label, item.last_message, item.paused_reason].join(" ").toLocaleLowerCase();
@@ -355,10 +449,10 @@ _PAGE_TEMPLATE = """<!doctype html>
 
         const grid = byId("health-grid");
         grid.replaceChildren();
-        healthDefinitions.forEach(([key, label]) => {
+        healthDefinitions.forEach(([key, label, refreshKey]) => {
           const source = dashboard?.sources?.[key] || {};
           const card = document.createElement("div");
-          card.className = `health-card ${source.ok ? "ok" : "bad"}`;
+          card.className = `health-card ${source.stale ? "stale" : source.ok ? "ok" : "bad"}`;
           const dot = document.createElement("span");
           dot.className = "health-dot";
           const details = document.createElement("div");
@@ -366,13 +460,44 @@ _PAGE_TEMPLATE = """<!doctype html>
           title.textContent = label;
           const note = document.createElement("small");
           const itemCount = source.items === undefined ? "" : ` · ${source.items} item(ns)`;
-          note.textContent = source.last_refresh
-            ? `Atualizado ${formatDate(source.last_refresh)}${itemCount}`
-            : `${source.ok ? "Operacional" : "Indisponível"}${itemCount}`;
+          note.textContent = source.stale
+            ? `Desatualizado${source.last_refresh ? ` desde ${formatDate(source.last_refresh)}` : ""}${itemCount}`
+            : source.last_refresh
+              ? `Atualizado ${formatDate(source.last_refresh)}${itemCount}`
+              : `${source.ok ? "Operacional" : "Indisponível"}${itemCount}`;
           details.append(title, note);
-          card.append(dot, details);
+          const content = document.createElement("div");
+          content.append(dot, details);
+          card.append(content);
+          if (refreshKey) {
+            const refresh = document.createElement("button");
+            refresh.type = "button";
+            refresh.className = "secondary health-refresh";
+            refresh.dataset.source = refreshKey;
+            refresh.textContent = "Atualizar fonte";
+            card.append(refresh);
+          }
           grid.append(card);
         });
+
+        const control = dashboard?.control || {};
+        const controlMode = control.mode || "active";
+        const controlLabels = { active: "Ativo", paused: "Pausado", maintenance: "Em manutenção" };
+        byId("bot-control-status").textContent = `${controlLabels[controlMode] || controlMode}${control.reason ? ` · ${control.reason}` : ""}`;
+        const monitoring = dashboard?.monitoring || {};
+        const stale = monitoring.stale_sources || [];
+        byId("monitoring-stale-status").textContent = stale.length ? stale.join(", ") : "Nenhuma fonte desatualizada.";
+        const recentErrors = monitoring.recent_errors || {};
+        byId("monitoring-error-status").textContent = recentErrors.count
+          ? `${recentErrors.count} evento(s) com erro registrado(s).`
+          : "Nenhuma falha registrada.";
+        const permissions = dashboard?.permissions || dashboard?.control?.permissions || {};
+        const controlRole = byId("control-role");
+        controlRole.textContent = `Perfil: ${dashboard?.role || "owner"}`;
+        if (permissions.owner_controls === false) {
+          byId("admin-control-form").title = "Apenas o perfil proprietário pode alterar controles globais.";
+          byId("control-submit").disabled = true;
+        }
       }
 
       function renderHumanQueue() {
@@ -460,15 +585,76 @@ _PAGE_TEMPLATE = """<!doctype html>
         byId("generated-source").textContent = `Página gerada: ${formatDate(catalog?.generated_at)}`;
       }
 
+      function uniqueCatalogValues(selector) {
+        return [...new Set(flattenItems().flatMap(({ item }) => {
+          const value = selector(item);
+          return Array.isArray(value) ? value : [value];
+        }).filter((value) => value !== null && value !== undefined && String(value).trim()))]
+          .map((value) => String(value))
+          .sort((left, right) => left.localeCompare(right, "pt-BR", { numeric: true }));
+      }
+
+      function populateSelect(id, values, placeholder) {
+        const select = byId(id);
+        const selected = select.value;
+        select.replaceChildren();
+        const first = document.createElement("option");
+        first.value = "";
+        first.textContent = placeholder;
+        select.append(first);
+        values.forEach((value) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = value;
+          select.append(option);
+        });
+        select.value = values.includes(selected) ? selected : "";
+      }
+
+      function renderCatalogFilters() {
+        populateSelect("catalog-category-filter", sectionDefinitions.map(([, label]) => label), "Todas as categorias");
+        populateSelect("catalog-capacity-filter", uniqueCatalogValues((item) => item.capacidade), "Todas as capacidades");
+        populateSelect("catalog-color-filter", uniqueCatalogValues((item) => item.cores?.length ? item.cores : item.cor), "Todas as cores");
+        populateSelect("catalog-condition-filter", uniqueCatalogValues((item) => item.condicao), "Todas as condições");
+      }
+
+      function itemAvailability(item) {
+        if (item.disponibilidade) return item.disponibilidade;
+        if (item.quantidade === null || item.quantidade === undefined) return "Por encomenda";
+        return Number(item.quantidade) > 0 ? "Em estoque" : "Sem estoque";
+      }
+
+      function itemMatchesFilters(label, item) {
+        const category = byId("catalog-category-filter").value;
+        const capacity = byId("catalog-capacity-filter").value;
+        const color = byId("catalog-color-filter").value;
+        const condition = byId("catalog-condition-filter").value;
+        const stock = byId("catalog-stock-filter").value;
+        const minPrice = Number.parseFloat(byId("catalog-price-min").value.replace(",", "."));
+        const maxPrice = Number.parseFloat(byId("catalog-price-max").value.replace(",", "."));
+        const prices = (item.precos_brl || []).map(Number).filter(Number.isFinite);
+        const colors = item.cores?.length ? item.cores : [item.cor];
+        return (!category || label === category)
+          && (!capacity || item.capacidade === capacity)
+          && (!color || colors.includes(color))
+          && (!condition || item.condicao === condition)
+          && (!stock || itemAvailability(item) === stock)
+          && (!byId("catalog-photos-filter").checked || Number(item.fotos_disponiveis || 0) > 0)
+          && (!Number.isFinite(minPrice) || prices.some((price) => price >= minPrice))
+          && (!Number.isFinite(maxPrice) || prices.some((price) => price <= maxPrice));
+      }
+
       function renderTable() {
         const body = byId("catalog-body");
         const query = byId("catalog-search").value.trim().toLocaleLowerCase();
         body.replaceChildren();
-        const matches = flattenItems().filter(({ item }) => !query || itemText(item).includes(query));
+        const matches = flattenItems().filter(({ label, item }) =>
+          (!query || itemText(item).includes(query)) && itemMatchesFilters(label, item)
+        );
         if (!matches.length) {
           const row = document.createElement("tr");
           const cell = document.createElement("td");
-          cell.colSpan = 9;
+          cell.colSpan = 10;
           cell.className = "empty";
           cell.textContent = "Nenhuma opção encontrada.";
           row.append(cell);
@@ -479,7 +665,7 @@ _PAGE_TEMPLATE = """<!doctype html>
           const row = document.createElement("tr");
           const colors = item.cores?.length ? item.cores.join(", ") : asText(item.cor);
           const prices = item.precos_brl?.length ? item.precos_brl.map(formatPrice).join(" | ") : "—";
-          [label, item.nome, item.capacidade, item.condicao, colors, prices, asText(item.quantidade), batteryText(item.saude_bateria), asText(item.fotos_disponiveis, "0")].forEach((value) => {
+          [label, item.nome, item.capacidade, item.condicao, colors, prices, asText(item.quantidade), itemAvailability(item), batteryText(item.saude_bateria), asText(item.fotos_disponiveis, "0")].forEach((value) => {
             const cell = document.createElement("td");
             cell.textContent = asText(value);
             row.append(cell);
@@ -552,6 +738,7 @@ _PAGE_TEMPLATE = """<!doctype html>
           if (!response.ok) throw new Error("Não foi possível carregar o catálogo.");
           catalog = await response.json();
           renderSummary();
+          renderCatalogFilters();
           renderTable();
           status.textContent = `${catalog.total_modelos || 0} opção(ões) carregada(s).`;
         } catch (error) {
@@ -574,7 +761,170 @@ _PAGE_TEMPLATE = """<!doctype html>
         byId("command-phone").value = phone || "";
         updatePhoneField();
         byId("commands-title").scrollIntoView({ behavior: "smooth", block: "start" });
-        byId("command-submit").focus();
+        invalidateCommandPreview();
+        byId("command-preview").focus();
+      }
+
+      async function loadSessions() {
+        const status = byId("sessions-status");
+        status.className = "status muted";
+        status.textContent = "Atualizando sessões…";
+        try {
+          const result = await fetchJson("/admin/api/sessions");
+          const body = byId("sessions-body");
+          body.replaceChildren();
+          const items = result.items || [];
+          if (!items.length) {
+            const row = document.createElement("tr");
+            const cell = document.createElement("td");
+            cell.colSpan = 4;
+            cell.className = "empty";
+            cell.textContent = "Nenhuma sessão por navegador registrada.";
+            row.append(cell);
+            body.append(row);
+          } else {
+            items.forEach((item) => {
+              const row = document.createElement("tr");
+              appendCell(row, item.operator || "—");
+              appendCell(row, formatDate(item.created_at), "nowrap");
+              appendCell(row, formatDate(item.last_seen_at), "nowrap");
+              appendCell(row, formatDate(item.expires_at), "nowrap");
+              body.append(row);
+            });
+          }
+          status.textContent = `${items.length} sessão(ões) ativa(s).`;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        }
+      }
+
+      async function refreshSource(source) {
+        const justification = window.prompt("Informe uma justificativa para atualizar a fonte:", "Atualização manual de monitoramento");
+        if (!justification || !justification.trim()) return;
+        try {
+          const response = await fetch("/admin/api/monitoring/refresh", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({ source, justification: justification.trim() })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "Não foi possível atualizar a fonte.");
+          byId("operations-status").className = "status success";
+          byId("operations-status").textContent = result.message;
+          await Promise.all([loadDashboard(), loadCatalog()]);
+        } catch (error) {
+          byId("operations-status").className = "status error";
+          byId("operations-status").textContent = error.message;
+        }
+      }
+
+      function commandValues() {
+        return {
+          action: byId("command-action").value,
+          phone: byId("command-phone").value.trim(),
+          justification: byId("command-justification").value.trim()
+        };
+      }
+
+      function invalidateCommandPreview() {
+        byId("command-submit").disabled = true;
+        byId("command-submit").dataset.previewKey = "";
+        byId("command-preview-box").hidden = true;
+      }
+
+      async function previewCommand() {
+        const values = commandValues();
+        const status = byId("command-status");
+        if (values.action !== "release_all" && !values.phone) {
+          status.className = "status error";
+          status.textContent = "Informe o telefone da conversa.";
+          return;
+        }
+        if (!values.justification) {
+          status.className = "status error";
+          status.textContent = "Informe uma justificativa para a ação.";
+          return;
+        }
+        const button = byId("command-preview");
+        status.className = "status muted";
+        status.textContent = "Calculando impacto…";
+        button.disabled = true;
+        try {
+          const response = await fetch("/admin/api/commands/preview", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({ action: values.action, phone: values.phone || null })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "Não foi possível pré-visualizar o comando.");
+          const box = byId("command-preview-box");
+          box.hidden = false;
+          box.textContent = `${result.message} Impacto estimado: ${result.affected_count} conversa(s).`;
+          byId("command-submit").disabled = false;
+          byId("command-submit").dataset.previewKey = JSON.stringify({ action: values.action, phone: values.phone });
+          status.textContent = "Prévia pronta. Revise o impacto e confirme a execução.";
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      async function executeCommand() {
+        const values = commandValues();
+        const button = byId("command-submit");
+        if (button.disabled) return;
+        const previewKey = button.dataset.previewKey || "";
+        const currentKey = JSON.stringify({ action: values.action, phone: values.phone });
+        if (previewKey !== currentKey) {
+          byId("command-status").className = "status error";
+          byId("command-status").textContent = "Faça uma nova prévia depois de alterar os dados.";
+          invalidateCommandPreview();
+          return;
+        }
+        const confirmation = `Executar agora?\n\n${byId("command-preview-box").textContent}`;
+        if (!window.confirm(confirmation)) return;
+        const status = byId("command-status");
+        status.className = "status muted";
+        status.textContent = "Executando…";
+        button.disabled = true;
+        try {
+          const response = await fetch("/admin/api/commands", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({ action: values.action, phone: values.phone || null, justification: values.justification })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "Não foi possível executar o comando.");
+          status.className = "status success";
+          status.textContent = result.message;
+          invalidateCommandPreview();
+          await loadOperationalPanel();
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+          button.disabled = false;
+        }
+      }
+
+      async function loadControl() {
+        try {
+          const result = await fetchJson("/admin/api/control");
+          byId("control-role").textContent = `Perfil: ${result.role || "owner"}`;
+          const owner = result.permissions?.owner_controls !== false;
+          byId("admin-control-form").querySelectorAll("input, select, button").forEach((element) => { element.disabled = !owner; });
+          const state = result.state || {};
+          const labels = { active: "Ativo", paused: "Pausado", maintenance: "Em manutenção" };
+          byId("bot-control-status").textContent = `${labels[state.mode] || state.mode || "Ativo"}${state.reason ? ` · ${state.reason}` : ""}`;
+        } catch (error) {
+          byId("control-status").className = "status error";
+          byId("control-status").textContent = error.message;
+        }
       }
 
       byId("refresh-catalog").addEventListener("click", loadCatalog);
@@ -584,44 +934,62 @@ _PAGE_TEMPLATE = """<!doctype html>
       byId("refresh-audit").addEventListener("click", loadAudit);
       byId("human-queue-search").addEventListener("input", renderHumanQueue);
       byId("audit-search").addEventListener("input", renderAudit);
+      ["catalog-category-filter", "catalog-capacity-filter", "catalog-color-filter", "catalog-condition-filter", "catalog-stock-filter", "catalog-price-min", "catalog-price-max", "catalog-photos-filter"].forEach((id) => {
+        byId(id).addEventListener("input", renderTable);
+        byId(id).addEventListener("change", renderTable);
+      });
+      byId("health-grid").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-source]");
+        if (button) refreshSource(button.dataset.source);
+      });
+      byId("refresh-sessions").addEventListener("click", loadSessions);
       byId("human-queue-body").addEventListener("click", (event) => {
         const button = event.target.closest("button[data-action]");
         if (button) prepareCommand(button.dataset.action, button.dataset.phone);
       });
-      byId("command-action").addEventListener("change", updatePhoneField);
-      byId("command-form").addEventListener("submit", async (event) => {
+      byId("command-action").addEventListener("change", () => { updatePhoneField(); invalidateCommandPreview(); });
+      byId("command-form").addEventListener("submit", (event) => { event.preventDefault(); previewCommand(); });
+      byId("command-preview").addEventListener("click", (event) => { event.preventDefault(); previewCommand(); });
+      byId("command-submit").addEventListener("click", executeCommand);
+      ["command-action", "command-phone", "command-justification"].forEach((id) => {
+        byId(id).addEventListener("input", invalidateCommandPreview);
+      });
+      byId("admin-control-form").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const action = byId("command-action").value;
-        const phone = byId("command-phone").value.trim();
-        const needsPhone = action !== "release_all";
-        if (needsPhone && !phone) {
-          byId("command-status").className = "status error";
-          byId("command-status").textContent = "Informe o telefone da conversa.";
+        const action = byId("control-action").value;
+        const reason = byId("control-reason").value.trim();
+        const justification = byId("control-justification").value.trim();
+        if (!justification) {
+          byId("control-status").className = "status error";
+          byId("control-status").textContent = "Informe uma justificativa para o controle.";
           return;
         }
-        const confirmation = action === "release_all"
-          ? "Liberar todas as conversas em atendimento humano para o robô? Conversas encerradas não serão alteradas."
-          : "Executar este comando na conversa informada?";
+        const confirmation = action === "logout_sessions"
+          ? "Desconectar todas as sessões administrativas por navegador? Você também precisará entrar novamente."
+          : "Aplicar esta alteração ao estado global do robô? As mensagens recebidas ficarão aguardando enquanto ele estiver pausado ou em manutenção.";
         if (!window.confirm(confirmation)) return;
-        const status = byId("command-status");
-        const button = byId("command-submit");
+        const status = byId("control-status");
+        const button = byId("control-submit");
         status.className = "status muted";
-        status.textContent = "Executando…";
+        status.textContent = "Aplicando…";
         button.disabled = true;
         try {
-          const response = await fetch("/admin/api/commands", {
+          const response = await fetch("/admin/api/control", {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
-            body: JSON.stringify({ action, phone: phone || null })
+            body: JSON.stringify({ action, reason: reason || null, justification })
           });
           const result = await response.json();
-          if (!response.ok) throw new Error(result.detail || "Não foi possível executar o comando.");
-           status.className = "status success";
-           status.textContent = result.message;
-           if (action === "release_all") await loadCatalog();
-           await loadOperationalPanel();
-         } catch (error) {
+          if (!response.ok) throw new Error(result.detail || "Não foi possível aplicar o controle.");
+          status.className = "status success";
+          status.textContent = result.message;
+          if (action === "logout_sessions") {
+            status.textContent += " Atualize a página para entrar novamente.";
+          } else {
+            await Promise.all([loadDashboard(), loadSessions()]);
+          }
+        } catch (error) {
           status.className = "status error";
           status.textContent = error.message;
         } finally {
@@ -630,8 +998,11 @@ _PAGE_TEMPLATE = """<!doctype html>
       });
 
       updatePhoneField();
+      invalidateCommandPreview();
       loadCatalog();
       loadOperationalPanel();
+      loadControl();
+      loadSessions();
     })();
   </script>
 </body>

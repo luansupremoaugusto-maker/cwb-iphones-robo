@@ -193,6 +193,19 @@ class MessageProcessor:
             )
 
         conversation = self.repository.get_conversation(phone)
+        control_state = self.repository.get_bot_control_state()
+        if control_state["mode"] != "active":
+            self.repository.audit(
+                "message_held",
+                phone,
+                {
+                    "control_mode": control_state["mode"],
+                    "control_reason": control_state.get("reason"),
+                    "batch_size": len(incoming_messages),
+                },
+            )
+            return
+
         if conversation and conversation.status in {"human_pending", "human_active", "closed"}:
             self.repository.audit(
                 "message_held",

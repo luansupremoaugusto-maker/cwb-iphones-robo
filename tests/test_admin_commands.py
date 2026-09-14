@@ -83,3 +83,26 @@ async def test_admin_command_rejects_unknown_action_and_missing_phone():
             service.execute("close", operator="admin", channel="web", phone="123")
     finally:
         await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_admin_command_preview_reports_impact_without_mutating_state():
+    runtime = build_runtime(_settings(), offline=True)
+    try:
+        runtime.repository.set_conversation_status("5511888888888", "human_pending", "aguardando")
+        runtime.repository.set_conversation_status("5511777777777", "human_active", "em atendimento")
+
+        result = AdminCommandService(runtime.repository).preview("release_all")
+
+        assert result == {
+            "action": "release_all",
+            "phone": None,
+            "current_status": None,
+            "target_status": "bot_active",
+            "affected_count": 2,
+            "message": "2 conversa(s) em atendimento humano serão liberadas para o robô.",
+        }
+        assert runtime.repository.get_conversation("5511888888888").status == "human_pending"
+        assert runtime.repository.get_conversation("5511777777777").status == "human_active"
+    finally:
+        await runtime.aclose()

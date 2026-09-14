@@ -19,10 +19,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from app.admin import (
     AdminCommandRequest,
+    AdminCommandPreviewRequest,
+    AdminControlRequest,
+    AdminRefreshRequest,
     AdminCommandService,
     admin_audit_payload,
     admin_conversations_payload,
     admin_dashboard_payload,
+    admin_role_allows,
+    admin_sessions_payload,
     build_admin_csrf_token,
     catalog_csv_bytes,
     public_catalog_payload,
@@ -64,30 +69,37 @@ def _admin_unauthorized() -> HTTPException:
     )
 
 
-def _admin_session_token(username: str, settings: Any) -> str:
+def _admin_session_token(username: str, settings: Any, repository: Any | None = None) -> str:
     expires_at = str(int(time.time()) + ADMIN_SESSION_MAX_AGE)
-    payload = f"{username}|{expires_at}"
+    session_id = secrets.token_urlsafe(24)
+    payload = f"{username}|{expires_at}|{session_id}"
     signature = hmac.new(
         settings.admin_csrf_secret.encode("utf-8"),
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
     encoded = base64.urlsafe_b64encode(f"{payload}|{signature}".encode("utf-8"))
+    if repository is not None:
+        repository.register_admin_session(
+            session_id,
+            username,
+            repository.session_expiry(ADMIN_SESSION_MAX_AGE),
+        )
     return encoded.decode("ascii").rstrip("=")
 
 
-def _admin_session_operator(value: str | None, settings: Any) -> str | None:
+def _admin_session_operator(value: str | None, settings: Any, repository: Any | None = None) -> str | None:
     if not value:
         return None
     try:
         padding = "=" * (-len(value) % 4)
         decoded = base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
-        username, expires_at, signature = decoded.split("|", 2)
+        username, expires_at, session_id, signature = decoded.split("|", 3)
         if int(expires_at) < int(time.time()):
             return None
     except (ValueError, UnicodeDecodeError):
         return None
-    payload = f"{username}|{expires_at}"
+    payload = f"{username}|{expires_at}|{session_id}"
     expected = hmac.new(
         settings.admin_csrf_secret.encode("utf-8"),
         payload.encode("utf-8"),
@@ -96,6 +108,8 @@ def _admin_session_operator(value: str | None, settings: Any) -> str | None:
     if not secrets.compare_digest(signature, expected):
         return None
     if not secrets.compare_digest(username, settings.admin_username.strip()):
+        return None
+    if repository is not None and not repository.touch_admin_session(session_id):
         return None
     return username
 
@@ -114,7 +128,8 @@ def _admin_operator(request: Request, settings: Any) -> str | None:
                 headers={"WWW-Authenticate": 'Basic realm="admin"'},
             )
         return username
-    return _admin_session_operator(request.cookies.get(ADMIN_SESSION_COOKIE), settings)
+    repository = getattr(getattr(request.app.state, "runtime", None), "repository", None)
+    return _admin_session_operator(request.cookies.get(ADMIN_SESSION_COOKIE), settings, repository)
 
 
 def _require_admin_operator(request: Request) -> str:
@@ -126,6 +141,21 @@ def _require_admin_operator(request: Request) -> str:
     if operator is None:
         raise _admin_unauthorized()
     return operator
+
+
+def _require_admin_owner(request: Request) -> str:
+    operator = _require_admin_operator(request)
+    current: Runtime = request.app.state.runtime
+    if str(current.settings.admin_role).strip().lower() != "owner":
+        raise HTTPException(status_code=403, detail="Esta ação exige o perfil proprietário")
+    return operator
+
+
+def _require_justification(value: str | None) -> str:
+    justification = str(value or "").strip()
+    if not justification:
+        raise HTTPException(status_code=400, detail="Informe uma justificativa para a ação")
+    return justification[:250]
 
 
 def _require_admin_csrf(request: Request, settings: Any) -> None:
@@ -150,22 +180,88 @@ def _admin_json(payload: Any) -> JSONResponse:
 
 
 def _admin_source_health(current: Runtime) -> dict[str, dict[str, Any]]:
+    now = time.time()
+    mercado_refresh = getattr(current.cache, "last_refresh", None)
+    sheets_refresh = getattr(current.google_sheets, "last_refresh", None)
+    mercado_configured = bool(current.settings.mercado_phone_api_key)
+    sheets_configured = bool(getattr(current.google_sheets, "configured", True))
+
+    def freshness(last_refresh: Any, configured: bool, threshold: int) -> bool:
+        if not configured or not getattr(current, "settings", None):
+            return False
+        try:
+            return not last_refresh or now - float(last_refresh) > max(1, int(threshold))
+        except (TypeError, ValueError):
+            return True
+
     return {
         "database": {"ok": current.repository.healthcheck()},
         "mercado_phone": {
-            "ok": bool(current.settings.mercado_phone_api_key) and _source_has_snapshot(current.cache),
-            "last_refresh": getattr(current.cache, "last_refresh", None),
+            "ok": mercado_configured and _source_has_snapshot(current.cache),
+            "configured": mercado_configured,
+            "stale": freshness(
+                mercado_refresh,
+                mercado_configured,
+                max(
+                    current.settings.mercado_cache_ttl_seconds,
+                    current.settings.mercado_refresh_interval_seconds * 2,
+                ),
+            ),
+            "last_error": bool(getattr(current.cache, "last_error", None)),
+            "last_refresh": mercado_refresh,
             "items": len(getattr(current.cache, "items", None) or []),
         },
         "google_sheets": {
             "ok": _source_has_snapshot(current.google_sheets),
-            "last_refresh": getattr(current.google_sheets, "last_refresh", None),
+            "configured": sheets_configured,
+            "stale": freshness(
+                sheets_refresh,
+                sheets_configured and bool(getattr(current.google_sheets, "enabled", True)),
+                max(
+                    current.settings.google_sheets_cache_ttl_seconds,
+                    current.settings.google_sheets_refresh_interval_seconds * 2,
+                ),
+            ),
+            "last_error": bool(getattr(current.google_sheets, "last_error", None)),
+            "last_refresh": sheets_refresh,
             "items": len(getattr(current.google_sheets, "items", None) or []),
         },
         "zapi": {
             "ok": bool(current.settings.zapi_instance_id and current.settings.zapi_token),
         },
         "openai": {"ok": bool(current.settings.openai_api_key)},
+    }
+
+
+def _admin_monitoring(current: Runtime, sources: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    errors = current.repository.audit_error_summary(hours=24)
+    last_event = errors.get("last_event")
+    if isinstance(last_event, dict):
+        last_event = {
+            "event_type": last_event.get("event_type"),
+            "created_at": (
+                last_event.get("created_at").isoformat()
+                if isinstance(last_event.get("created_at"), datetime)
+                else last_event.get("created_at")
+            ),
+        }
+    return {
+        "stale_sources": [
+            source
+            for source in ("mercado_phone", "google_sheets")
+            if sources.get(source, {}).get("stale")
+        ],
+        "source_errors": [
+            source
+            for source in ("mercado_phone", "google_sheets")
+            if sources.get(source, {}).get("last_error")
+        ],
+        "recent_errors": {
+            "window_hours": errors.get("window_hours", 24),
+            "count": errors.get("count", 0),
+            "by_type": errors.get("by_type", {}),
+            "last_event": last_event,
+        },
     }
 
 
@@ -270,7 +366,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         )
         response.set_cookie(
             key=ADMIN_SESSION_COOKIE,
-            value=_admin_session_token(username, settings),
+            value=_admin_session_token(username, settings, current.repository),
             max_age=ADMIN_SESSION_MAX_AGE,
             httponly=True,
             secure=True,
@@ -299,12 +395,47 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def admin_dashboard(request: Request) -> dict[str, Any]:
         _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
+        sources = _admin_source_health(current)
+        payload = admin_dashboard_payload(
+            current.repository.conversation_status_counts(),
+            sources,
+            datetime.now(timezone.utc).isoformat(),
+            monitoring=_admin_monitoring(current, sources),
+            control=current.repository.get_bot_control_state(),
+        )
+        payload["role"] = str(current.settings.admin_role)
+        payload["permissions"] = {
+            "owner_controls": str(current.settings.admin_role).strip().lower() == "owner",
+            "individual_commands": True,
+        }
         return _admin_json(
-            admin_dashboard_payload(
-                current.repository.conversation_status_counts(),
-                _admin_source_health(current),
-                datetime.now(timezone.utc).isoformat(),
-            )
+            payload
+        )
+
+    @app.get("/admin/api/control")
+    async def admin_control_get(request: Request) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        return _admin_json(
+            {
+                "state": current.repository.get_bot_control_state(),
+                "role": str(current.settings.admin_role),
+                "permissions": {
+                    "owner_controls": str(current.settings.admin_role).strip().lower() == "owner",
+                    "individual_commands": True,
+                },
+            }
+        )
+
+    @app.get("/admin/api/sessions")
+    async def admin_sessions(request: Request) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        return _admin_json(
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "items": admin_sessions_payload(current.repository.list_active_admin_sessions()),
+            }
         )
 
     @app.get("/admin/api/conversations")
@@ -388,6 +519,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         operator = _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
         _require_admin_csrf(request, current.settings)
+        action = str(command.action or "").strip().lower()
+        if not admin_role_allows(current.settings.admin_role, action):
+            raise HTTPException(status_code=403, detail="Esta ação exige o perfil proprietário")
+        justification = _require_justification(command.justification)
         service = getattr(current.processor, "admin_commands", None)
         if service is None:
             service = AdminCommandService(current.repository)
@@ -398,6 +533,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                     operator=operator,
                     channel="web",
                     phone=command.phone,
+                    justification=justification,
                 )
             )
         except ValueError as exc:
@@ -405,6 +541,136 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("admin command failed: %s", type(exc).__name__)
             raise HTTPException(status_code=500, detail="Não foi possível executar o comando") from exc
+
+    @app.post("/admin/api/commands/preview")
+    async def admin_command_preview(
+        request: Request,
+        command: AdminCommandPreviewRequest,
+    ) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        action = str(command.action or "").strip().lower()
+        if not admin_role_allows(current.settings.admin_role, action):
+            raise HTTPException(status_code=403, detail="Esta ação exige o perfil proprietário")
+        service = getattr(current.processor, "admin_commands", None)
+        if service is None:
+            service = AdminCommandService(current.repository)
+        try:
+            return _admin_json(service.preview(action, phone=command.phone))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/admin/api/control")
+    async def admin_control(
+        request: Request,
+        command: AdminControlRequest,
+    ) -> Response:
+        operator = _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        action = str(command.action or "").strip().lower()
+        justification = _require_justification(command.justification)
+        state_modes = {
+            "pause_bot": "paused",
+            "resume_bot": "active",
+            "maintenance_on": "maintenance",
+            "maintenance_off": "active",
+        }
+        if action == "logout_sessions":
+            revoked_count = current.repository.revoke_admin_sessions()
+            current.repository.audit(
+                "admin_sessions_revoked",
+                None,
+                {
+                    "operator": operator,
+                    "channel": "web",
+                    "justification": justification,
+                    "revoked_count": revoked_count,
+                },
+            )
+            response = _admin_json(
+                {
+                    "action": action,
+                    "revoked_count": revoked_count,
+                    "message": f"{revoked_count} sessão(ões) administrativa(s) desconectada(s).",
+                }
+            )
+            response.delete_cookie(ADMIN_SESSION_COOKIE, path="/admin")
+            return response
+        if action not in state_modes:
+            raise HTTPException(status_code=400, detail="Ação de controle inválida")
+        mode = state_modes[action]
+        reason = str(command.reason or justification).strip()[:255]
+        state = current.repository.set_bot_control_state(mode, reason, operator)
+        current.repository.audit(
+            "admin_control",
+            None,
+            {
+                "action": action,
+                "mode": mode,
+                "operator": operator,
+                "channel": "web",
+                "justification": justification,
+            },
+        )
+        return _admin_json(
+            {
+                "action": action,
+                "state": state,
+                "message": "Estado global do robô atualizado.",
+            }
+        )
+
+    @app.post("/admin/api/monitoring/refresh")
+    async def admin_monitoring_refresh(
+        request: Request,
+        command: AdminRefreshRequest,
+    ) -> dict[str, Any]:
+        operator = _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        source = str(command.source or "").strip().lower()
+        if source not in {"mercado_phone", "google_sheets", "all"}:
+            raise HTTPException(status_code=400, detail="Fonte de atualização inválida")
+        justification = _require_justification(command.justification)
+        refreshed: dict[str, Any] = {}
+        try:
+            if source in {"mercado_phone", "all"}:
+                if not current.settings.mercado_phone_api_key:
+                    raise ValueError("Mercado Phone não está configurado")
+                refreshed["mercado_phone"] = await current.cache.refresh(force=True)
+            if source in {"google_sheets", "all"}:
+                if not current.google_sheets.enabled:
+                    raise ValueError("Google Sheets está desativado")
+                refreshed["google_sheets"] = await current.google_sheets.refresh(force=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            current.repository.audit(
+                "admin_source_refresh_error",
+                source,
+                {"operator": operator, "channel": "web", "error_type": type(exc).__name__},
+            )
+            logger.exception("admin source refresh failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Não foi possível atualizar a fonte") from exc
+        current.repository.audit(
+            "admin_source_refresh",
+            source,
+            {
+                "operator": operator,
+                "channel": "web",
+                "justification": justification,
+                "refreshed": refreshed,
+            },
+        )
+        return _admin_json(
+            {
+                "source": source,
+                "refreshed": refreshed,
+                "message": "Fonte(s) atualizada(s) com sucesso.",
+            }
+        )
 
     @app.post("/webhooks/zapi/{webhook_secret}")
     async def zapi_webhook(webhook_secret: str, request: Request) -> dict[str, Any]:

@@ -161,7 +161,7 @@ def test_admin_command_requires_csrf_and_executes_release_all(configured_runtime
         token = build_admin_csrf_token(configured_runtime.settings)
         accepted = client.post(
             "/admin/api/commands",
-            json={"action": "release_all"},
+            json={"action": "release_all", "justification": "Conferir a fila antes da abertura"},
             headers={"X-Admin-CSRF": token},
             auth=("admin", "secret"),
         )
@@ -243,3 +243,117 @@ def test_admin_dashboard_does_not_report_mercado_phone_ok_without_credentials(co
 
     assert response.status_code == 200
     assert response.json()["sources"]["mercado_phone"]["ok"] is False
+
+
+def test_admin_command_preview_requires_csrf_and_does_not_mutate(configured_runtime):
+    configured_runtime.repository.set_conversation_status("5511888888888", "human_pending", "aguardando")
+    token = build_admin_csrf_token(configured_runtime.settings)
+    with TestClient(create_app(configured_runtime)) as client:
+        blocked = client.post(
+            "/admin/api/commands/preview",
+            json={"action": "release_all"},
+            auth=("admin", "secret"),
+        )
+        response = client.post(
+            "/admin/api/commands/preview",
+            json={"action": "release_all"},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert blocked.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["affected_count"] == 2
+    assert configured_runtime.repository.get_conversation("5511888888888").status == "human_pending"
+
+
+def test_admin_web_command_requires_justification(configured_runtime):
+    token = build_admin_csrf_token(configured_runtime.settings)
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.post(
+            "/admin/api/commands",
+            json={"action": "release_all"},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 400
+    assert "justificativa" in response.json()["detail"].lower()
+
+
+def test_admin_operator_cannot_release_all(configured_runtime):
+    configured_runtime.settings.admin_role = "operator"
+    token = build_admin_csrf_token(configured_runtime.settings)
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.post(
+            "/admin/api/commands",
+            json={"action": "release_all", "justification": "teste"},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 403
+
+
+def test_admin_control_and_sessions_endpoints_are_authenticated(configured_runtime):
+    token = build_admin_csrf_token(configured_runtime.settings)
+    with TestClient(create_app(configured_runtime)) as client:
+        control = client.get("/admin/api/control", auth=("admin", "secret"))
+        sessions = client.get("/admin/api/sessions", auth=("admin", "secret"))
+        paused = client.post(
+            "/admin/api/control",
+            json={
+                "action": "pause_bot",
+                "reason": "Pausa operacional programada",
+                "justification": "Pausa operacional programada",
+            },
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert control.status_code == 200
+    assert control.json()["state"]["mode"] == "active"
+    assert sessions.status_code == 200
+    assert isinstance(sessions.json()["items"], list)
+    assert paused.status_code == 200
+    assert paused.json()["state"]["mode"] == "paused"
+    assert configured_runtime.repository.get_bot_control_state()["mode"] == "paused"
+
+
+def test_admin_dashboard_reports_recent_errors(configured_runtime):
+    configured_runtime.repository.audit(
+        "outbound_error",
+        "5511888888888",
+        {"status": 503, "error": "provider indisponível"},
+    )
+
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get("/admin/api/dashboard", auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    assert response.json()["monitoring"]["recent_errors"]["count"] == 1
+    assert response.json()["monitoring"]["recent_errors"]["by_type"] == {"outbound_error": 1}
+
+
+def test_browser_admin_session_is_registered_and_revoked_by_logout_all(configured_runtime):
+    token = build_admin_csrf_token(configured_runtime.settings)
+    with TestClient(create_app(configured_runtime), base_url="https://testserver") as client:
+        login = client.post(
+            "/admin/login",
+            data={"username": "admin", "password": "secret"},
+            follow_redirects=False,
+        )
+        sessions = client.get("/admin/api/sessions")
+        logout = client.post(
+            "/admin/api/control",
+            json={"action": "logout_sessions", "justification": "Encerramento de acessos"},
+            headers={"X-Admin-CSRF": token},
+        )
+        after_logout = client.get("/admin/api/sessions")
+
+    assert login.status_code == 303
+    assert sessions.status_code == 200
+    assert len(sessions.json()["items"]) == 1
+    assert logout.status_code == 200
+    assert logout.json()["revoked_count"] == 1
+    assert after_logout.status_code == 401

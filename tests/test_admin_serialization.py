@@ -71,6 +71,8 @@ def test_public_catalog_filters_private_fields_and_keeps_sections():
     assert payload["lacrados"][0]["nome"] == "iPhone 17"
     assert "external_id" not in payload["seminovos"][0]
     assert "imei" not in payload["seminovos"][0]
+    assert payload["seminovos"][0]["disponibilidade"] == "Em estoque"
+    assert payload["lacrados"][0]["disponibilidade"] == "Por encomenda"
     assert payload["total_modelos"] == 2
     assert payload["sources"] == {
         "mercado_phone_last_refresh": 100.0,
@@ -86,7 +88,7 @@ def test_catalog_csv_has_excel_columns_and_all_sections():
     text = csv_data.decode("utf-8-sig")
     assert (
         "Categoria;Produto;Capacidade;Condição;Cor(es);Preço(s);Quantidade;"
-        "Saúde da bateria;Fotos disponíveis"
+        "Saúde da bateria;Fotos disponíveis;Disponibilidade"
     ) in text
     assert "Seminovos;iPhone 15" in text
     assert "Lacrados por encomenda;iPhone 17" in text

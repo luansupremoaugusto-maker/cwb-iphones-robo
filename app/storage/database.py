@@ -14,6 +14,10 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _utc_datetime(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -114,6 +118,26 @@ class AuditEventRecord(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
+class SystemSettingRecord(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String(64), primary_key=True)
+    value = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class AdminSessionRecord(Base):
+    __tablename__ = "admin_sessions"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(128), unique=True, nullable=False, index=True)
+    operator = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+
 def build_engine(database_url: str) -> Engine:
     kwargs: dict[str, Any] = {"future": True, "pool_pre_ping": True}
     if database_url.startswith("sqlite"):
@@ -137,6 +161,140 @@ class Repository:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def session_expiry(seconds: int) -> datetime:
+        return utc_now() + timedelta(seconds=max(1, int(seconds)))
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        with Session(self.engine) as session:
+            record = session.get(SystemSettingRecord, str(key))
+            if record is None:
+                return default
+            return record.value
+
+    def set_setting(self, key: str, value: Any) -> Any:
+        normalized_key = str(key).strip()
+        if not normalized_key:
+            raise ValueError("Chave de configuração inválida")
+        with Session(self.engine, expire_on_commit=False) as session:
+            record = session.get(SystemSettingRecord, normalized_key)
+            if record is None:
+                record = SystemSettingRecord(key=normalized_key, value=value)
+                session.add(record)
+            else:
+                record.value = value
+                record.updated_at = utc_now()
+            session.commit()
+            return record.value
+
+    def get_bot_control_state(self) -> dict[str, Any]:
+        value = self.get_setting(
+            "bot_control",
+            {"mode": "active", "reason": None, "operator": None, "updated_at": None},
+        )
+        if not isinstance(value, dict):
+            value = {}
+        mode = str(value.get("mode") or "active")
+        if mode not in {"active", "paused", "maintenance"}:
+            mode = "active"
+        return {
+            "mode": mode,
+            "reason": value.get("reason"),
+            "operator": value.get("operator"),
+            "updated_at": value.get("updated_at"),
+        }
+
+    def set_bot_control_state(self, mode: str, reason: str | None, operator: str | None) -> dict[str, Any]:
+        normalized_mode = str(mode or "").strip().lower()
+        if normalized_mode not in {"active", "paused", "maintenance"}:
+            raise ValueError("Estado global do robô inválido")
+        state = {
+            "mode": normalized_mode,
+            "reason": str(reason or "").strip()[:255] or None,
+            "operator": str(operator or "").strip()[:255] or None,
+            "updated_at": utc_now().isoformat(),
+        }
+        self.set_setting("bot_control", state)
+        return state
+
+    def register_admin_session(self, session_id: str, operator: str, expires_at: datetime) -> None:
+        normalized_id = str(session_id).strip()
+        if not normalized_id:
+            raise ValueError("Sessão administrativa inválida")
+        with Session(self.engine) as session:
+            record = session.scalar(
+                select(AdminSessionRecord).where(AdminSessionRecord.session_id == normalized_id)
+            )
+            now = utc_now()
+            if record is None:
+                record = AdminSessionRecord(
+                    session_id=normalized_id,
+                    operator=str(operator),
+                    created_at=now,
+                    last_seen_at=now,
+                    expires_at=expires_at,
+                    revoked_at=None,
+                )
+                session.add(record)
+            else:
+                record.operator = str(operator)
+                record.last_seen_at = now
+                record.expires_at = expires_at
+                record.revoked_at = None
+            session.commit()
+
+    def touch_admin_session(self, session_id: str) -> bool:
+        with Session(self.engine) as session:
+            record = session.scalar(
+                select(AdminSessionRecord).where(AdminSessionRecord.session_id == str(session_id))
+            )
+            now = utc_now()
+            if (
+                record is None
+                or record.revoked_at is not None
+                or _utc_datetime(record.expires_at) <= now
+            ):
+                return False
+            record.last_seen_at = now
+            session.commit()
+            return True
+
+    def list_active_admin_sessions(self) -> list[dict[str, Any]]:
+        with Session(self.engine) as session:
+            now = utc_now()
+            records = session.scalars(
+                select(AdminSessionRecord)
+                .where(
+                    AdminSessionRecord.revoked_at.is_(None),
+                    AdminSessionRecord.expires_at > now,
+                )
+                .order_by(AdminSessionRecord.last_seen_at.desc(), AdminSessionRecord.id.desc())
+            ).all()
+            return [
+                {
+                    "session_id": record.session_id,
+                    "operator": record.operator,
+                    "created_at": record.created_at,
+                    "last_seen_at": record.last_seen_at,
+                    "expires_at": record.expires_at,
+                }
+                for record in records
+            ]
+
+    def revoke_admin_sessions(self) -> int:
+        with Session(self.engine) as session:
+            now = utc_now()
+            records = session.scalars(
+                select(AdminSessionRecord).where(
+                    AdminSessionRecord.revoked_at.is_(None),
+                    AdminSessionRecord.expires_at > now,
+                )
+            ).all()
+            for record in records:
+                record.revoked_at = now
+            session.commit()
+            return len(records)
 
     def get_or_create_conversation(self, phone: str, chat_name: str | None = None) -> ConversationRecord:
         with Session(self.engine, expire_on_commit=False) as session:
@@ -492,6 +650,41 @@ class Repository:
         with Session(self.engine) as session:
             session.add(AuditEventRecord(event_type=event_type, subject=subject, detail=detail or {}))
             session.commit()
+
+    def audit_error_summary(self, hours: int = 24) -> dict[str, Any]:
+        since = utc_now() - timedelta(hours=max(1, int(hours)))
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(AuditEventRecord.event_type, func.count(AuditEventRecord.id))
+                .where(
+                    AuditEventRecord.created_at >= since,
+                    AuditEventRecord.event_type.ilike("%error%"),
+                )
+                .group_by(AuditEventRecord.event_type)
+                .order_by(func.count(AuditEventRecord.id).desc(), AuditEventRecord.event_type)
+            ).all()
+            latest = session.scalar(
+                select(AuditEventRecord)
+                .where(
+                    AuditEventRecord.created_at >= since,
+                    AuditEventRecord.event_type.ilike("%error%"),
+                )
+                .order_by(AuditEventRecord.created_at.desc(), AuditEventRecord.id.desc())
+                .limit(1)
+            )
+        return {
+            "window_hours": max(1, int(hours)),
+            "count": sum(int(total) for _event_type, total in rows),
+            "by_type": {str(event_type): int(total) for event_type, total in rows},
+            "last_event": (
+                {
+                    "event_type": latest.event_type,
+                    "created_at": latest.created_at,
+                }
+                if latest is not None
+                else None
+            ),
+        }
 
     def list_audit_events(
         self,
