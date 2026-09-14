@@ -1,6 +1,54 @@
 from __future__ import annotations
 
+import html
 import json
+
+
+_LOGIN_PAGE_TEMPLATE = """<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acesso administrativo · CWB.IPHONES</title>
+  <style>
+    :root { color-scheme: light; --ink: #172033; --muted: #667085; --line: #e4e7ec; --surface: #fff; --soft: #f5f7fb; --brand: #2457d6; --danger: #b42318; }
+    * { box-sizing: border-box; }
+    body { align-items: center; background: var(--soft); color: var(--ink); display: flex; font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; justify-content: center; margin: 0; min-height: 100vh; padding: 20px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 28px rgba(16, 24, 40, .08); max-width: 420px; padding: 28px; width: 100%; }
+    .eyebrow { color: var(--brand); font-size: 12px; font-weight: 750; letter-spacing: .09em; margin-bottom: 8px; text-transform: uppercase; }
+    h1 { font-size: 28px; letter-spacing: -.03em; margin: 0 0 8px; }
+    p { margin: 0 0 20px; }
+    .muted { color: var(--muted); }
+    .error { background: #fef3f2; border: 1px solid #fecdca; border-radius: 9px; color: var(--danger); padding: 10px 12px; }
+    form { display: grid; gap: 14px; }
+    .field { display: grid; gap: 6px; }
+    label { font-size: 13px; font-weight: 700; }
+    input, button { border: 1px solid #cfd5df; border-radius: 9px; font: inherit; min-height: 44px; padding: 10px 12px; }
+    button { background: var(--brand); border-color: var(--brand); color: #fff; cursor: pointer; font-weight: 700; }
+    button:hover { background: #1742ad; border-color: #1742ad; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="eyebrow">CWB.IPHONES · painel privado</div>
+    <h1>Acesso administrativo</h1>
+    <p class="muted">Entre para consultar os disponíveis e controlar o atendimento do robô.</p>
+    __ERROR__
+    <form method="post" action="/admin/login" autocomplete="on">
+      <div class="field">
+        <label for="username">Usuário</label>
+        <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Senha</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">Entrar</button>
+    </form>
+  </main>
+</body>
+</html>
+"""
 
 
 _PAGE_TEMPLATE = """<!doctype html>
@@ -299,3 +347,11 @@ def render_admin_page(csrf_token: str) -> str:
     token_literal = json.dumps(str(csrf_token), ensure_ascii=True)
     token_literal = token_literal.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     return _PAGE_TEMPLATE.replace("__CSRF_TOKEN__", token_literal)
+
+
+def render_admin_login_page(error: str | None = None) -> str:
+    """Render a browser-friendly login form without exposing admin state."""
+    error_html = ""
+    if error:
+        error_html = f'<p class="error" role="alert">{html.escape(error)}</p>'
+    return _LOGIN_PAGE_TEMPLATE.replace("__ERROR__", error_html)
