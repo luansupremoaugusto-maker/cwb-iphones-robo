@@ -150,6 +150,16 @@ _PAGE_TEMPLATE = """<!doctype html>
     .command-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) minmax(260px, 1.4fr) auto; }
     .command-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .command-actions button { white-space: nowrap; }
+    .export-panel { background: #fbfcff; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 12px; margin: 18px 0 12px; padding: 14px; }
+    .export-panel h3 { font-size: 15px; margin: 0 0 4px; }
+    .export-panel p { font-size: 13px; margin: 0; }
+    .export-options { border: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; }
+    .export-options legend { color: var(--muted); font-size: 12px; font-weight: 750; margin-bottom: 4px; padding: 0; width: 100%; }
+    .export-option { align-items: center; display: flex; gap: 7px; font-weight: 600; }
+    .export-option input { min-height: auto; }
+    .export-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
+    .export-actions .status { margin: 0; }
+    #export-csv:disabled { cursor: not-allowed; }
     .preview-box { background: #eef3ff; border: 1px solid #c7d7fe; border-radius: 9px; color: var(--brand-dark); font-size: 13px; margin-top: 14px; padding: 10px 12px; }
     .control-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.2fr) minmax(260px, 1.4fr) auto; }
     .sessions-table table { min-width: 720px; }
@@ -179,7 +189,6 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
       <div class="actions">
         <button id="refresh-catalog" type="button">Atualizar catálogo</button>
-        <a class="button-link secondary" href="/admin/api/catalog.csv">Baixar CSV</a>
       </div>
     </header>
 
@@ -217,6 +226,22 @@ _PAGE_TEMPLATE = """<!doctype html>
         <div class="summary-card"><span>Seminovos</span><strong id="count-seminovos">—</strong></div>
         <div class="summary-card"><span>Lacrados em estoque</span><strong id="count-lacrados_pronta_entrega">—</strong></div>
         <div class="summary-card"><span>Lacrados por encomenda</span><strong id="count-lacrados">—</strong></div>
+      </div>
+      <div class="export-panel" aria-labelledby="catalog-export-title">
+        <div>
+          <h3 id="catalog-export-title">Exportar catálogo para o robô</h3>
+          <p class="muted">Escolha quais categorias devem entrar no CSV. Os seminovos são os aparelhos disponíveis no estoque; os lacrados ficam separados entre pronta entrega e encomenda.</p>
+        </div>
+        <fieldset class="export-options">
+          <legend>Categorias para exportar</legend>
+          <label class="export-option" for="export-seminovos"><input id="export-seminovos" type="checkbox" checked> Seminovos em estoque</label>
+          <label class="export-option" for="export-lacrados_pronta_entrega"><input id="export-lacrados_pronta_entrega" type="checkbox" checked> Lacrados à pronta entrega</label>
+          <label class="export-option" for="export-lacrados"><input id="export-lacrados" type="checkbox" checked> Lacrados por encomenda</label>
+        </fieldset>
+        <div class="export-actions">
+          <button id="export-csv" class="secondary" type="button">Baixar CSV</button>
+          <span id="export-status" class="status muted" role="status" aria-live="polite"></span>
+        </div>
       </div>
       <div class="toolbar">
         <input id="catalog-search" type="search" placeholder="Buscar modelo, capacidade ou cor" autocomplete="off" aria-label="Buscar no catálogo">
@@ -577,6 +602,34 @@ _PAGE_TEMPLATE = """<!doctype html>
         return sectionDefinitions.flatMap(([key, label]) => (catalog?.[key] || []).map((item) => ({ key, label, item })));
       }
 
+      function selectedExportSections() {
+        return sectionDefinitions
+          .filter(([key]) => byId(`export-${key}`).checked)
+          .map(([key]) => key);
+      }
+
+      function updateExportStatus() {
+        const selected = selectedExportSections();
+        const status = byId("export-status");
+        const button = byId("export-csv");
+        button.disabled = !selected.length;
+        status.className = `status ${selected.length ? "muted" : "error"}`;
+        status.textContent = selected.length
+          ? `${selected.length} categoria(s) selecionada(s). O CSV terá somente essa seleção.`
+          : "Selecione ao menos uma categoria para exportar.";
+      }
+
+      function exportCatalogCsv() {
+        const selected = selectedExportSections();
+        if (!selected.length) {
+          updateExportStatus();
+          return;
+        }
+        const url = new URL("/admin/api/catalog.csv", window.location.origin);
+        if (selected.length !== sectionDefinitions.length) url.searchParams.set("sections", selected.join(","));
+        window.location.assign(url.toString());
+      }
+
       function renderSummary() {
         byId("catalog-total").textContent = asText(catalog?.total_modelos, "0");
         sectionDefinitions.forEach(([key]) => { byId(`count-${key}`).textContent = String((catalog?.[key] || []).length); });
@@ -928,6 +981,9 @@ _PAGE_TEMPLATE = """<!doctype html>
       }
 
       byId("refresh-catalog").addEventListener("click", loadCatalog);
+      byId("export-csv").addEventListener("click", exportCatalogCsv);
+      sectionDefinitions.forEach(([key]) => byId(`export-${key}`).addEventListener("change", updateExportStatus));
+      updateExportStatus();
       byId("catalog-search").addEventListener("input", renderTable);
       byId("refresh-dashboard").addEventListener("click", loadDashboard);
       byId("refresh-queue").addEventListener("click", loadHumanQueue);

@@ -30,6 +30,8 @@ from app.admin import (
     admin_sessions_payload,
     build_admin_csrf_token,
     catalog_csv_bytes,
+    catalog_csv_filename,
+    normalize_catalog_sections,
     public_catalog_payload,
 )
 from app.adapters.zapi import normalize_received_callback
@@ -500,8 +502,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
         try:
+            selected_sections = normalize_catalog_sections(request.query_params.get("sections"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
             payload = await _admin_catalog_payload(current)
-            data = catalog_csv_bytes(payload)
+            data = catalog_csv_bytes(payload, sections=selected_sections)
         except Exception as exc:
             logger.exception("admin catalog CSV export failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="Catálogo temporariamente indisponível") from exc
@@ -510,7 +516,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             media_type="text/csv; charset=utf-8",
             headers={
                 "Cache-Control": "no-store",
-                "Content-Disposition": 'attachment; filename="catalogo-disponiveis.csv"',
+                "Content-Disposition": f'attachment; filename="{catalog_csv_filename(selected_sections)}"',
             },
         )
 

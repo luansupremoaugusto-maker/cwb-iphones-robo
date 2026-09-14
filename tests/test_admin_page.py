@@ -10,6 +10,12 @@ def test_admin_page_contains_catalog_controls_and_command_controls():
 
     assert "Catálogo de disponíveis" in html
     assert "Baixar CSV" in html
+    assert 'id="export-csv"' in html
+    assert 'id="export-seminovos"' in html
+    assert 'id="export-lacrados_pronta_entrega"' in html
+    assert 'id="export-lacrados"' in html
+    assert "Seminovos em estoque" in html
+    assert "Lacrados por encomenda" in html
     assert "Atualizar catálogo" in html
     assert "Liberar todos os clientes" in html
     assert "X-Admin-CSRF" in html

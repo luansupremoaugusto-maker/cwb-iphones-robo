@@ -4,6 +4,7 @@ import csv
 import hashlib
 import hmac
 import io
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
@@ -127,7 +128,41 @@ def _format_brl(value: Any) -> str:
     return f"R$ {formatted.replace(',', '_').replace('.', ',').replace('_', '.')}"
 
 
-def catalog_csv_bytes(payload: dict[str, Any]) -> bytes:
+def _selected_catalog_sections(sections: Iterable[str] | None) -> tuple[str, ...]:
+    if sections is None:
+        return tuple(CATALOG_SECTION_LABELS)
+    requested = {str(section).strip().lower() for section in sections if str(section).strip()}
+    invalid = sorted(requested - set(CATALOG_SECTION_LABELS))
+    if invalid:
+        raise ValueError(f"Categoria(s) de catálogo inválida(s): {', '.join(invalid)}")
+    return tuple(section for section in CATALOG_SECTION_LABELS if section in requested)
+
+
+def normalize_catalog_sections(value: str | None) -> tuple[str, ...] | None:
+    """Parse the comma-separated category filter used by the CSV endpoint."""
+    if value is None:
+        return None
+    parts = [part.strip().lower() for part in value.split(",") if part.strip()]
+    if not parts:
+        raise ValueError("Selecione ao menos uma categoria para exportar")
+    return _selected_catalog_sections(parts)
+
+
+def catalog_csv_filename(sections: Iterable[str] | None) -> str:
+    selected = _selected_catalog_sections(sections)
+    if selected == tuple(CATALOG_SECTION_LABELS):
+        return "catalogo-disponiveis.csv"
+    if len(selected) == 1:
+        slugs = {
+            "seminovos": "seminovos",
+            "lacrados_pronta_entrega": "lacrados-pronta-entrega",
+            "lacrados": "lacrados-por-encomenda",
+        }
+        return f"catalogo-{slugs[selected[0]]}.csv"
+    return "catalogo-selecionado.csv"
+
+
+def catalog_csv_bytes(payload: dict[str, Any], *, sections: Iterable[str] | None = None) -> bytes:
     columns = [
         "Categoria",
         "Produto",
@@ -143,7 +178,8 @@ def catalog_csv_bytes(payload: dict[str, Any]) -> bytes:
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=columns, delimiter=";", lineterminator="\r\n")
     writer.writeheader()
-    for section, label in CATALOG_SECTION_LABELS.items():
+    for section in _selected_catalog_sections(sections):
+        label = CATALOG_SECTION_LABELS[section]
         for item in payload.get(section, []):
             colors = item.get("cores") or []
             if not colors and item.get("cor"):

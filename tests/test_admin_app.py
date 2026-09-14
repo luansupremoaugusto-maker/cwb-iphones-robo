@@ -112,6 +112,32 @@ def test_admin_catalog_requires_basic_auth_and_returns_json_and_csv(configured_r
     assert csv_response.headers["cache-control"] == "no-store"
 
 
+def test_admin_catalog_csv_exports_only_requested_sections(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get(
+            "/admin/api/catalog.csv?sections=seminovos,lacrados",
+            auth=("admin", "secret"),
+        )
+
+    text = response.content.decode("utf-8-sig")
+    assert response.status_code == 200
+    assert "Seminovos;iPhone 15" in text
+    assert "Lacrados por encomenda;iPhone 18" in text
+    assert "Lacrados para pronta entrega;iPhone 17" not in text
+    assert "catalogo-selecionado.csv" in response.headers["content-disposition"]
+
+
+def test_admin_catalog_csv_rejects_unknown_section(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get(
+            "/admin/api/catalog.csv?sections=seminovos,nao-existe",
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 400
+    assert "Categoria(s) de catálogo inválida(s)" in response.json()["detail"]
+
+
 def test_admin_page_offers_browser_login_without_basic_auth(configured_runtime):
     with TestClient(create_app(configured_runtime)) as client:
         response = client.get("/admin")
