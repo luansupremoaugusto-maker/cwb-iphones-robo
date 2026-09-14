@@ -155,7 +155,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       <div class="summary-grid" aria-label="Resumo do catálogo">
         <div class="summary-card"><span>Total de opções</span><strong id="catalog-total">—</strong></div>
         <div class="summary-card"><span>Seminovos</span><strong id="count-seminovos">—</strong></div>
-        <div class="summary-card"><span>Lacrados em estoque</span><strong id="count-lacrados-pronta-entrega">—</strong></div>
+        <div class="summary-card"><span>Lacrados em estoque</span><strong id="count-lacrados_pronta_entrega">—</strong></div>
         <div class="summary-card"><span>Lacrados por encomenda</span><strong id="count-lacrados">—</strong></div>
       </div>
       <div class="toolbar">
