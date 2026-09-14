@@ -106,8 +106,10 @@ def test_admin_catalog_requires_basic_auth_and_returns_json_and_csv(configured_r
 
     assert json_response.status_code == 200
     assert json_response.json()["seminovos"][0]["nome"] == "iPhone 15"
+    assert json_response.headers["cache-control"] == "no-store"
     assert csv_response.status_code == 200
     assert "catalogo-disponiveis.csv" in csv_response.headers["content-disposition"]
+    assert csv_response.headers["cache-control"] == "no-store"
 
 
 def test_admin_page_offers_browser_login_without_basic_auth(configured_runtime):
@@ -133,6 +135,7 @@ def test_admin_login_sets_session_and_opens_catalog(configured_runtime):
     assert login.status_code == 303
     assert login.headers["location"] == "/admin"
     assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store"
     assert "Catálogo de disponíveis" in page.text
     assert catalog.status_code == 200
 
@@ -166,6 +169,7 @@ def test_admin_command_requires_csrf_and_executes_release_all(configured_runtime
     assert blocked.status_code == 403
     assert accepted.status_code == 200
     assert accepted.json()["released_count"] == 2
+    assert accepted.headers["cache-control"] == "no-store"
     assert configured_runtime.repository.get_conversation("5511666666666").status == "closed"
 
 
@@ -174,6 +178,7 @@ def test_admin_dashboard_returns_conversation_counts_and_source_health(configure
         response = client.get("/admin/api/dashboard", auth=("admin", "secret"))
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     payload = response.json()
     assert payload["conversations"] == {
         "total": 3,
@@ -200,6 +205,7 @@ def test_admin_queue_returns_human_conversations_with_latest_message(configured_
         response = client.get("/admin/api/conversations?status=human", auth=("admin", "secret"))
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     items = response.json()["items"]
     item = next(item for item in items if item["phone"] == "5511888888888")
     assert item["chat_name"] == "Maria"
@@ -220,8 +226,20 @@ def test_admin_audit_endpoint_returns_recent_events(configured_runtime):
         response = client.get("/admin/api/audit?event_type=admin_command", auth=("admin", "secret"))
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     item = response.json()["items"][0]
     assert item["event_type"] == "admin_command"
     assert item["subject"] == "5511888888888"
     assert item["detail"]["operator"] == "admin"
     assert item["detail"]["action"] == "assume"
+
+
+def test_admin_dashboard_does_not_report_mercado_phone_ok_without_credentials(configured_runtime):
+    configured_runtime.settings.mercado_phone_api_key = None
+    configured_runtime.cache.items = [{"nome": "cache antigo"}]
+
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get("/admin/api/dashboard", auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    assert response.json()["sources"]["mercado_phone"]["ok"] is False

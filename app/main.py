@@ -37,6 +37,7 @@ CONTROL_CALLBACK_MARKERS = ("delivery", "status", "disconnect", "connection")
 ADMIN_SESSION_COOKIE = "cwb_admin_session"
 ADMIN_SESSION_MAX_AGE = 8 * 60 * 60
 logger = logging.getLogger(__name__)
+_ADMIN_NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 
 def _parse_basic_authorization(value: str | None) -> tuple[str, str] | None:
@@ -144,11 +145,15 @@ async def _admin_catalog_payload(current: Runtime) -> dict[str, Any]:
     )
 
 
+def _admin_json(payload: Any) -> JSONResponse:
+    return JSONResponse(payload, headers=_ADMIN_NO_STORE_HEADERS)
+
+
 def _admin_source_health(current: Runtime) -> dict[str, dict[str, Any]]:
     return {
         "database": {"ok": current.repository.healthcheck()},
         "mercado_phone": {
-            "ok": _source_has_snapshot(current.cache),
+            "ok": bool(current.settings.mercado_phone_api_key) and _source_has_snapshot(current.cache),
             "last_refresh": getattr(current.cache, "last_refresh", None),
             "items": len(getattr(current.cache, "items", None) or []),
         },
@@ -285,16 +290,21 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 render_admin_login_page(),
                 headers={"Cache-Control": "no-store"},
             )
-        return HTMLResponse(render_admin_page(build_admin_csrf_token(settings)))
+        return HTMLResponse(
+            render_admin_page(build_admin_csrf_token(settings)),
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/admin/api/dashboard")
     async def admin_dashboard(request: Request) -> dict[str, Any]:
         _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
-        return admin_dashboard_payload(
-            current.repository.conversation_status_counts(),
-            _admin_source_health(current),
-            datetime.now(timezone.utc).isoformat(),
+        return _admin_json(
+            admin_dashboard_payload(
+                current.repository.conversation_status_counts(),
+                _admin_source_health(current),
+                datetime.now(timezone.utc).isoformat(),
+            )
         )
 
     @app.get("/admin/api/conversations")
@@ -314,11 +324,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             statuses = (status_filter,)
         else:
             raise HTTPException(status_code=400, detail="Filtro de conversa inválido")
-        return {
-            "status": status_filter,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "items": admin_conversations_payload(current.repository.list_conversations(statuses, limit=limit)),
-        }
+        return _admin_json(
+            {
+                "status": status_filter,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "items": admin_conversations_payload(
+                    current.repository.list_conversations(statuses, limit=limit)
+                ),
+            }
+        )
 
     @app.get("/admin/api/audit")
     async def admin_audit(
@@ -331,19 +345,21 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if limit < 1:
             raise HTTPException(status_code=400, detail="Limite de auditoria inválido")
         normalized_event_type = str(event_type or "").strip() or None
-        return {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "items": admin_audit_payload(
-                current.repository.list_audit_events(limit=limit, event_type=normalized_event_type)
-            ),
-        }
+        return _admin_json(
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "items": admin_audit_payload(
+                    current.repository.list_audit_events(limit=limit, event_type=normalized_event_type)
+                ),
+            }
+        )
 
     @app.get("/admin/api/catalog")
     async def admin_catalog(request: Request) -> dict[str, Any]:
         _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
         try:
-            return await _admin_catalog_payload(current)
+            return _admin_json(await _admin_catalog_payload(current))
         except Exception as exc:
             logger.exception("admin catalog refresh failed: %s", type(exc).__name__)
             raise HTTPException(status_code=503, detail="Catálogo temporariamente indisponível") from exc
@@ -361,7 +377,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return Response(
             content=data,
             media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": 'attachment; filename="catalogo-disponiveis.csv"'},
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": 'attachment; filename="catalogo-disponiveis.csv"',
+            },
         )
 
     @app.post("/admin/api/commands")
@@ -373,11 +392,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if service is None:
             service = AdminCommandService(current.repository)
         try:
-            return service.execute(
-                command.action or "",
-                operator=operator,
-                channel="web",
-                phone=command.phone,
+            return _admin_json(
+                service.execute(
+                    command.action or "",
+                    operator=operator,
+                    channel="web",
+                    phone=command.phone,
+                )
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
