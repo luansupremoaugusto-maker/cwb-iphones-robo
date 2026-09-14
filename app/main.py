@@ -166,7 +166,7 @@ def _require_admin_csrf(request: Request, settings: Any) -> None:
 
 
 async def _admin_catalog_payload(current: Runtime) -> dict[str, Any]:
-    result = await current.cache.list_available_products()
+    result = await current.cache.list_available_products(include_photos=True)
     return public_catalog_payload(
         result,
         mercado_refresh=getattr(current.cache, "last_refresh", None),

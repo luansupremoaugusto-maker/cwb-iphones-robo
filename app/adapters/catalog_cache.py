@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import unicodedata
 from typing import Any
@@ -663,6 +664,24 @@ class StoreCatalogCache(InventoryCache):
 
         return item.model_copy(update={"photo_urls": urls}) if urls else item
 
+    async def _attach_catalog_photos(self, items: list[Any]) -> list[Any]:
+        """Hydrate device photos for the administrative catalog view.
+
+        Customer availability listings intentionally stay cheap and load
+        attachments only on demand. The admin catalog explicitly asks for
+        photo counts, so fetch only available device rows with bounded
+        concurrency while preserving the original item order.
+        """
+        semaphore = asyncio.Semaphore(8)
+
+        async def attach(item: Any) -> Any:
+            if not _is_device_item(item) or not _is_available_item(item):
+                return item
+            async with semaphore:
+                return await self._attach_remote_photos(item)
+
+        return list(await asyncio.gather(*(attach(item) for item in items)))
+
     async def search(self, query: str, limit: int = 5):
         accessory_query = _is_accessory_catalog_query(query)
         if _is_excluded_query(query) and not accessory_query:
@@ -813,7 +832,7 @@ class StoreCatalogCache(InventoryCache):
             ),
         )
 
-    async def list_available_products(self) -> dict[str, Any]:
+    async def list_available_products(self, *, include_photos: bool = False) -> dict[str, Any]:
         await self.ensure_fresh()
         sealed_items: list[Any] = []
         if self.sealed_cache is not None:
@@ -827,13 +846,17 @@ class StoreCatalogCache(InventoryCache):
                     pass
             sealed_items = [self._attach_photos(item) for item in getattr(self.sealed_cache, "items", [])]
 
-        # Do not request every attachment just to build the complete list.
-        # Photos are loaded on demand when the customer names a product.
+        # Do not request every attachment for the customer-facing list.
+        # The administrative catalog opts in to photo hydration because it
+        # displays the number of available attachments for each device.
         # Mercado Phone can also contain new sealed units that are physically
         # in stock; keep them apart from both used devices and sheet-only
         # made-to-order prices.
         seminovo_items = [item for item in self.items if not _is_sealed_catalog_item(item)]
         ready_sealed_items = [item for item in self.items if _is_sealed_catalog_item(item)]
+        if include_photos:
+            seminovo_items = await self._attach_catalog_photos(seminovo_items)
+            ready_sealed_items = await self._attach_catalog_photos(ready_sealed_items)
         seminovos = self._individualize(seminovo_items, sealed=False)
         lacrados_pronta_entrega = self._individualize(ready_sealed_items, sealed=False)
         lacrados = self._individualize(sealed_items, sealed=True)
