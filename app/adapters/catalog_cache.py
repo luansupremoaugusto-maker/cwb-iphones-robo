@@ -295,6 +295,14 @@ def _capacity_key(value: Any) -> str | None:
     return None
 
 
+def _explicit_capacity_hint(value: Any) -> str | None:
+    match = re.search(
+        r"(?im)^\s*capacidade\s+solicitada\s*:\s*(?P<value>[^\n]+)",
+        str(value or ""),
+    )
+    return _capacity_key(match.group("value")) if match else None
+
+
 def _battery_key(value: Any) -> float | None:
     try:
         number = float(str(value).replace(",", ".").strip())
@@ -358,6 +366,13 @@ def _catalog_score(query: str, item: Any) -> int:
     requested_battery = _requested_battery_health(query)
     if requested_battery is not None and _battery_key(getattr(item, "battery_health", None)) == requested_battery:
         score += 400
+
+    requested_capacity = _explicit_capacity_hint(query)
+    item_capacity = _capacity_key(
+        getattr(item, "capacity", None) or getattr(item, "name", "")
+    )
+    if requested_capacity and item_capacity == requested_capacity:
+        score += 1000
 
     if query_tokens.intersection({"normal", "comum", "base"}):
         variants = {"air", "pro", "max", "mini", "plus", "e"}
@@ -822,13 +837,25 @@ class StoreCatalogCache(InventoryCache):
 
     async def _select_priced_candidate(self, query: str) -> tuple[Any | None, dict[str, Any] | None]:
         candidates = [item for item in await self.search(query, limit=10) if item.price_brl is not None]
+        requested_capacity = _explicit_capacity_hint(query)
+        if requested_capacity:
+            candidates = [
+                item
+                for item in candidates
+                if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                == requested_capacity
+            ]
         requested_battery = _requested_battery_health(query)
         if requested_battery is not None:
-            candidates = [
+            battery_candidates = [
                 item
                 for item in candidates
                 if _battery_key(getattr(item, "battery_health", None)) == requested_battery
             ]
+            # A single capacity named in the current turn outranks a battery
+            # value inherited from a previous multi-unit availability list.
+            if battery_candidates or not requested_capacity:
+                candidates = battery_candidates
         if not candidates:
             if requested_battery is not None:
                 return None, {

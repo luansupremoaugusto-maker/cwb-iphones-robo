@@ -1941,8 +1941,14 @@ def _installment_context_query(
     # Do not append an older catalog answer: its last listed model can make a
     # follow-up such as "Do iPhone 12" inherit an unrelated iPhone XR.
     current = text.strip()
+    current_capacity_keys = _requested_capacity_keys(current)
+    current_capacity_hint = (
+        f"capacidade solicitada: {current_capacity_keys[0]}"
+        if len(current_capacity_keys) == 1
+        else ""
+    )
     if _has_product_reference(_normalize(current)) or _is_case_accessory_request(current):
-        return current
+        return "\n".join(part for part in (current_capacity_hint, current) if part).strip()
 
     for item in reversed(history or []):
         if item.get("role") == "assistant" and any(
@@ -1951,13 +1957,17 @@ def _installment_context_query(
             assistant_context = item.get("content", "")
             if strip_assistant_constraints:
                 assistant_context = _strip_catalog_history_constraints(assistant_context)
-            return f"{assistant_context}\n{current}".strip()
+            return "\n".join(
+                part for part in (current_capacity_hint, assistant_context, current) if part
+            ).strip()
     previous_user_text = [
         item.get("content", "").strip()
         for item in (history or [])
         if item.get("role") == "user" and item.get("content", "").strip()
     ]
-    return "\n".join([*previous_user_text[-4:], current]).strip()
+    return "\n".join(
+        part for part in (current_capacity_hint, *previous_user_text[-4:], current) if part
+    ).strip()
 
 
 def _product_context_query(

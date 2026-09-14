@@ -386,6 +386,89 @@ async def test_batched_model_and_installment_question_keeps_selected_iphone(tmp_
 
 
 @pytest.mark.asyncio
+async def test_current_bare_capacity_wins_over_historical_multi_unit_context(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        FakeMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="15-pro-512",
+            name="IPHONE 15 PRO",
+            category="Celular",
+            capacity="512GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3900.0,
+            battery_health=89,
+            search_text="iphone 15 pro titanio preto 512 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="15-pro-128-black",
+            name="IPHONE 15 PRO",
+            category="Celular",
+            capacity="128GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3530.0,
+            battery_health=88,
+            search_text="iphone 15 pro titanio preto 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="15-pro-128-natural",
+            name="IPHONE 15 PRO",
+            category="Celular",
+            capacity="128GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3410.0,
+            battery_health=86,
+            search_text="iphone 15 pro titanio natural 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "quanto fica o pro de 512 em 12x",
+        history=[
+            {"role": "user", "content": "boa noite, tudo bem?"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {"role": "user", "content": "ainda tem o 15 pro disponível?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 15 PRO disponíveis:\n"
+                    "• IPHONE 15 PRO — TITÂNIO PRETO — 512GB — SEMINOVO — "
+                    "R$ 3.900,00 | Bat: 89%\n"
+                    "• IPHONE 15 PRO — TITÂNIO PRETO — 128GB — SEMINOVO — "
+                    "R$ 3.530,00 | Bat: 88%\n"
+                    "• IPHONE 15 PRO — TITÂNIO NATURAL — 128GB — SEMINOVO — "
+                    "R$ 3.410,00 | Bat: 86%"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do IPHONE 15 PRO 512GB" in decision.reply
+    assert "Preço à vista: R$ 3.900,00" in decision.reply
+    assert "12x de R$ 378,13 (total R$ 4.537,52)" in decision.reply
+    assert "128GB" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_missing_seminew_installment_offers_available_seminew_models(tmp_path):
     cache, settings = build_cache(tmp_path)
     settings.openai_api_key = None
