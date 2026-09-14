@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     admin_username: str | None = None
     admin_password: str | None = None
     admin_csrf_secret: str | None = None
+    admin_role: Literal["owner", "operator"] = "owner"
     test_phones: str = ""
     outbound_mode: Literal["disabled", "test_only", "live"] = "disabled"
     faq_path: str = "data/faq.yaml"

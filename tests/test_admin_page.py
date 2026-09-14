@@ -46,6 +46,22 @@ def test_admin_page_contains_dashboard_queue_and_audit_sections():
     assert "/admin/api/audit" in html
 
 
+def test_admin_page_contains_safe_command_preview_monitoring_filters_and_controls():
+    from app.admin_page import render_admin_page
+
+    html = render_admin_page("csrf-token")
+
+    assert "Pré-visualizar impacto" in html
+    assert "justification" in html
+    assert "catalog-capacity-filter" in html
+    assert "catalog-color-filter" in html
+    assert "catalog-stock-filter" in html
+    assert "admin-control-form" in html
+    assert "/admin/api/commands/preview" in html
+    assert "/admin/api/sessions" in html
+    assert "Atualizar fonte" in html
+
+
 def test_admin_login_page_contains_browser_friendly_form():
     from app.admin_page import render_admin_login_page
 

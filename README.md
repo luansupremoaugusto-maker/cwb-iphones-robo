@@ -100,14 +100,17 @@ mas não prova estoque.
 
 O painel também mostra um resumo das conversas e da saúde das integrações, uma
 fila de atendimento humano com a última mensagem registrada e uma auditoria
-recente de comandos e eventos. As ações da fila apenas preenchem o comando; a
-execução continua exigindo confirmação.
+recente de comandos e eventos. O catálogo pode ser filtrado por categoria,
+capacidade, cor, condição, disponibilidade, faixa de preço e fotos.
 
 A área de comandos permite assumir, retomar ou fechar uma conversa específica
-e liberar todas as conversas em atendimento humano para o robô. Toda ação
-exige confirmação no navegador e é auditada. `release_all` altera somente
-`human_pending` e `human_active`; conversas `closed` permanecem encerradas. O
-painel não edita estoque/preços nem envia mensagens para clientes.
+e liberar todas as conversas em atendimento humano para o robô. O painel mostra
+uma prévia do impacto, exige justificativa e confirmação no navegador, e audita
+o resultado. `release_all` altera somente `human_pending` e `human_active`;
+conversas `closed` permanecem encerradas. O perfil `ADMIN_ROLE=operator` não
+pode executar ações em massa; `owner` também pode controlar pausa/manutenção,
+revogar sessões e atualizar fontes individualmente. O painel não edita
+estoque/preços nem envia mensagens para clientes.
 
 ## Docker na VPS
 

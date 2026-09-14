@@ -55,8 +55,15 @@ continua exigindo confirmação no navegador.
 O painel também oferece `Assumir conversa`, `Retomar conversa para o robô`,
 `Fechar conversa` e `Liberar todos os clientes`. Os três primeiros exigem o
 telefone da conversa; o último libera apenas `human_pending` e `human_active` e
-preserva `closed` (`release_all`). As ações exigem confirmação no navegador e ficam auditadas;
-elas não enviam mensagens aos clientes nem alteram o estoque do Mercado Phone.
+preserva `closed` (`release_all`). Antes da execução, o painel mostra a prévia
+do impacto, pede justificativa e exige confirmação; tudo fica auditado.
+
+O perfil definido em `ADMIN_ROLE` pode ser `owner` (controle completo) ou
+`operator` (comandos individuais). O proprietário também pode pausar o robô,
+ativar manutenção, revogar sessões de navegador, acompanhar falhas recentes e
+atualizar Mercado Phone/Google Sheets separadamente. Enquanto o estado global
+estiver pausado ou em manutenção, as mensagens recebidas são armazenadas e
+aguardam processamento; nenhuma resposta automática é enviada.
 
 Mantenha o domínio atrás de HTTPS e nunca coloque as credenciais administrativas
 na URL ou no repositório. Se as três variáveis não estiverem preenchidas, as
