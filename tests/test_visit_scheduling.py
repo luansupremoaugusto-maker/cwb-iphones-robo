@@ -121,6 +121,35 @@ async def test_current_day_question_reports_closed_on_weekend(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["Está aberto a loja?", "A loja está aberta?"])
+async def test_unqualified_store_open_question_uses_current_store_date(tmp_path, monkeypatch, text):
+    current = datetime(2026, 9, 14, 14, 31, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert "segunda-feira, 14/09/2026" in decision.reply
+    assert "Atendemos hoje" in decision.reply
+    assert "domingo" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_store_open_question_with_hours_uses_faq_hours(tmp_path, monkeypatch):
+    current = datetime(2026, 9, 14, 14, 31, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("A loja está aberta até que horas?")
+
+    assert decision.handoff is False
+    assert "Hoje é" not in decision.reply
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_visit_followup_with_day_and_time_is_forwarded(tmp_path):
     agent = build_agent(tmp_path)
     initial = await agent.respond("Quero marcar uma visita à loja.")
