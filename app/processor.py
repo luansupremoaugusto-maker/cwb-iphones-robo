@@ -7,6 +7,7 @@ from typing import Any
 
 from app.adapters.openai_media import OpenAIMediaError
 from app.adapters.zapi import ZapiClient, ZapiError, normalize_received_callback
+from app.admin import AdminCommandService
 from app.agent import AgentService
 from app.config import Settings, normalize_phone
 from app.schemas import AgentDecision, IncomingMessage
@@ -142,6 +143,7 @@ class MessageProcessor:
     ):
         self.settings = settings
         self.repository = repository
+        self.admin_commands = AdminCommandService(repository)
         self.zapi = zapi
         self.agent = agent
         self.media = media
@@ -310,36 +312,22 @@ class MessageProcessor:
             self.repository.audit("unauthorized_admin_command", sender_phone, {"action": action})
             return
 
-        if action in {"retomar_todos", "liberar_todos"}:
-            released_count = self.repository.release_all_human_conversations(
-                f"Comando {action} por atendente autorizado"
-            )
-            self.repository.audit(
-                "admin_command",
-                None,
-                {
-                    "action": action,
-                    "operator": sender_phone,
-                    "released_count": released_count,
-                },
-            )
-            await self._send_phone(
-                sender_phone,
-                f"{released_count} conversa(s) em atendimento humano foram liberadas para o robô.",
-                kind="admin",
-            )
+        canonical_action = {
+            "retomar_todos": "release_all",
+            "liberar_todos": "release_all",
+            "assumir": "assume",
+            "retomar": "resume",
+            "fechar": "close",
+        }.get(action)
+        if canonical_action is None:
             return
-
-        if target is None:
-            return
-        status = {"assumir": "human_active", "retomar": "bot_active", "fechar": "closed"}[action]
-        self.repository.set_conversation_status(target, status, f"Comando {action} por atendente autorizado")
-        self.repository.audit("admin_command", target, {"action": action, "operator": sender_phone})
-        await self._send_phone(
-            sender_phone,
-            f"Conversa {target}: status alterado para {status}.",
-            kind="admin",
+        result = self.admin_commands.execute(
+            canonical_action,
+            operator=sender_phone,
+            channel="whatsapp",
+            phone=target,
         )
+        await self._send_phone(sender_phone, result["message"], kind="admin")
 
     async def _prepare_input(self, incoming: IncomingMessage) -> tuple[str, str | None]:
         if incoming.kind in {"text", "button", "list"}:
