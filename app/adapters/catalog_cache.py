@@ -107,30 +107,38 @@ def _is_iphone_catalog_item(item: Any) -> bool:
     return bool(re.search(r"\biphones?\b", text))
 
 
-def _catalog_family(value: Any) -> str | None:
+_CATALOG_FAMILY_PATTERNS = (
+    ("iphone", r"\biphones?\b"),
+    ("ipad", r"\bipads?\b"),
+    ("macbook", r"\bmac(?:books?)?\b"),
+    ("airpods", r"\bairpods?\b|\bair pods\b"),
+    ("apple_watch", r"\bapple watch\b"),
+)
+
+
+def _catalog_families(value: Any) -> tuple[str, ...]:
     normalized = _score_text(value)
-    if re.search(r"\biphones?\b", normalized):
-        return "iphone"
-    if re.search(r"\bipad\b", normalized):
-        return "ipad"
-    if re.search(r"\bmacbook\b", normalized):
-        return "macbook"
-    if re.search(r"\bairpods?\b|\bair pods\b", normalized):
-        return "airpods"
-    if re.search(r"\bapple watch\b", normalized):
-        return "apple_watch"
-    return None
+    return tuple(
+        family
+        for family, pattern in _CATALOG_FAMILY_PATTERNS
+        if re.search(pattern, normalized)
+    )
+
+
+def _catalog_family(value: Any) -> str | None:
+    families = _catalog_families(value)
+    return families[0] if families else None
 
 
 def _matches_requested_family(query: str, item: Any) -> bool:
-    requested_family = _catalog_family(query)
-    if requested_family is None or _is_accessory_catalog_query(query):
+    requested_families = _catalog_families(query)
+    if not requested_families or _is_accessory_catalog_query(query):
         return True
     item_text = (
         f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} "
         f"{getattr(item, 'search_text', '')}"
     )
-    return _catalog_family(item_text) == requested_family
+    return _catalog_family(item_text) in requested_families
 
 
 def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
@@ -336,11 +344,11 @@ def _requested_battery_health(value: Any) -> float | None:
 def _catalog_score(query: str, item: Any) -> int:
     score = score_item(query, item)
     normalized_query = _score_text(query)
-    query_family = _catalog_family(query)
+    query_families = _catalog_families(query)
     item_family = _catalog_family(
         f"{getattr(item, 'name', '')} {getattr(item, 'description', '')} {getattr(item, 'search_text', '')}"
     )
-    if query_family and query_family == item_family:
+    if item_family and item_family in query_families:
         score += 40
     query_tokens = set(normalized_query.split())
     model_phrase = _score_text(item.name)

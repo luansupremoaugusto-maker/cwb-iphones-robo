@@ -978,6 +978,18 @@ async def test_explicit_ipad_does_not_return_iphone_or_macbook(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_mac_or_ipad_availability_question_lists_both_requested_families(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Oi, vocês tem mac ou iPad?")
+
+    assert decision.handoff is False
+    assert "iPad Air" in decision.reply
+    assert "MacBook Neo 2026 13" in decision.reply
+    assert "MacBook Air" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_availability_query_with_two_models_keeps_available_second_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

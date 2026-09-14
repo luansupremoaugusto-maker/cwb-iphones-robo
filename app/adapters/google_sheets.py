@@ -31,7 +31,8 @@ def normalize_sheet_text(value: Any) -> str:
     without_accents = "".join(
         char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char)
     )
-    return re.sub(r"\s+", " ", without_accents.replace("\n", " ")).strip().lower()
+    normalized = re.sub(r"[^a-z0-9]+", " ", without_accents.replace("\n", " ").lower())
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def parse_brazilian_number(value: Any) -> float | None:
@@ -373,13 +374,14 @@ class GoogleSheetsCache:
         normalized_query = normalize_sheet_text(query)
         if not normalized_query:
             return 0
+        item_search_text = normalize_sheet_text(item.search_text)
         score = 0
         if normalized_query == normalize_sheet_text(f"{item.name} {item.capacity or ''}").strip():
             score += 1000
-        if normalized_query in item.search_text:
+        if normalized_query in item_search_text:
             score += 200
         for token in normalized_query.split():
-            if token in item.search_text:
+            if token in item_search_text:
                 score += 20
         return score
 

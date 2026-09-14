@@ -151,10 +151,11 @@ def _normalize_text(value: str) -> str:
     without_accents = "".join(
         char for char in unicodedata.normalize("NFKD", str(value or "")) if not unicodedata.combining(char)
     )
-    normalized = re.sub(r"\s+", " ", without_accents.replace("\n", " ")).strip().lower()
+    normalized = re.sub(r"[^a-z0-9]+", " ", without_accents.replace("\n", " ").lower())
     # The API commonly stores "IPHONE 16 E", while customers type "iPhone 16e".
     # Also normalize forms such as 128GB and 17Pro for the same search behavior.
-    return re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _first_raw_value(raw: dict[str, Any], *keys: str) -> Any:
