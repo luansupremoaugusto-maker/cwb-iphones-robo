@@ -41,8 +41,9 @@ Eventos de grupos, mensagens próprias, newsletters, status e duplicatas são ig
 
 ## Painel administrativo
 
-Acesse `https://SEU_DOMINIO/admin` e informe as credenciais de HTTP Basic Auth
-configuradas no `.env.local`. A página consulta o catálogo pelo mesmo caminho
+Acesse `https://SEU_DOMINIO/admin` e informe as credenciais na tela de login
+configuradas no `.env.local`. HTTP Basic Auth continua aceito para integrações.
+A página consulta o catálogo pelo mesmo caminho
 do robô, mostra seminovos, lacrados em pronta entrega e lacrados por encomenda,
 e permite baixar `catalogo-disponiveis.csv`.
 

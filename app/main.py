@@ -11,6 +11,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import parse_qs
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -24,12 +25,14 @@ from app.admin import (
     public_catalog_payload,
 )
 from app.adapters.zapi import normalize_received_callback
-from app.admin_page import render_admin_page
+from app.admin_page import render_admin_login_page, render_admin_page
 from app.config import get_settings
 from app.runtime import Runtime, build_runtime
 
 
 CONTROL_CALLBACK_MARKERS = ("delivery", "status", "disconnect", "connection")
+ADMIN_SESSION_COOKIE = "cwb_admin_session"
+ADMIN_SESSION_MAX_AGE = 8 * 60 * 60
 logger = logging.getLogger(__name__)
 
 
@@ -49,29 +52,76 @@ def _parse_basic_authorization(value: str | None) -> tuple[str, str] | None:
     return username, password
 
 
+def _admin_unauthorized() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail="Autenticação administrativa necessária",
+        headers={"WWW-Authenticate": 'Basic realm="admin"'},
+    )
+
+
+def _admin_session_token(username: str, settings: Any) -> str:
+    expires_at = str(int(time.time()) + ADMIN_SESSION_MAX_AGE)
+    payload = f"{username}|{expires_at}"
+    signature = hmac.new(
+        settings.admin_csrf_secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    encoded = base64.urlsafe_b64encode(f"{payload}|{signature}".encode("utf-8"))
+    return encoded.decode("ascii").rstrip("=")
+
+
+def _admin_session_operator(value: str | None, settings: Any) -> str | None:
+    if not value:
+        return None
+    try:
+        padding = "=" * (-len(value) % 4)
+        decoded = base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
+        username, expires_at, signature = decoded.split("|", 2)
+        if int(expires_at) < int(time.time()):
+            return None
+    except (ValueError, UnicodeDecodeError):
+        return None
+    payload = f"{username}|{expires_at}"
+    expected = hmac.new(
+        settings.admin_csrf_secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not secrets.compare_digest(signature, expected):
+        return None
+    if not secrets.compare_digest(username, settings.admin_username.strip()):
+        return None
+    return username
+
+
+def _admin_operator(request: Request, settings: Any) -> str | None:
+    credentials = _parse_basic_authorization(request.headers.get("authorization"))
+    if credentials is not None:
+        username, password = credentials
+        if not (
+            secrets.compare_digest(username, settings.admin_username.strip())
+            and secrets.compare_digest(password, settings.admin_password)
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Credenciais administrativas inválidas",
+                headers={"WWW-Authenticate": 'Basic realm="admin"'},
+            )
+        return username
+    return _admin_session_operator(request.cookies.get(ADMIN_SESSION_COOKIE), settings)
+
+
 def _require_admin_operator(request: Request) -> str:
     current: Runtime = request.app.state.runtime
     settings = current.settings
     if not settings.admin_panel_configured:
         raise HTTPException(status_code=404, detail="Not found")
-    credentials = _parse_basic_authorization(request.headers.get("authorization"))
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Autenticação administrativa necessária",
-            headers={"WWW-Authenticate": 'Basic realm="admin"'},
-        )
-    username, password = credentials
-    if not (
-        secrets.compare_digest(username, settings.admin_username.strip())
-        and secrets.compare_digest(password, settings.admin_password)
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Credenciais administrativas inválidas",
-            headers={"WWW-Authenticate": 'Basic realm="admin"'},
-        )
-    return username
+    operator = _admin_operator(request, settings)
+    if operator is None:
+        raise _admin_unauthorized()
+    return operator
 
 
 def _require_admin_csrf(request: Request, settings: Any) -> None:
@@ -168,11 +218,51 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         payload = {"ready": all(checks.values()), "checks": checks}
         return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
 
+    @app.post("/admin/login", response_class=HTMLResponse)
+    async def admin_login(request: Request) -> Response:
+        current: Runtime = request.app.state.runtime
+        settings = current.settings
+        if not settings.admin_panel_configured:
+            raise HTTPException(status_code=404, detail="Not found")
+        fields = parse_qs((await request.body()).decode("utf-8", errors="replace"), keep_blank_values=True)
+        username = fields.get("username", [""])[0].strip()
+        password = fields.get("password", [""])[0]
+        valid = secrets.compare_digest(username, settings.admin_username.strip()) and secrets.compare_digest(
+            password, settings.admin_password
+        )
+        if not valid:
+            return HTMLResponse(
+                render_admin_login_page("Credenciais administrativas inválidas."),
+                status_code=401,
+                headers={"Cache-Control": "no-store"},
+            )
+        response = Response(
+            status_code=303,
+            headers={"Location": "/admin", "Cache-Control": "no-store"},
+        )
+        response.set_cookie(
+            key=ADMIN_SESSION_COOKIE,
+            value=_admin_session_token(username, settings),
+            max_age=ADMIN_SESSION_MAX_AGE,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            path="/admin",
+        )
+        return response
+
     @app.get("/admin", response_class=HTMLResponse)
     async def admin_page(request: Request) -> HTMLResponse:
-        _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
-        return HTMLResponse(render_admin_page(build_admin_csrf_token(current.settings)))
+        settings = current.settings
+        if not settings.admin_panel_configured:
+            raise HTTPException(status_code=404, detail="Not found")
+        if _admin_operator(request, settings) is None:
+            return HTMLResponse(
+                render_admin_login_page(),
+                headers={"Cache-Control": "no-store"},
+            )
+        return HTMLResponse(render_admin_page(build_admin_csrf_token(settings)))
 
     @app.get("/admin/api/catalog")
     async def admin_catalog(request: Request) -> dict[str, Any]:

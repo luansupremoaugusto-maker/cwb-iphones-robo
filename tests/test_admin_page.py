@@ -21,3 +21,14 @@ def test_admin_page_does_not_render_catalog_values_as_inner_html():
     html = render_admin_page("csrf-token")
 
     assert "textContent" in html
+
+
+def test_admin_login_page_contains_browser_friendly_form():
+    from app.admin_page import render_admin_login_page
+
+    html = render_admin_login_page()
+
+    assert "Acesso administrativo" in html
+    assert '<form method="post" action="/admin/login"' in html
+    assert 'name="username"' in html
+    assert 'name="password"' in html

@@ -92,8 +92,8 @@ O painel privado fica em `/admin` no mesmo domínio HTTPS do robô. Configure
 qualquer uma estiver ausente, o painel permanece desabilitado. Não versione
 essas credenciais.
 
-Após a autenticação Basic, o painel permite atualizar e baixar em CSV a mesma
-lista completa usada pelo robô. Ela separa seminovos, lacrados em estoque para
+Após o login na tela do painel (Basic Auth também é aceito para integrações), o
+site permite atualizar e baixar em CSV a mesma lista completa usada pelo robô. Ela separa seminovos, lacrados em estoque para
 pronta entrega e lacrados por encomenda. O estoque físico continua sendo
 consultado no Mercado Phone; uma linha da planilha fornece preço de lacrado,
 mas não prova estoque.
