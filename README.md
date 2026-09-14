@@ -98,6 +98,11 @@ pronta entrega e lacrados por encomenda. O estoque físico continua sendo
 consultado no Mercado Phone; uma linha da planilha fornece preço de lacrado,
 mas não prova estoque.
 
+O painel também mostra um resumo das conversas e da saúde das integrações, uma
+fila de atendimento humano com a última mensagem registrada e uma auditoria
+recente de comandos e eventos. As ações da fila apenas preenchem o comando; a
+execução continua exigindo confirmação.
+
 A área de comandos permite assumir, retomar ou fechar uma conversa específica
 e liberar todas as conversas em atendimento humano para o robô. Toda ação
 exige confirmação no navegador e é auditada. `release_all` altera somente

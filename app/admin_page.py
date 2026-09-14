@@ -103,9 +103,12 @@ _PAGE_TEMPLATE = """<!doctype html>
     button:disabled { cursor: wait; opacity: .6; }
     .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 5px 18px rgba(16, 24, 40, .04); margin-top: 18px; padding: 20px; }
     .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .operational-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .summary-card { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 15px; }
     .summary-card strong { display: block; font-size: 25px; line-height: 1.15; margin-top: 3px; }
     .summary-card span { color: var(--muted); font-size: 13px; }
+    .panel-heading { align-items: flex-start; display: flex; gap: 14px; justify-content: space-between; }
+    .panel-heading > :last-child { flex-shrink: 0; }
     .toolbar { justify-content: space-between; margin: 20px 0 12px; }
     input, select { border: 1px solid #cfd5df; border-radius: 9px; background: #fff; color: var(--ink); font: inherit; min-height: 42px; padding: 9px 11px; }
     input[type="search"] { min-width: min(100%, 360px); }
@@ -120,6 +123,23 @@ _PAGE_TEMPLATE = """<!doctype html>
     .status.success { color: var(--success); }
     .sources { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; }
     .source-note { font-size: 12px; }
+    .health-grid { display: grid; gap: 10px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 16px; }
+    .health-card { align-items: center; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; display: flex; gap: 8px; min-height: 48px; padding: 10px 12px; }
+    .health-card strong { display: block; font-size: 13px; }
+    .health-card small { color: var(--muted); display: block; font-size: 11px; }
+    .health-dot { background: var(--muted); border-radius: 50%; flex: 0 0 9px; height: 9px; width: 9px; }
+    .health-card.ok .health-dot { background: var(--success); }
+    .health-card.bad .health-dot { background: var(--danger); }
+    .badge { background: #eef3ff; border-radius: 999px; color: var(--brand-dark); display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; white-space: nowrap; }
+    .badge.pending { background: #fffaeb; color: #7a2e0b; }
+    .badge.active { background: #ecfdf3; color: var(--success); }
+    .badge.closed { background: #f2f4f7; color: var(--muted); }
+    .compact-table table { min-width: 980px; }
+    .compact-table th, .compact-table td { padding: 10px; }
+    .queue-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .queue-actions button { font-size: 12px; padding: 7px 9px; }
+    .audit-detail { color: var(--muted); font-size: 12px; max-width: 330px; overflow-wrap: anywhere; }
+    .nowrap { white-space: nowrap; }
     .command-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; }
     .field { display: grid; gap: 5px; }
     label { font-size: 13px; font-weight: 700; }
@@ -130,6 +150,8 @@ _PAGE_TEMPLATE = """<!doctype html>
       .actions { width: 100%; }
       .actions > * { flex: 1; text-align: center; }
       .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .operational-summary, .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel-heading { flex-direction: column; }
       .command-grid { grid-template-columns: 1fr; }
       .command-grid button { width: 100%; }
     }
@@ -148,6 +170,27 @@ _PAGE_TEMPLATE = """<!doctype html>
         <a class="button-link secondary" href="/admin/api/catalog.csv">Baixar CSV</a>
       </div>
     </header>
+
+    <section class="panel" aria-labelledby="operations-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="operations-title">Visão geral do atendimento</h2>
+          <p class="muted">Acompanhe as conversas, a fila humana e a saúde das integrações.</p>
+        </div>
+        <div class="actions">
+          <button id="refresh-dashboard" class="secondary" type="button">Atualizar painel</button>
+          <span id="operations-status" class="status muted" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+      <div class="summary-grid operational-summary" aria-label="Resumo do atendimento">
+        <div class="summary-card"><span>Total de conversas</span><strong id="conversation-total">—</strong></div>
+        <div class="summary-card"><span>Robô ativo</span><strong id="conversation-bot-active">—</strong></div>
+        <div class="summary-card"><span>Aguardando humano</span><strong id="conversation-human-pending">—</strong></div>
+        <div class="summary-card"><span>Humano em atendimento</span><strong id="conversation-human-active">—</strong></div>
+        <div class="summary-card"><span>Encerradas</span><strong id="conversation-closed">—</strong></div>
+      </div>
+      <div id="health-grid" class="health-grid" aria-label="Saúde das integrações"></div>
+    </section>
 
     <section class="panel" aria-labelledby="catalog-title">
       <h2 id="catalog-title">Catálogo de disponíveis</h2>
@@ -177,6 +220,28 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="queue-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="queue-title">Fila de atendimento humano</h2>
+          <p class="muted">Veja quem aguarda atendimento ou já está sendo atendido. As ações preparam o comando sem executá-lo automaticamente.</p>
+        </div>
+        <button id="refresh-queue" class="secondary" type="button">Atualizar fila</button>
+      </div>
+      <div class="toolbar">
+        <input id="human-queue-search" type="search" placeholder="Buscar nome, telefone ou mensagem" autocomplete="off" aria-label="Buscar na fila humana">
+        <span id="human-queue-status" class="status muted" role="status" aria-live="polite">Carregando fila…</span>
+      </div>
+      <div class="table-wrap compact-table">
+        <table>
+          <thead>
+            <tr><th>Status</th><th>Cliente</th><th>Telefone</th><th>Última mensagem</th><th>Atualizado</th><th>Ações</th></tr>
+          </thead>
+          <tbody id="human-queue-body"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="panel" aria-labelledby="commands-title">
       <h2 id="commands-title">Comandos operacionais</h2>
       <p class="muted">As ações abaixo alteram o estado das conversas e ficam registradas na auditoria.</p>
@@ -201,6 +266,28 @@ _PAGE_TEMPLATE = """<!doctype html>
         <p id="command-status" class="status" role="status" aria-live="polite"></p>
       </form>
     </section>
+
+    <section class="panel" aria-labelledby="audit-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="audit-title">Auditoria recente</h2>
+          <p class="muted">Comandos e eventos importantes registrados pelo robô, com operador, canal e resultado.</p>
+        </div>
+        <button id="refresh-audit" class="secondary" type="button">Atualizar auditoria</button>
+      </div>
+      <div class="toolbar">
+        <input id="audit-search" type="search" placeholder="Filtrar por evento, telefone ou operador" autocomplete="off" aria-label="Buscar na auditoria">
+        <span id="audit-status" class="status muted" role="status" aria-live="polite">Carregando auditoria…</span>
+      </div>
+      <div class="table-wrap compact-table">
+        <table>
+          <thead>
+            <tr><th>Data</th><th>Evento</th><th>Alvo</th><th>Operador / canal</th><th>Detalhes</th></tr>
+          </thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -212,6 +299,16 @@ _PAGE_TEMPLATE = """<!doctype html>
         ["lacrados", "Lacrados por encomenda"]
       ];
       let catalog = null;
+      let dashboard = null;
+      let humanQueue = [];
+      let auditEvents = [];
+      const healthDefinitions = [
+        ["database", "Banco de dados"],
+        ["mercado_phone", "Mercado Phone"],
+        ["google_sheets", "Google Sheets"],
+        ["zapi", "Z-API"],
+        ["openai", "OpenAI"]
+      ];
 
       const byId = (id) => document.getElementById(id);
       const formatPrice = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value));
@@ -223,6 +320,133 @@ _PAGE_TEMPLATE = """<!doctype html>
       const itemText = (item) => [item.nome, item.capacidade, item.condicao, item.cor, ...(item.cores || [])].join(" ").toLocaleLowerCase();
       const asText = (value, fallback = "—") => value === null || value === undefined || value === "" ? fallback : String(value);
       const batteryText = (value) => value === null || value === undefined || value === "" ? "—" : `${value}%`;
+      const queueText = (item) => [item.chat_name, item.phone, item.status, item.status_label, item.last_message, item.paused_reason].join(" ").toLocaleLowerCase();
+      const auditText = (item) => [item.event_type, item.subject, JSON.stringify(item.detail || {})].join(" ").toLocaleLowerCase();
+
+      async function fetchJson(path) {
+        const response = await fetch(path, { credentials: "same-origin" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || "Não foi possível carregar os dados administrativos.");
+        return result;
+      }
+
+      function appendCell(row, value, className = "") {
+        const cell = document.createElement("td");
+        if (className) cell.className = className;
+        cell.textContent = asText(value);
+        row.append(cell);
+        return cell;
+      }
+
+      function statusBadge(status, label) {
+        const badge = document.createElement("span");
+        badge.className = `badge ${status === "human_pending" ? "pending" : status === "human_active" ? "active" : status === "closed" ? "closed" : ""}`;
+        badge.textContent = asText(label || status);
+        return badge;
+      }
+
+      function renderDashboard() {
+        const conversations = dashboard?.conversations || {};
+        byId("conversation-total").textContent = asText(conversations.total, "0");
+        byId("conversation-bot-active").textContent = asText(conversations.bot_active, "0");
+        byId("conversation-human-pending").textContent = asText(conversations.human_pending, "0");
+        byId("conversation-human-active").textContent = asText(conversations.human_active, "0");
+        byId("conversation-closed").textContent = asText(conversations.closed, "0");
+
+        const grid = byId("health-grid");
+        grid.replaceChildren();
+        healthDefinitions.forEach(([key, label]) => {
+          const source = dashboard?.sources?.[key] || {};
+          const card = document.createElement("div");
+          card.className = `health-card ${source.ok ? "ok" : "bad"}`;
+          const dot = document.createElement("span");
+          dot.className = "health-dot";
+          const details = document.createElement("div");
+          const title = document.createElement("strong");
+          title.textContent = label;
+          const note = document.createElement("small");
+          const itemCount = source.items === undefined ? "" : ` · ${source.items} item(ns)`;
+          note.textContent = source.last_refresh
+            ? `Atualizado ${formatDate(source.last_refresh)}${itemCount}`
+            : `${source.ok ? "Operacional" : "Indisponível"}${itemCount}`;
+          details.append(title, note);
+          card.append(dot, details);
+          grid.append(card);
+        });
+      }
+
+      function renderHumanQueue() {
+        const body = byId("human-queue-body");
+        const query = byId("human-queue-search").value.trim().toLocaleLowerCase();
+        const matches = humanQueue.filter((item) => !query || queueText(item).includes(query));
+        body.replaceChildren();
+        if (!matches.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 6;
+          cell.className = "empty";
+          cell.textContent = "Nenhuma conversa na fila humana.";
+          row.append(cell);
+          body.append(row);
+          return;
+        }
+        matches.forEach((item) => {
+          const row = document.createElement("tr");
+          const statusCell = document.createElement("td");
+          statusCell.append(statusBadge(item.status, item.status_label));
+          row.append(statusCell);
+          appendCell(row, item.chat_name || "Sem nome");
+          appendCell(row, item.phone, "nowrap");
+          appendCell(row, item.last_message || item.paused_reason || "Sem mensagem registrada");
+          appendCell(row, formatDate(item.updated_at), "nowrap");
+          const actionsCell = document.createElement("td");
+          const actions = document.createElement("div");
+          actions.className = "queue-actions";
+          const commands = item.status === "human_pending"
+            ? [["assume", "Assumir"], ["close", "Fechar"]]
+            : [["resume", "Retomar robô"], ["close", "Fechar"]];
+          commands.forEach(([action, label]) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "secondary";
+            button.dataset.action = action;
+            button.dataset.phone = item.phone || "";
+            button.textContent = label;
+            actions.append(button);
+          });
+          actionsCell.append(actions);
+          row.append(actionsCell);
+          body.append(row);
+        });
+      }
+
+      function renderAudit() {
+        const body = byId("audit-body");
+        const query = byId("audit-search").value.trim().toLocaleLowerCase();
+        const matches = auditEvents.filter((item) => !query || auditText(item).includes(query));
+        body.replaceChildren();
+        if (!matches.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 5;
+          cell.className = "empty";
+          cell.textContent = "Nenhum evento encontrado.";
+          row.append(cell);
+          body.append(row);
+          return;
+        }
+        matches.forEach((item) => {
+          const row = document.createElement("tr");
+          appendCell(row, formatDate(item.created_at), "nowrap");
+          appendCell(row, item.event_type);
+          appendCell(row, item.subject || "—", "nowrap");
+          const detail = item.detail || {};
+          appendCell(row, [detail.operator, detail.channel].filter(Boolean).join(" · ") || "—");
+          const detailCell = appendCell(row, JSON.stringify(detail), "audit-detail");
+          detailCell.title = JSON.stringify(detail);
+          body.append(row);
+        });
+      }
 
       function flattenItems() {
         return sectionDefinitions.flatMap(([key, label]) => (catalog?.[key] || []).map((item) => ({ key, label, item })));
@@ -264,6 +488,60 @@ _PAGE_TEMPLATE = """<!doctype html>
         });
       }
 
+      async function loadDashboard() {
+        const status = byId("operations-status");
+        status.className = "status muted";
+        status.textContent = "Atualizando…";
+        try {
+          dashboard = await fetchJson("/admin/api/dashboard");
+          renderDashboard();
+          status.textContent = `Atualizado ${formatDate(dashboard.generated_at)}.`;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        }
+      }
+
+      async function loadHumanQueue() {
+        const status = byId("human-queue-status");
+        status.className = "status muted";
+        status.textContent = "Atualizando fila…";
+        byId("refresh-queue").disabled = true;
+        try {
+          const result = await fetchJson("/admin/api/conversations?status=human");
+          humanQueue = result.items || [];
+          renderHumanQueue();
+          status.textContent = `${humanQueue.length} conversa(s) em atendimento humano.`;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          byId("refresh-queue").disabled = false;
+        }
+      }
+
+      async function loadAudit() {
+        const status = byId("audit-status");
+        status.className = "status muted";
+        status.textContent = "Atualizando auditoria…";
+        byId("refresh-audit").disabled = true;
+        try {
+          const result = await fetchJson("/admin/api/audit?limit=50");
+          auditEvents = result.items || [];
+          renderAudit();
+          status.textContent = `${auditEvents.length} evento(s) carregado(s).`;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          byId("refresh-audit").disabled = false;
+        }
+      }
+
+      async function loadOperationalPanel() {
+        await Promise.all([loadDashboard(), loadHumanQueue(), loadAudit()]);
+      }
+
       async function loadCatalog() {
         const status = byId("catalog-status");
         status.className = "status muted";
@@ -291,8 +569,25 @@ _PAGE_TEMPLATE = """<!doctype html>
         if (!individual) byId("command-phone").value = "";
       }
 
+      function prepareCommand(action, phone) {
+        byId("command-action").value = action;
+        byId("command-phone").value = phone || "";
+        updatePhoneField();
+        byId("commands-title").scrollIntoView({ behavior: "smooth", block: "start" });
+        byId("command-submit").focus();
+      }
+
       byId("refresh-catalog").addEventListener("click", loadCatalog);
       byId("catalog-search").addEventListener("input", renderTable);
+      byId("refresh-dashboard").addEventListener("click", loadDashboard);
+      byId("refresh-queue").addEventListener("click", loadHumanQueue);
+      byId("refresh-audit").addEventListener("click", loadAudit);
+      byId("human-queue-search").addEventListener("input", renderHumanQueue);
+      byId("audit-search").addEventListener("input", renderAudit);
+      byId("human-queue-body").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (button) prepareCommand(button.dataset.action, button.dataset.phone);
+      });
       byId("command-action").addEventListener("change", updatePhoneField);
       byId("command-form").addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -322,10 +617,11 @@ _PAGE_TEMPLATE = """<!doctype html>
           });
           const result = await response.json();
           if (!response.ok) throw new Error(result.detail || "Não foi possível executar o comando.");
-          status.className = "status success";
-          status.textContent = result.message;
-          if (action === "release_all") await loadCatalog();
-        } catch (error) {
+           status.className = "status success";
+           status.textContent = result.message;
+           if (action === "release_all") await loadCatalog();
+           await loadOperationalPanel();
+         } catch (error) {
           status.className = "status error";
           status.textContent = error.message;
         } finally {
@@ -335,6 +631,7 @@ _PAGE_TEMPLATE = """<!doctype html>
 
       updatePhoneField();
       loadCatalog();
+      loadOperationalPanel();
     })();
   </script>
 </body>

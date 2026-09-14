@@ -4,6 +4,7 @@ import csv
 import hashlib
 import hmac
 import io
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -22,6 +23,13 @@ CATALOG_SECTION_LABELS = {
     "seminovos": "Seminovos",
     "lacrados_pronta_entrega": "Lacrados para pronta entrega",
     "lacrados": "Lacrados por encomenda",
+}
+
+CONVERSATION_STATUS_LABELS = {
+    "bot_active": "Robô ativo",
+    "human_pending": "Aguardando atendimento",
+    "human_active": "Em atendimento humano",
+    "closed": "Encerrada",
 }
 
 _PUBLIC_ITEM_FIELDS = (
@@ -133,6 +141,62 @@ def catalog_csv_bytes(payload: dict[str, Any]) -> bytes:
                 }
             )
     return output.getvalue().encode("utf-8-sig")
+
+
+def _iso_datetime(value: Any) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else (str(value) if value else None)
+
+
+def admin_dashboard_payload(
+    counts: dict[str, int],
+    sources: dict[str, dict[str, Any]],
+    generated_at: str,
+) -> dict[str, Any]:
+    conversations = {
+        "total": int(counts.get("total", 0)),
+        "bot_active": int(counts.get("bot_active", 0)),
+        "human_pending": int(counts.get("human_pending", 0)),
+        "human_active": int(counts.get("human_active", 0)),
+        "human_total": int(counts.get("human_pending", 0)) + int(counts.get("human_active", 0)),
+        "closed": int(counts.get("closed", 0)),
+    }
+    return {
+        "generated_at": generated_at,
+        "conversations": conversations,
+        "sources": sources,
+    }
+
+
+def admin_conversations_payload(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "phone": record.get("phone"),
+            "chat_name": record.get("chat_name"),
+            "status": record.get("status"),
+            "status_label": CONVERSATION_STATUS_LABELS.get(
+                str(record.get("status") or ""), str(record.get("status") or "")
+            ),
+            "paused_reason": record.get("paused_reason"),
+            "updated_at": _iso_datetime(record.get("updated_at")),
+            "last_message": record.get("last_message") or "",
+            "last_message_direction": record.get("last_message_direction"),
+            "last_message_at": _iso_datetime(record.get("last_message_at")),
+        }
+        for record in records
+    ]
+
+
+def admin_audit_payload(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": int(record.get("id") or 0),
+            "event_type": record.get("event_type") or "",
+            "subject": record.get("subject"),
+            "detail": dict(record.get("detail") or {}),
+            "created_at": _iso_datetime(record.get("created_at")),
+        }
+        for record in records
+    ]
 
 
 class AdminCommandService:

@@ -20,6 +20,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from app.admin import (
     AdminCommandRequest,
     AdminCommandService,
+    admin_audit_payload,
+    admin_conversations_payload,
+    admin_dashboard_payload,
     build_admin_csrf_token,
     catalog_csv_bytes,
     public_catalog_payload,
@@ -139,6 +142,26 @@ async def _admin_catalog_payload(current: Runtime) -> dict[str, Any]:
         sheets_refresh=getattr(current.google_sheets, "last_refresh", None),
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+def _admin_source_health(current: Runtime) -> dict[str, dict[str, Any]]:
+    return {
+        "database": {"ok": current.repository.healthcheck()},
+        "mercado_phone": {
+            "ok": _source_has_snapshot(current.cache),
+            "last_refresh": getattr(current.cache, "last_refresh", None),
+            "items": len(getattr(current.cache, "items", None) or []),
+        },
+        "google_sheets": {
+            "ok": _source_has_snapshot(current.google_sheets),
+            "last_refresh": getattr(current.google_sheets, "last_refresh", None),
+            "items": len(getattr(current.google_sheets, "items", None) or []),
+        },
+        "zapi": {
+            "ok": bool(current.settings.zapi_instance_id and current.settings.zapi_token),
+        },
+        "openai": {"ok": bool(current.settings.openai_api_key)},
+    }
 
 
 def _source_has_snapshot(source: Any, *, require_rates: bool = False) -> bool:
@@ -263,6 +286,57 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 headers={"Cache-Control": "no-store"},
             )
         return HTMLResponse(render_admin_page(build_admin_csrf_token(settings)))
+
+    @app.get("/admin/api/dashboard")
+    async def admin_dashboard(request: Request) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        return admin_dashboard_payload(
+            current.repository.conversation_status_counts(),
+            _admin_source_health(current),
+            datetime.now(timezone.utc).isoformat(),
+        )
+
+    @app.get("/admin/api/conversations")
+    async def admin_conversations(
+        request: Request,
+        status: str = "human",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        status_filter = str(status or "human").strip().lower()
+        if status_filter == "human":
+            statuses = ("human_pending", "human_active")
+        elif status_filter == "all":
+            statuses = None
+        elif status_filter in {"bot_active", "human_pending", "human_active", "closed"}:
+            statuses = (status_filter,)
+        else:
+            raise HTTPException(status_code=400, detail="Filtro de conversa inválido")
+        return {
+            "status": status_filter,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "items": admin_conversations_payload(current.repository.list_conversations(statuses, limit=limit)),
+        }
+
+    @app.get("/admin/api/audit")
+    async def admin_audit(
+        request: Request,
+        limit: int = 50,
+        event_type: str | None = None,
+    ) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        if limit < 1:
+            raise HTTPException(status_code=400, detail="Limite de auditoria inválido")
+        normalized_event_type = str(event_type or "").strip() or None
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "items": admin_audit_payload(
+                current.repository.list_audit_events(limit=limit, event_type=normalized_event_type)
+            ),
+        }
 
     @app.get("/admin/api/catalog")
     async def admin_catalog(request: Request) -> dict[str, Any]:
