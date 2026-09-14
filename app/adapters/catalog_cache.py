@@ -46,6 +46,11 @@ _SHARED_MODEL_VARIANT_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_SHARED_MODEL_SUFFIX_PATTERN = re.compile(
+    r"(?<!\w)(?:iphones?\s*)?(?P<number>1[0-9])\s+pro\s*/\s*pro\s+max\b",
+    flags=re.IGNORECASE,
+)
+
 _PRICE_THOUSANDS_SUFFIX_RE = re.compile(r"^[.,]\d{3}(?:[.,]\d{2})?\b")
 
 
@@ -146,6 +151,11 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     normalized = _normalize(value)
     if any(marker in normalized for marker in ("ipad", "macbook", "airpods", "apple watch")):
         return ()
+
+    shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(normalized)
+    if shared_suffix:
+        number = int(shared_suffix.group("number"))
+        return ((number, "pro"), (number, "pro max"))
 
     shared_variant = _SHARED_MODEL_VARIANT_PATTERN.search(normalized)
     if shared_variant:
