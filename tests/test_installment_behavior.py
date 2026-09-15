@@ -112,6 +112,145 @@ async def test_contextual_installment_question_returns_full_table(tmp_path):
     assert "em quantas vezes" not in decision.reply.lower()
 
 
+@pytest.mark.asyncio
+async def test_chat_followup_quantas_vezes_simulates_requested_sealed_iphone_15(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-rosa-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2820.0,
+            search_text="iphone 15 rosa 128 gb celular seminovo",
+        )
+    ]
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:iphone-15-lacrado",
+            name="iPhone 15",
+            capacity="128 GB",
+            price_brl=4400.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 15 rosa amarelo verde azul preto 128 gb novo lacrado",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "sim eu gostaria do lacrado\nquantas vezes ?",
+        history=[
+            {"role": "user", "content": "olá"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {
+                "role": "user",
+                "content": (
+                    "gostaria de saber se os iphones são novos ou semi ? e em quantas vezes "
+                    "pode fazer o 15"
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Bom dia! Temos o iPhone 15 novo lacrado, 128 GB, por R$ 4.400. "
+                    "Trabalhamos por encomenda, com entrega em até 1 semana e pagamento "
+                    "antecipado para envio. Para seminovo, não encontrei opção disponível "
+                    "no momento. Quer que eu simule o parcelamento no cartão?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 15 128 GB" in decision.reply
+    assert "Preço à vista: R$ 4.400,00" in decision.reply
+    assert "1x de" in decision.reply
+    assert "18x de" in decision.reply
+    assert "R$ 2.820,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_explicit_iphone_15_color_quantas_vezes_keeps_prior_sealed_request(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-rosa-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2820.0,
+            search_text="iphone 15 rosa 128 gb celular seminovo",
+        )
+    ]
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:iphone-15-lacrado",
+            name="iPhone 15",
+            capacity="128 GB",
+            price_brl=4400.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 15 rosa amarelo verde azul preto 128 gb novo lacrado",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "iphone 15 rosa em quantas vezes ?",
+        history=[
+            {
+                "role": "user",
+                "content": (
+                    "gostaria de saber se os iphones são novos ou semi ? e em quantas vezes "
+                    "pode fazer o 15"
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Bom dia! Temos o iPhone 15 novo lacrado, 128 GB, por R$ 4.400. "
+                    "Trabalhamos por encomenda, com entrega em até 1 semana e pagamento "
+                    "antecipado para envio. Para seminovo, não encontrei opção disponível "
+                    "no momento. Quer que eu simule o parcelamento no cartão?"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "sim eu gostaria do lacrado\nquantas vezes ?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de iPhone 15 disponíveis:\n"
+                    "• iPhone 15 — Rosa | Amarelo | Verde | Azul | Preto — 128 GB — "
+                    "NOVO LACRADO — R$ 4.400,00 | Bat: não se aplica"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 15 128 GB" in decision.reply
+    assert "Preço à vista: R$ 4.400,00" in decision.reply
+    assert "1x de" in decision.reply
+    assert "18x de" in decision.reply
+    assert "R$ 2.820,00" not in decision.reply
+
+
 def test_installment_context_prefers_explicit_current_model_over_stale_catalog_answer():
     history = [
         {
