@@ -198,7 +198,8 @@ REGRAS OBRIGATÓRIAS:
   de crédito na máquina física. Não use ferramentas de simulação nem envie tabela
   de parcelas nesse caso.
 - Sempre que o cliente perguntar como fica o parcelamento, quanto fica parcelado,
-  quais são as parcelas ou pedir uma simulação, use simulate_all_installments e
+  quantas vezes fica, quais são as parcelas ou pedir uma simulação, use
+  simulate_all_installments e
   envie a tabela completa de 1x até 18x. Isso vale mesmo quando ele mencionar
   uma quantidade específica, como 5x, 6x, 12x ou 18x: a quantidade é uma
   referência para a dúvida, não um filtro para esconder as demais opções.
@@ -585,6 +586,8 @@ def _is_product_availability_request(text: str) -> bool:
             "entrega",
             "pagamento",
             "nota fiscal",
+            "quantas vezes",
+            "em quantas",
         )
     ):
         return False
@@ -1816,6 +1819,7 @@ def _is_full_installment_request(text: str) -> bool:
         "quanto fica o parcelamento",
         "quais sao as parcelas",
         "quais as parcelas",
+        "quantas vezes",
         "me passa o parcelamento",
         "simulacao de parcelamento",
         "simular parcelamento",
@@ -1990,6 +1994,48 @@ def _has_installment_model_prompt(history: list[dict[str, str]] | None) -> bool:
     return False
 
 
+def _history_installment_condition(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Carry a customer's latest condition choice into a product follow-up."""
+    normalized = _normalize(text)
+    if _has_explicit_sealed_condition(normalized) or _has_seminovo_reference(normalized):
+        return None
+
+    current_models = _requested_iphone_model_keys(text)
+    if not current_models:
+        return None
+
+    def history_model_keys(content: str) -> tuple[tuple[int | str, str], ...]:
+        models = _requested_iphone_model_keys(content)
+        if models:
+            return models
+        if _catalog_family(content) != "iphone":
+            return ()
+        fallback = _model_key(content)
+        return (fallback,) if fallback is not None else ()
+
+    history_models: tuple[tuple[int | str, str], ...] = ()
+    selected_condition: str | None = None
+    for item in history or []:
+        content = item.get("content", "")
+        item_models = history_model_keys(content)
+        if item_models and item.get("role") == "user":
+            history_models = item_models
+            selected_condition = None
+        elif item_models and not history_models:
+            history_models = item_models
+        if item.get("role") != "user":
+            continue
+        if _has_explicit_sealed_condition(_normalize(content)):
+            selected_condition = "novo lacrado" if set(current_models) & set(history_models) else None
+        elif _has_seminovo_reference(_normalize(content)):
+            selected_condition = "seminovo" if set(current_models) & set(history_models) else None
+
+    return selected_condition
+
+
 def _is_installment_model_followup(
     text: str,
     history: list[dict[str, str]] | None,
@@ -2064,7 +2110,10 @@ def _installment_context_query(
         else ""
     )
     if _has_product_reference(_normalize(current)) or _is_case_accessory_request(current):
-        return "\n".join(part for part in (current_capacity_hint, current) if part).strip()
+        history_condition = _history_installment_condition(current, history)
+        return "\n".join(
+            part for part in (current_capacity_hint, current, history_condition) if part
+        ).strip()
 
     for item in reversed(history or []):
         if item.get("role") == "assistant" and any(

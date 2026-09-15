@@ -48,8 +48,9 @@ Regras operacionais:
   deve priorizar o modelo e a cor escritos na mensagem atual.
 - Quando o cliente perguntar se compramos algum produto, responder que compramos
   somente produtos da marca Apple, enviar o formulário de avaliação e definir handoff.
-- Quando o cliente perguntar como fica o parcelamento, quanto fica parcelado ou
-  pedir uma simulação, enviar a tabela de 1x a 18x da máquina física.
+- Quando o cliente perguntar como fica o parcelamento, quanto fica parcelado,
+  quantas vezes fica ou pedir uma simulação, enviar a tabela de 1x a 18x da
+  máquina física.
 - Se o cliente mencionar link de pagamento, cartão online, pagamento à distância
   ou pela internet, informar que a modalidade não é mais aceita e não fazer
   simulação pelo link.
