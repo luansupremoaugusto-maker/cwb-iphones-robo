@@ -76,6 +76,10 @@ CATALOG_PRICE_NEGOTIATION_REPLY = (
     "confirmar essa negociação com você."
 )
 CATALOG_PRICE_NEGOTIATION_REASON = "Negociação de preço de aparelho disponível"
+DELIVERY_FEE_HANDOFF_REPLY = (
+    "Vou encaminhar sua mensagem para um atendente confirmar a taxa e o prazo de entrega."
+)
+DELIVERY_FEE_HANDOFF_REASON = "Taxa e prazo de entrega precisam ser cotados com um atendente"
 CASE_ACCESSORY_REPLY = (
     "Sim 😊 Conseguimos capinhas, películas e protetores de câmera por R$ 10,00 cada."
 )
@@ -819,6 +823,28 @@ def _is_delivery_or_pickup_request(text: str) -> bool:
         or "pegar na loja" in normalized
     )
     return has_delivery or has_pickup
+
+
+def _is_delivery_fee_request(
+    text: str,
+    history: list[dict[str, str]] | None = None,
+) -> bool:
+    normalized = _normalize(text)
+    if not normalized or not re.search(r"\b(?:taxas?|tarifas?|fretes?)\b", normalized):
+        return False
+    if re.search(
+        r"\b(?:taxas?\s+de\s+entrega|taxas?\s+do\s+frete|fretes?|motoboy|sedex|entrega)\b",
+        normalized,
+    ):
+        return True
+    has_address_marker = bool(
+        re.search(
+            r"\b(?:rua|avenida|av\.?|alameda|travessa|praca|bairro|endereco|cep)\b",
+            normalized,
+        )
+    )
+    has_address_number = bool(re.search(r"\b\d{1,5}\b", normalized))
+    return has_address_marker and has_address_number and _has_delivery_context(history)
 
 
 def _has_delivery_context(history: list[dict[str, str]] | None) -> bool:
@@ -2922,13 +2948,21 @@ class AgentService:
         text: str,
         history: list[dict[str, str]] | None = None,
     ) -> AgentDecision | None:
+        delivery_fee_request = _is_delivery_fee_request(text, history)
         delivery_followup = _is_delivery_followup_request(text, history)
         if (
-            not (_is_delivery_or_pickup_request(text) or delivery_followup)
+            not (_is_delivery_or_pickup_request(text) or delivery_followup or delivery_fee_request)
             or _is_explicit_human_request(text)
             or _is_physical_store_request(text)
         ):
             return None
+        if delivery_fee_request:
+            return AgentDecision(
+                reply=DELIVERY_FEE_HANDOFF_REPLY,
+                handoff=True,
+                handoff_reason=DELIVERY_FEE_HANDOFF_REASON,
+                confidence="high",
+            )
         reply = _delivery_or_pickup_reply(self.faq, text, force_delivery=delivery_followup)
         if not reply:
             return None

@@ -193,6 +193,43 @@ async def test_sealed_shipping_followup_requires_advance_payment(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_delivery_fee_for_address_handoffs_instead_of_installment_rate_table(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Qual é o valor da taxa para a rua Luciano Piuzzi, 620, pinheirinho?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim, temos 1 iPhone 13 Pro seminovo disponível para venda:\n"
+                    "• 256GB, dourado, bateria 96% — R$ 2.470\n"
+                    "Não consigo reservar ou separar o aparelho.\n"
+                    "Qual horário você gostaria de solicitar para sua visita hoje?"
+                ),
+            },
+            {"role": "user", "content": "Vocês fazem entrega?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Enviamos para Curitiba e região por motoboy.\n"
+                    "Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser "
+                    "antecipado antes do despacho. Taxa e prazo devem ser cotados com um "
+                    "atendente."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == (
+        "Vou encaminhar sua mensagem para um atendente confirmar a taxa e o prazo de entrega."
+    )
+    assert decision.handoff_reason == "Taxa e prazo de entrega precisam ser cotados com um atendente"
+    assert "parcelamento" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_delivery_policy_is_normal_after_temporary_trip_mode(tmp_path, monkeypatch):
     current = datetime(2026, 9, 9, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
     monkeypatch.setattr(agent_module, "_store_now", lambda: current)
