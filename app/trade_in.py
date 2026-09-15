@@ -175,6 +175,12 @@ _IMPLICIT_EXCHANGE_TARGET_RE = re.compile(
     r"\btrocar\s+por\s+(?:um|uma)?\s*(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+_IMPLICIT_OWNED_EXCHANGE_TARGET_RE = re.compile(
+    r"\b(?:penso\s+em|estou\s+pensando\s+em)\b.{0,25}"
+    r"\btrocar\s+(?:por|para|pra|pro)\s+(?:um|uma|outro|outra)?\s*"
+    r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_GENERIC_UPGRADE_RE = re.compile(
     r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,20}"
     r"\btrocar\s+por\s+(?:um|uma|outro|outra)?\s*(?:modelo\s+)?mais\s+nov\w*\b",
@@ -245,6 +251,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
                 owned_device
                 and (
                     explicit_model_upgrade
+                    or _IMPLICIT_OWNED_EXCHANGE_TARGET_RE.search(text)
                     or _IMPLICIT_GENERIC_UPGRADE_RE.search(text)
                     or _IMPLICIT_MODEL_EXCHANGE_RE.search(text)
                     or explicit_device_entry
