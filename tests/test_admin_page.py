@@ -10,7 +10,9 @@ def test_admin_page_contains_catalog_controls_and_command_controls():
 
     assert "Catálogo de disponíveis" in html
     assert "Baixar CSV" in html
+    assert "Baixar PDF" in html
     assert 'id="export-csv"' in html
+    assert 'id="export-pdf"' in html
     assert 'id="export-seminovos"' in html
     assert 'id="export-lacrados_pronta_entrega"' in html
     assert 'id="export-lacrados"' in html
@@ -19,6 +21,24 @@ def test_admin_page_contains_catalog_controls_and_command_controls():
     assert "Atualizar catálogo" in html
     assert "Liberar todos os clientes" in html
     assert "X-Admin-CSRF" in html
+
+
+def test_admin_page_places_operational_commands_before_dashboard():
+    from app.admin_page import render_admin_page
+
+    html = render_admin_page("csrf-token")
+
+    assert html.index('aria-labelledby="commands-title"') < html.index(
+        'aria-labelledby="operations-title"'
+    )
+
+
+def test_admin_page_keeps_hidden_bulk_command_phone_field_hidden():
+    from app.admin_page import render_admin_page
+
+    html = render_admin_page("csrf-token")
+
+    assert "#phone-field[hidden]" in html
 
 
 def test_admin_page_does_not_render_catalog_values_as_inner_html():

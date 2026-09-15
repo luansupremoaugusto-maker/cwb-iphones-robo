@@ -31,6 +31,8 @@ from app.admin import (
     build_admin_csrf_token,
     catalog_csv_bytes,
     catalog_csv_filename,
+    catalog_pdf_bytes,
+    catalog_pdf_filename,
     normalize_catalog_sections,
     public_catalog_payload,
 )
@@ -517,6 +519,29 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             headers={
                 "Cache-Control": "no-store",
                 "Content-Disposition": f'attachment; filename="{catalog_csv_filename(selected_sections)}"',
+            },
+        )
+
+    @app.get("/admin/api/catalog.pdf")
+    async def admin_catalog_pdf(request: Request) -> Response:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        try:
+            selected_sections = normalize_catalog_sections(request.query_params.get("sections"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            payload = await _admin_catalog_payload(current)
+            data = catalog_pdf_bytes(payload, sections=selected_sections)
+        except Exception as exc:
+            logger.exception("admin catalog PDF export failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Catálogo temporariamente indisponível") from exc
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{catalog_pdf_filename(selected_sections)}"',
             },
         )
 

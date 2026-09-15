@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
+from pypdf import PdfReader
 from fastapi.testclient import TestClient
 
 from app.admin import build_admin_csrf_token
@@ -131,6 +133,72 @@ def test_admin_catalog_csv_rejects_unknown_section(configured_runtime):
     with TestClient(create_app(configured_runtime)) as client:
         response = client.get(
             "/admin/api/catalog.csv?sections=seminovos,nao-existe",
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 400
+    assert "Categoria(s) de catálogo inválida(s)" in response.json()["detail"]
+
+
+def test_admin_catalog_pdf_exports_only_requested_sections(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get(
+            "/admin/api/catalog.pdf?sections=seminovos",
+            auth=("admin", "secret"),
+        )
+
+    pdf_text = "\n".join(
+        page.extract_text() or "" for page in PdfReader(BytesIO(response.content)).pages
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert "catalogo-seminovos.pdf" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF-")
+    assert "iPhone 15" in pdf_text
+    assert "iPhone 18" not in pdf_text
+    assert "Fotos disponíveis" in pdf_text
+
+
+def test_admin_catalog_pdf_requires_basic_auth(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get("/admin/api/catalog.pdf?sections=seminovos")
+
+    assert response.status_code == 401
+
+
+def test_admin_catalog_pdf_rejects_empty_section_filter(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get(
+            "/admin/api/catalog.pdf?sections=",
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 400
+    assert "Selecione ao menos uma categoria" in response.json()["detail"]
+
+
+def test_admin_catalog_pdf_keeps_multiple_selected_sections_in_catalog_order(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get(
+            "/admin/api/catalog.pdf?sections=lacrados,seminovos",
+            auth=("admin", "secret"),
+        )
+
+    text = "\n".join(
+        page.extract_text() or "" for page in PdfReader(BytesIO(response.content)).pages
+    )
+    assert response.status_code == 200
+    assert "catalogo-selecionado.pdf" in response.headers["content-disposition"]
+    assert "iPhone 15" in text
+    assert "iPhone 18" in text
+    assert "iPhone 17" not in text
+    assert text.index("iPhone 15") < text.index("iPhone 18")
+
+
+def test_admin_catalog_pdf_rejects_unknown_section(configured_runtime):
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.get(
+            "/admin/api/catalog.pdf?sections=seminovos,nao-existe",
             auth=("admin", "secret"),
         )
 

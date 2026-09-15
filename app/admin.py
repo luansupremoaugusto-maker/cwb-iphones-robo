@@ -3,12 +3,25 @@ from __future__ import annotations
 import csv
 import hashlib
 import hmac
+import html
 import io
+import unicodedata
 from collections.abc import Iterable
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
+import arabic_reshaper
 from pydantic import BaseModel, Field
+from bidi.algorithm import get_display
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFError, TTFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 
 from app.config import Settings, normalize_phone
 from app.storage.database import Repository
@@ -25,6 +38,115 @@ CATALOG_SECTION_LABELS = {
     "lacrados_pronta_entrega": "Lacrados para pronta entrega",
     "lacrados": "Lacrados por encomenda",
 }
+
+_CATALOG_SECTION_SLUGS = {
+    "seminovos": "seminovos",
+    "lacrados_pronta_entrega": "lacrados-pronta-entrega",
+    "lacrados": "lacrados-por-encomenda",
+}
+
+_CATALOG_PDF_FALLBACK_FONT = "STSong-Light"
+pdfmetrics.registerFont(UnicodeCIDFont(_CATALOG_PDF_FALLBACK_FONT))
+
+
+class CatalogPdfFontUnavailable(RuntimeError):
+    """Raised when a catalog character needs a font missing from the runtime."""
+
+
+def _register_catalog_pdf_font(
+    name: str,
+    candidates: Iterable[str],
+    fallback: str | None,
+) -> str | None:
+    for candidate in candidates:
+        path = Path(candidate)
+        if not path.is_file():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(name, str(path)))
+        except (OSError, TTFError, ValueError):
+            continue
+        return name
+    return fallback
+
+
+_NOTO_FONT_DIRS = (
+    Path(__file__).resolve().parent / "fonts",
+    Path("/usr/share/fonts/truetype/noto"),
+)
+
+
+def _noto_font_paths(filename: str) -> tuple[str, ...]:
+    return tuple(str(directory / filename) for directory in _NOTO_FONT_DIRS)
+
+
+_CATALOG_PDF_FONTS = {
+    "default": _register_catalog_pdf_font(
+        "CatalogNotoSans",
+        _noto_font_paths("NotoSans-Regular.ttf"),
+        _CATALOG_PDF_FALLBACK_FONT,
+    ),
+    "arabic": _register_catalog_pdf_font(
+        "CatalogNotoSansArabic",
+        _noto_font_paths("NotoSansArabic-Regular.ttf"),
+        None,
+    ),
+    "devanagari": _register_catalog_pdf_font(
+        "CatalogNotoSansDevanagari",
+        _noto_font_paths("NotoSansDevanagari-Regular.ttf"),
+        None,
+    ),
+    "symbols": _register_catalog_pdf_font(
+        "CatalogNotoSansSymbols",
+        _noto_font_paths("NotoSansSymbols2-Regular.ttf"),
+        None,
+    ),
+}
+
+_CATALOG_PDF_FONT = _CATALOG_PDF_FONTS["default"]
+
+
+def _catalog_pdf_font_for_char(character: str) -> str:
+    codepoint = ord(character)
+    if (
+        0x0600 <= codepoint <= 0x08FF
+        or 0xFB1D <= codepoint <= 0xFDFF
+        or 0xFE70 <= codepoint <= 0xFEFF
+    ):
+        font = _CATALOG_PDF_FONTS["arabic"]
+        if font is None:
+            raise CatalogPdfFontUnavailable("Noto Sans Arabic is required for catalog PDF export")
+        return font
+    if 0x0900 <= codepoint <= 0x097F:
+        font = _CATALOG_PDF_FONTS["devanagari"]
+        if font is None:
+            raise CatalogPdfFontUnavailable("Noto Sans Devanagari is required for catalog PDF export")
+        return font
+    if (
+        0x1F000 <= codepoint <= 0x1FAFF
+        or 0x2000 <= codepoint <= 0x206F
+        or 0x2100 <= codepoint <= 0x27BF
+    ):
+        font = _CATALOG_PDF_FONTS["symbols"]
+        if font is None:
+            raise CatalogPdfFontUnavailable("Noto Sans Symbols is required for catalog PDF export")
+        return font
+    if 0x2E80 <= codepoint <= 0x9FFF:
+        return _CATALOG_PDF_FALLBACK_FONT
+    return _CATALOG_PDF_FONT
+
+CATALOG_EXPORT_COLUMNS = (
+    "Categoria",
+    "Produto",
+    "Capacidade",
+    "Condição",
+    "Cor(es)",
+    "Preço(s)",
+    "Quantidade",
+    "Saúde da bateria",
+    "Fotos disponíveis",
+    "Disponibilidade",
+)
 
 CONVERSATION_STATUS_LABELS = {
     "bot_active": "Robô ativo",
@@ -128,6 +250,29 @@ def _format_brl(value: Any) -> str:
     return f"R$ {formatted.replace(',', '_').replace('.', ',').replace('_', '.')}"
 
 
+def _catalog_export_row(label: str, item: dict[str, Any]) -> dict[str, Any]:
+    item_colors = item.get("cores") or []
+    if not item_colors and item.get("cor"):
+        item_colors = [item["cor"]]
+    prices = item.get("precos_brl") or []
+    battery = item.get("saude_bateria")
+    battery_text = "" if battery is None else str(battery)
+    if battery_text and not battery_text.endswith("%"):
+        battery_text += "%"
+    return {
+        "Categoria": label,
+        "Produto": item.get("nome") or "",
+        "Capacidade": item.get("capacidade") or "",
+        "Condição": item.get("condicao") or "",
+        "Cor(es)": ", ".join(str(color) for color in item_colors),
+        "Preço(s)": " | ".join(_format_brl(price) for price in prices),
+        "Quantidade": "" if item.get("quantidade") is None else item.get("quantidade"),
+        "Saúde da bateria": battery_text,
+        "Fotos disponíveis": item.get("fotos_disponiveis") or 0,
+        "Disponibilidade": item.get("disponibilidade") or "",
+    }
+
+
 def _selected_catalog_sections(sections: Iterable[str] | None) -> tuple[str, ...]:
     if sections is None:
         return tuple(CATALOG_SECTION_LABELS)
@@ -139,7 +284,7 @@ def _selected_catalog_sections(sections: Iterable[str] | None) -> tuple[str, ...
 
 
 def normalize_catalog_sections(value: str | None) -> tuple[str, ...] | None:
-    """Parse the comma-separated category filter used by the CSV endpoint."""
+    """Parse the comma-separated category filter used by CSV/PDF endpoints."""
     if value is None:
         return None
     parts = [part.strip().lower() for part in value.split(",") if part.strip()]
@@ -153,57 +298,165 @@ def catalog_csv_filename(sections: Iterable[str] | None) -> str:
     if selected == tuple(CATALOG_SECTION_LABELS):
         return "catalogo-disponiveis.csv"
     if len(selected) == 1:
-        slugs = {
-            "seminovos": "seminovos",
-            "lacrados_pronta_entrega": "lacrados-pronta-entrega",
-            "lacrados": "lacrados-por-encomenda",
-        }
-        return f"catalogo-{slugs[selected[0]]}.csv"
+        return f"catalogo-{_CATALOG_SECTION_SLUGS[selected[0]]}.csv"
     return "catalogo-selecionado.csv"
 
 
 def catalog_csv_bytes(payload: dict[str, Any], *, sections: Iterable[str] | None = None) -> bytes:
-    columns = [
-        "Categoria",
-        "Produto",
-        "Capacidade",
-        "Condição",
-        "Cor(es)",
-        "Preço(s)",
-        "Quantidade",
-        "Saúde da bateria",
-        "Fotos disponíveis",
-        "Disponibilidade",
-    ]
     output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=columns, delimiter=";", lineterminator="\r\n")
+    writer = csv.DictWriter(
+        output,
+        fieldnames=CATALOG_EXPORT_COLUMNS,
+        delimiter=";",
+        lineterminator="\r\n",
+    )
     writer.writeheader()
     for section in _selected_catalog_sections(sections):
         label = CATALOG_SECTION_LABELS[section]
         for item in payload.get(section, []):
-            colors = item.get("cores") or []
-            if not colors and item.get("cor"):
-                colors = [item["cor"]]
-            prices = item.get("precos_brl") or []
-            battery = item.get("saude_bateria")
-            battery_text = "" if battery is None else str(battery)
-            if battery_text and not battery_text.endswith("%"):
-                battery_text += "%"
-            writer.writerow(
-                {
-                    "Categoria": label,
-                    "Produto": item.get("nome") or "",
-                    "Capacidade": item.get("capacidade") or "",
-                    "Condição": item.get("condicao") or "",
-                    "Cor(es)": ", ".join(str(color) for color in colors),
-                    "Preço(s)": " | ".join(_format_brl(price) for price in prices),
-                    "Quantidade": "" if item.get("quantidade") is None else item.get("quantidade"),
-                    "Saúde da bateria": battery_text,
-                    "Fotos disponíveis": item.get("fotos_disponiveis") or 0,
-                    "Disponibilidade": item.get("disponibilidade") or "",
-                }
-            )
+            writer.writerow(_catalog_export_row(label, item))
     return output.getvalue().encode("utf-8-sig")
+
+
+def catalog_pdf_filename(sections: Iterable[str] | None) -> str:
+    selected = _selected_catalog_sections(sections)
+    if selected == tuple(CATALOG_SECTION_LABELS):
+        return "catalogo-disponiveis.pdf"
+    if len(selected) == 1:
+        return f"catalogo-{_CATALOG_SECTION_SLUGS[selected[0]]}.pdf"
+    return "catalogo-selecionado.pdf"
+
+
+def _catalog_pdf_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if (
+        _CATALOG_PDF_FONTS["arabic"] is not None
+        and any(unicodedata.bidirectional(char) in {"R", "AL"} for char in text)
+    ):
+        text = get_display(arabic_reshaper.reshape(text))
+    return text
+
+
+def _catalog_pdf_markup(value: Any) -> str:
+    text = _catalog_pdf_text(value)
+    if not text:
+        return "-"
+    spans: list[str] = []
+    current_font: str | None = None
+    current_text: list[str] = []
+
+    def flush() -> None:
+        if not current_text or current_font is None:
+            return
+        escaped = html.escape("".join(current_text))
+        if current_font == _CATALOG_PDF_FONT:
+            spans.append(escaped)
+        else:
+            spans.append(f'<font name="{current_font}">{escaped}</font>')
+
+    for character in text:
+        font = _catalog_pdf_font_for_char(character)
+        if unicodedata.combining(character) and current_font is not None:
+            font = current_font
+        if font != current_font:
+            flush()
+            current_text.clear()
+            current_font = font
+        current_text.append(character)
+    flush()
+    return "".join(spans)
+
+
+def catalog_pdf_bytes(payload: dict[str, Any], *, sections: Iterable[str] | None = None) -> bytes:
+    selected_sections = _selected_catalog_sections(sections)
+    output = io.BytesIO()
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "CatalogPdfTitle",
+        parent=styles["Title"],
+        fontName=_CATALOG_PDF_FONT,
+        fontSize=16,
+        leading=19,
+        spaceAfter=4,
+    )
+    meta_style = ParagraphStyle(
+        "CatalogPdfMeta",
+        parent=styles["BodyText"],
+        fontName=_CATALOG_PDF_FONT,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#667085"),
+        spaceAfter=8,
+    )
+    header_style = ParagraphStyle(
+        "CatalogPdfHeader",
+        parent=styles["BodyText"],
+        fontName=_CATALOG_PDF_FONT,
+        fontSize=7,
+        leading=8,
+        textColor=colors.white,
+    )
+    cell_style = ParagraphStyle(
+        "CatalogPdfCell",
+        parent=styles["BodyText"],
+        fontName=_CATALOG_PDF_FONT,
+        fontSize=7,
+        leading=8,
+        spaceAfter=0,
+    )
+
+    def cell(value: Any) -> Paragraph:
+        return Paragraph(_catalog_pdf_markup(value), cell_style)
+
+    category_text = ", ".join(CATALOG_SECTION_LABELS[section] for section in selected_sections)
+    story: list[Any] = [
+        Paragraph(_catalog_pdf_markup("Catálogo de disponíveis"), title_style),
+        Paragraph(_catalog_pdf_markup(f"Categorias exportadas: {category_text}"), meta_style),
+    ]
+    table_data: list[list[Any]] = [[
+        Paragraph(_catalog_pdf_markup(column), header_style) for column in CATALOG_EXPORT_COLUMNS
+    ]]
+    for section in selected_sections:
+        label = CATALOG_SECTION_LABELS[section]
+        for item in payload.get(section, []):
+            row = _catalog_export_row(label, item)
+            table_data.append([cell(row[column]) for column in CATALOG_EXPORT_COLUMNS])
+
+    if len(table_data) == 1:
+        story.append(Paragraph("Nenhum aparelho encontrado nas categorias selecionadas.", cell_style))
+    else:
+        table = Table(
+            table_data,
+            colWidths=[90, 100, 60, 80, 85, 90, 55, 70, 65, 80],
+            repeatRows=1,
+            hAlign="LEFT",
+        )
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2457d6")),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#d0d5dd")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+        ]))
+        story.append(table)
+
+    document = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        leftMargin=10 * mm,
+        rightMargin=10 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
+        title="Catálogo de disponíveis",
+        author="CWB.IPHONES",
+    )
+    document.build(story)
+    return output.getvalue()
 
 
 def _iso_datetime(value: Any) -> str | None:

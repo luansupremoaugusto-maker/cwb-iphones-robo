@@ -93,7 +93,7 @@ qualquer uma estiver ausente, o painel permanece desabilitado. Não versione
 essas credenciais.
 
 Após o login na tela do painel (Basic Auth também é aceito para integrações), o
-site permite atualizar e baixar em CSV a mesma lista completa usada pelo robô. Ela separa seminovos, lacrados em estoque para
+site permite atualizar e baixar em CSV ou PDF a mesma lista completa usada pelo robô. Os dois formatos respeitam as categorias selecionadas e separam seminovos, lacrados em estoque para
 pronta entrega e lacrados por encomenda. O estoque físico continua sendo
 consultado no Mercado Phone; uma linha da planilha fornece preço de lacrado,
 mas não prova estoque.
