@@ -400,6 +400,8 @@ def _is_available_list_request(text: str) -> bool:
         return False
     if _is_generic_iphone_list_request(text):
         return True
+    if _has_product_reference(normalized):
+        return False
     phrases = (
         "o que tem disponivel",
         "o que voce tem",
