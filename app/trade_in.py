@@ -139,6 +139,7 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"estado|saude\s+(?:da\s+)?bateria)\b"
     r"|\b\d{1,3}\s*%\s*(?:de\s*)?bateria\b"
     r"|\b\d{1,3}\s*%\s*(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
+    r"|\b\d{1,3}\s+(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?bateria\b"
     r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%|boa|ruim)\b",
     re.IGNORECASE,
@@ -358,6 +359,17 @@ def _has_personal_device_reference(text: str) -> bool:
             text,
             flags=re.IGNORECASE,
         )
+    )
+
+
+def _has_complete_owned_device_profile(text: str) -> bool:
+    """Recognize a detailed Apple device profile as an implicit evaluation offer."""
+    return bool(
+        _has_personal_device_reference(text)
+        and _APPLE_PRODUCT_RE.search(text)
+        and re.search(r"\b\d{1,4}\s*(?:gb|tb)\b", text, flags=re.IGNORECASE)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
     )
 
 
@@ -649,6 +661,9 @@ def is_trade_in_request(text: str | None) -> bool:
     # A non-Apple brand must not activate the Apple evaluation form.
     if _NON_APPLE_RE.search(normalized) and not _APPLE_PRODUCT_RE.search(normalized):
         return False
+
+    if _has_complete_owned_device_profile(normalized):
+        return True
 
     if _is_store_buyback_question(normalized):
         # "da Apple" means buying from Apple, not buying the customer's device.
