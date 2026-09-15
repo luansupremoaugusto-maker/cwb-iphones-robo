@@ -308,7 +308,7 @@ def _is_catalog_followup(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    return any(
+    if any(
         marker in normalized
         for marker in (
             "lacrado",
@@ -331,6 +331,15 @@ def _is_catalog_followup(text: str) -> bool:
             "carregador",
             "cor",
             "cores",
+        )
+    ):
+        return True
+    # A capacity-only availability answer such as "Tb tem de 256gb" refers
+    # to the product discussed immediately before it.
+    return bool(
+        re.search(
+            r"\btem\s+de\s+\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\b",
+            normalized,
         )
     )
 
@@ -2028,7 +2037,8 @@ def _format_ambiguous_installment_decision(result: dict[str, Any]) -> AgentDecis
 def _strip_catalog_history_constraints(value: str) -> str:
     cleaned = re.sub(
         r"\b(?:lacrados?|encomendas?|seminovos?|usados?|entregas?|pagamentos?|"
-        r"parcel\w*|taxas?|juros|garantia|reserv\w*|endereco|horario|nota\s+fiscal)\b",
+        r"parcel\w*|taxas?|juros|garantia|reserv\w*|endereco|horario|"
+        r"nota\s+fiscal|catalogo)\b",
         " ",
         _normalize(value),
     )
