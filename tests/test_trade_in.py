@@ -684,6 +684,46 @@ async def test_part_payment_offer_with_bare_iphone_model_and_battery_health_retu
 
 
 @pytest.mark.asyncio
+async def test_detailed_owned_iphone_profile_without_exchange_words_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Tenho um iPhone 13 promax, 128gb, 88 de saúde de bateria, na cor dourada "
+        "e sem avarias ou marcas de uso."
+    )
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Olá, tudo bem?"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {"role": "assistant", "content": "Olá! Tudo bem? 😊 Como posso ajudar?"},
+        ],
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
