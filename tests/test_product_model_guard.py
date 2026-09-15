@@ -209,6 +209,39 @@ async def test_bare_model_capacity_value_question_returns_only_requested_iphone(
 
 
 @pytest.mark.asyncio
+async def test_explicit_iphone_16_catalog_question_does_not_return_complete_list(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16-preto-128",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3750,
+            search_text="iphone 16 preto 128gb celular seminovo",
+        )
+    ]
+    agent.cache.sealed_cache.items.insert(
+        0,
+        _sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 5200),
+    )
+
+    decision = await agent.respond("Vi um iphone 16 disponível no catálogo")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-preto-128", "iphone-16-lacrado"]
+    assert "iPhone 16" in decision.reply
+    assert "lista completa" not in decision.reply.lower()
+    assert "iPhone 13" not in decision.reply
+    assert "iPhone 17" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_cheapest_iphone_question_returns_lowest_available_price(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
