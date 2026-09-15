@@ -1095,6 +1095,34 @@ async def test_owned_iphone_exchange_for_newer_model_returns_evaluation_form(tmp
 
 
 @pytest.mark.asyncio
+async def test_owned_iphone_12_orcamento_for_16_pro_returns_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Bom dia, tudo bem?\n"
+        "Estou fazendo alguns orçamentos para trocar meu celular\n"
+        "Tenho um iPhone 12 hoje, penso em trocar para um 16 Pro"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_15_pro_upgrade_to_17_pro_max_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
