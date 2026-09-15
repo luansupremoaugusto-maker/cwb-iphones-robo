@@ -159,11 +159,12 @@ _PAGE_TEMPLATE = """<!doctype html>
     .export-option input { min-height: auto; }
     .export-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
     .export-actions .status { margin: 0; }
-    #export-csv:disabled { cursor: not-allowed; }
+    #export-csv:disabled, #export-pdf:disabled { cursor: not-allowed; }
     .preview-box { background: #eef3ff; border: 1px solid #c7d7fe; border-radius: 9px; color: var(--brand-dark); font-size: 13px; margin-top: 14px; padding: 10px 12px; }
     .control-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.2fr) minmax(260px, 1.4fr) auto; }
     .sessions-table table { min-width: 720px; }
     .field { display: grid; gap: 5px; }
+    #phone-field[hidden] { display: none; }
     label { font-size: 13px; font-weight: 700; }
     .warning { background: #fffaeb; border: 1px solid #fedf89; border-radius: 9px; color: #7a2e0b; font-size: 13px; margin: 14px 0 0; padding: 10px 12px; }
     .empty { color: var(--muted); padding: 22px 12px; text-align: center; }
@@ -191,6 +192,39 @@ _PAGE_TEMPLATE = """<!doctype html>
         <button id="refresh-catalog" type="button">Atualizar catálogo</button>
       </div>
     </header>
+
+    <section class="panel" aria-labelledby="commands-title">
+      <h2 id="commands-title">Comandos operacionais</h2>
+      <p class="muted">As ações abaixo alteram o estado das conversas e ficam registradas na auditoria.</p>
+      <form id="command-form">
+        <div class="command-grid">
+          <div class="field">
+            <label for="command-action">Ação</label>
+            <select id="command-action" name="action">
+              <option value="release_all">Liberar todos os clientes</option>
+              <option value="assume">Assumir conversa</option>
+              <option value="resume">Retomar conversa para o robô</option>
+              <option value="close">Fechar conversa</option>
+            </select>
+          </div>
+          <div class="field" id="phone-field" hidden>
+            <label for="command-phone">Telefone da conversa</label>
+            <input id="command-phone" name="phone" inputmode="tel" placeholder="5541999999999" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="command-justification">Justificativa</label>
+            <input id="command-justification" name="justification" maxlength="250" placeholder="Por que esta ação é necessária?" autocomplete="off" required>
+          </div>
+          <div class="command-actions">
+            <button id="command-preview" class="secondary" type="submit">Pré-visualizar impacto</button>
+            <button id="command-submit" class="danger" type="button" disabled>Executar após a prévia</button>
+          </div>
+        </div>
+        <p class="warning">“Liberar todos” reativa somente conversas em atendimento humano; conversas encerradas permanecem encerradas.</p>
+        <div id="command-preview-box" class="preview-box" hidden></div>
+        <p id="command-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
 
     <section class="panel" aria-labelledby="operations-title">
       <div class="panel-heading">
@@ -230,7 +264,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       <div class="export-panel" aria-labelledby="catalog-export-title">
         <div>
           <h3 id="catalog-export-title">Exportar catálogo para o robô</h3>
-          <p class="muted">Escolha quais categorias devem entrar no CSV. Os seminovos são os aparelhos disponíveis no estoque; os lacrados ficam separados entre pronta entrega e encomenda.</p>
+          <p class="muted">Escolha quais categorias devem entrar no CSV ou no PDF. Os seminovos são os aparelhos disponíveis no estoque; os lacrados ficam separados entre pronta entrega e encomenda.</p>
         </div>
         <fieldset class="export-options">
           <legend>Categorias para exportar</legend>
@@ -240,6 +274,7 @@ _PAGE_TEMPLATE = """<!doctype html>
         </fieldset>
         <div class="export-actions">
           <button id="export-csv" class="secondary" type="button">Baixar CSV</button>
+          <button id="export-pdf" class="secondary" type="button">Baixar PDF</button>
           <span id="export-status" class="status muted" role="status" aria-live="polite"></span>
         </div>
       </div>
@@ -305,39 +340,6 @@ _PAGE_TEMPLATE = """<!doctype html>
           <tbody id="human-queue-body"></tbody>
         </table>
       </div>
-    </section>
-
-    <section class="panel" aria-labelledby="commands-title">
-      <h2 id="commands-title">Comandos operacionais</h2>
-      <p class="muted">As ações abaixo alteram o estado das conversas e ficam registradas na auditoria.</p>
-      <form id="command-form">
-        <div class="command-grid">
-          <div class="field">
-            <label for="command-action">Ação</label>
-            <select id="command-action" name="action">
-              <option value="release_all">Liberar todos os clientes</option>
-              <option value="assume">Assumir conversa</option>
-              <option value="resume">Retomar conversa para o robô</option>
-              <option value="close">Fechar conversa</option>
-            </select>
-          </div>
-          <div class="field" id="phone-field" hidden>
-            <label for="command-phone">Telefone da conversa</label>
-            <input id="command-phone" name="phone" inputmode="tel" placeholder="5541999999999" autocomplete="off">
-          </div>
-          <div class="field">
-            <label for="command-justification">Justificativa</label>
-            <input id="command-justification" name="justification" maxlength="250" placeholder="Por que esta ação é necessária?" autocomplete="off" required>
-          </div>
-          <div class="command-actions">
-            <button id="command-preview" class="secondary" type="submit">Pré-visualizar impacto</button>
-            <button id="command-submit" class="danger" type="button" disabled>Executar após a prévia</button>
-          </div>
-        </div>
-        <p class="warning">“Liberar todos” reativa somente conversas em atendimento humano; conversas encerradas permanecem encerradas.</p>
-        <div id="command-preview-box" class="preview-box" hidden></div>
-        <p id="command-status" class="status" role="status" aria-live="polite"></p>
-      </form>
     </section>
 
     <section class="panel" aria-labelledby="control-title">
@@ -611,24 +613,26 @@ _PAGE_TEMPLATE = """<!doctype html>
       function updateExportStatus() {
         const selected = selectedExportSections();
         const status = byId("export-status");
-        const button = byId("export-csv");
-        button.disabled = !selected.length;
+        ["export-csv", "export-pdf"].forEach((id) => { byId(id).disabled = !selected.length; });
         status.className = `status ${selected.length ? "muted" : "error"}`;
         status.textContent = selected.length
-          ? `${selected.length} categoria(s) selecionada(s). O CSV terá somente essa seleção.`
+          ? `${selected.length} categoria(s) selecionada(s). O CSV e o PDF terão somente essa seleção.`
           : "Selecione ao menos uma categoria para exportar.";
       }
 
-      function exportCatalogCsv() {
+      function exportCatalog(format) {
         const selected = selectedExportSections();
         if (!selected.length) {
           updateExportStatus();
           return;
         }
-        const url = new URL("/admin/api/catalog.csv", window.location.origin);
+        const url = new URL(`/admin/api/catalog.${format}`, window.location.origin);
         if (selected.length !== sectionDefinitions.length) url.searchParams.set("sections", selected.join(","));
         window.location.assign(url.toString());
       }
+
+      function exportCatalogCsv() { exportCatalog("csv"); }
+      function exportCatalogPdf() { exportCatalog("pdf"); }
 
       function renderSummary() {
         byId("catalog-total").textContent = asText(catalog?.total_modelos, "0");
@@ -982,6 +986,7 @@ _PAGE_TEMPLATE = """<!doctype html>
 
       byId("refresh-catalog").addEventListener("click", loadCatalog);
       byId("export-csv").addEventListener("click", exportCatalogCsv);
+      byId("export-pdf").addEventListener("click", exportCatalogPdf);
       sectionDefinitions.forEach(([key]) => byId(`export-${key}`).addEventListener("change", updateExportStatus));
       updateExportStatus();
       byId("catalog-search").addEventListener("input", renderTable);

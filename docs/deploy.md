@@ -45,7 +45,8 @@ Acesse `https://SEU_DOMINIO/admin` e informe as credenciais na tela de login
 configuradas no `.env.local`. HTTP Basic Auth continua aceito para integrações.
 A página consulta o catálogo pelo mesmo caminho
 do robô, mostra seminovos, lacrados em pronta entrega e lacrados por encomenda,
-e permite baixar `catalogo-disponiveis.csv`.
+e permite baixar `catalogo-disponiveis.csv` ou `catalogo-disponiveis.pdf`. Os dois
+formatos respeitam as categorias selecionadas no painel.
 
 O painel mostra ainda o resumo dos estados das conversas, a saúde do banco e das
 integrações, a fila de atendimento humano com a última mensagem e uma auditoria
