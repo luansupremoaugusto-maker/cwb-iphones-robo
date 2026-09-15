@@ -1290,6 +1290,88 @@ async def test_exact_question_about_iphone_15_and_15_pro_returns_both_models(tmp
     assert "iPhone 15 Pro" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_or_joined_iphone_15_and_15_pro_request_returns_all_matching_stock(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("iphone-15-lacrado-128", "iPhone 15", "128 GB", 4400),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-or-joined-models.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-256-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2860,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iphone 15 preto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-256-seminovo",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3700,
+            battery_health=92,
+            source="mercado_phone",
+            search_text="iphone 15 pro titanio azul 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-512-seminovo",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="512GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3990,
+            battery_health=89,
+            source="mercado_phone",
+            search_text="iphone 15 pro titanio natural 512gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Tenho interesse em iphone 15 ou o 15 pro, vcs tem?",
+        history=[
+            {"role": "user", "content": "olá"},
+            {"role": "assistant", "content": "Olá! Tudo bem? 😊 Como posso ajudar?"},
+            {"role": "user", "content": "tudo bem?"},
+            {"role": "assistant", "content": "Olá! Tudo bem? 😊 Como posso ajudar?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-15-256-seminovo",
+        "iphone-15-pro-256-seminovo",
+        "iphone-15-pro-512-seminovo",
+        "iphone-15-lacrado-128",
+    }
+    assert decision.reply.count("R$") == 4
+    assert decision.reply.upper().count("IPHONE 15 PRO") == 2
+    assert "iPhone 15" in decision.reply
+
+
 def _watch_seminovo() -> InventoryItem:
     return InventoryItem(
         external_id="watch-se2-seminovo",
