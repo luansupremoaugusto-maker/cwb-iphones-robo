@@ -795,7 +795,10 @@ def _is_physical_store_request(text: str) -> bool:
         "posso visitar a loja",
     )
     return any(phrase in normalized for phrase in phrases) or bool(
-        re.search(r"\bde\s+onde\s+(?:e|fica)\s+(?:a\s+)?loja\b", normalized)
+        re.search(
+            r"\b(?:de\s+onde\s+(?:e|fica)|a?onde\s+fica\s+(?:localizad\w*\s+)?(?:a\s+)?loja)\b",
+            normalized,
+        )
     )
 
 

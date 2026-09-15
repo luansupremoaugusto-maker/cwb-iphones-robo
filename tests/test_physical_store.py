@@ -95,3 +95,33 @@ async def test_informal_store_origin_question_returns_address_without_catalog_li
     assert decision.handoff is False
     assert "Avenida Nossa Senhora da Luz, 1341" in decision.reply
     assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_location_followup_after_installment_table_returns_store_address(tmp_path, monkeypatch):
+    freeze_weekday(monkeypatch)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Aonde fica localizada a loja de vocês ?",
+        history=[
+            {
+                "role": "user",
+                "content": "Olá quero adquirir o 16 pro",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Parcelamento do IPHONE 16 PRO 128GB\n"
+                    "Preço à vista: R$ 4.190,00\n"
+                    "1x de R$ 4.408,21 (total R$ 4.408,21)\n"
+                    "Valores calculados para pagamento no cartão de crédito."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Avenida Nossa Senhora da Luz, 1341" in decision.reply
+    assert "09:00" in decision.reply
+    assert "parcelamento do iphone 16 pro" not in decision.reply.lower()
