@@ -1467,6 +1467,85 @@ async def test_two_standalone_pro_models_with_capacity_are_both_matched(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_capacity_followup_ignores_previous_negative_catalog_answer(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-15-pro-256-followup.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="10840852",
+            name="IPHONE 15 PRO",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3700,
+            battery_health=92,
+            search_text="iphone 15 pro titanio azul 256gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Tb tem de 256gb",
+        history=[
+            {"role": "user", "content": "Boa tarde"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {
+                "role": "user",
+                "content": "Estou procurando 14 pro max ou o 15 pro max",
+            },
+            {"role": "user", "content": "256gb"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Boa tarde! No momento, tenho estas opções disponíveis de 256GB:\n"
+                    "📱 iPhone 15 Pro Max seminovo — Titânio Azul\n"
+                    "• Bateria 86% — R$ 4.130\n"
+                    "• Bateria 87% — R$ 4.070\n"
+                    "Não encontrei o iPhone 14 Pro Max 256GB disponível no catálogo."
+                ),
+            },
+            {"role": "user", "content": "Em 18 fica quanto o 87%"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Parcelamento do iPhone 15 Pro Max 256GB, bateria 87% — "
+                    "R$ 4.070 à vista: 18x de R$ 279,84."
+                ),
+            },
+            {"role": "user", "content": "E o q 15 pro ?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Você quer o iPhone 15 Pro de 256GB também? Não encontrei essa "
+                    "opção disponível no catálogo no momento. Posso verificar outras "
+                    "capacidades, se quiser."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["10840852"]
+    assert "IPHONE 15 PRO" in decision.reply
+    assert "256GB" in decision.reply
+    assert "R$ 3.700,00" in decision.reply
+    assert "não localizei" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_two_pro_max_alternatives_are_both_returned(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
