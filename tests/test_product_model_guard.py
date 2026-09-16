@@ -768,6 +768,97 @@ async def test_bare_model_switch_does_not_reuse_previous_pro_max_context(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_generic_pro_max_seminovo_followup_lists_requested_variant_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4400),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-pro-max-followup.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2860,
+            search_text="iphone 15 preto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-seminovo",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITANIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4130,
+            search_text="iphone 15 pro max titanio natural 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-seminovo",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5200,
+            search_text="iphone 16 pro max preto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-seminovo",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="256GB",
+            color="TITANIO AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3700,
+            search_text="iphone 15 pro titanio azul 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    first = await agent.respond("Qual seria o valor do 15 novo")
+    decision = await agent.respond(
+        "E de pro max vcs tem quais? Seminovo",
+        history=[
+            {"role": "user", "content": "Boa tarde"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {"role": "user", "content": "Qual seria o valor do 15 novo"},
+            {"role": "assistant", "content": first.reply},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "iPhone 15 Pro Max" in decision.reply
+    assert "iPhone 16 Pro Max" in decision.reply
+    assert "iPhone 15 —" not in decision.reply
+    assert "iPhone 15 Pro —" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_bare_model_after_generic_intro_lists_both_conditions(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
