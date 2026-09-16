@@ -2241,6 +2241,28 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
     return f"iPhone {number}"
 
 
+_BARE_MODEL_CATALOG_FOLLOWUP_RE = re.compile(
+    r"^e\s+(?:o|a|um|uma)?\s*(?:iphone\s*)?\d{1,2}"
+    r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air))?\s*[?!.,]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_bare_model_catalog_followup(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a model switch such as "E o 16?" after a catalog answer."""
+    normalized = _normalize(text)
+    return bool(
+        history
+        and normalized
+        and not _has_product_reference(normalized)
+        and _BARE_MODEL_CATALOG_FOLLOWUP_RE.fullmatch(normalized)
+        and _has_recent_catalog_product_context(history)
+    )
+
+
 def _is_bare_model_availability_request(text: str) -> bool:
     """Recognize a shorthand model only when the customer asks about sale/stock."""
     normalized = _normalize(text)
@@ -3473,7 +3495,10 @@ class AgentService:
             return None
         current_query = _current_catalog_context(text, image_description)
         if (
-            _is_bare_model_availability_request(current_query)
+            (
+                _is_bare_model_availability_request(current_query)
+                or _is_bare_model_catalog_followup(current_query, history)
+            )
             and len(_requested_iphone_model_keys(current_query)) <= 1
         ):
             # Expand shorthand only for a single model. In a batched request
