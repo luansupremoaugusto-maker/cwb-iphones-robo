@@ -190,6 +190,47 @@ async def test_bare_model_sell_question_returns_only_requested_iphone(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_iphone_range_from_13_up_lists_every_available_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-range.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id=f"iphone-{number}-128",
+            name=f"iPhone {number}",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1900 + number * 100,
+            search_text=f"iphone {number} preto 128 gb celular seminovo",
+        )
+        for number in (13, 14, 15, 16, 17)
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("o que tem de iphone 13 pra cima")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-13-128",
+        "iphone-14-128",
+        "iphone-15-128",
+        "iphone-16-128",
+        "iphone-17-128",
+    }
+    for number in (13, 14, 15, 16, 17):
+        assert f"iPhone {number}" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_bare_model_capacity_value_question_returns_only_requested_iphone(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items.insert(

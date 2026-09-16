@@ -22,6 +22,7 @@ from app.adapters.catalog_cache import (
     _matches_requested_model,
     _model_key,
     _requested_battery_health,
+    _requested_iphone_model_floor,
     _requested_iphone_model_keys,
     _requested_photo_condition,
 )
@@ -3545,6 +3546,7 @@ class AgentService:
             or requested_quantity is not None
             or _is_broad_airpods_request(query)
             or len(requested_families) > 1
+            or _requested_iphone_model_floor(query) is not None
         )
         def price_sort_key(item: Any) -> tuple[float, str, str, str]:
             numeric_price = _confirmed_catalog_price(item)

@@ -269,11 +269,32 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     return tuple(selected)
 
 
+def _requested_iphone_model_floor(value: Any) -> int | None:
+    """Return the lowest iPhone generation requested by an open-ended range."""
+    normalized = _score_text(value)
+    if not re.search(r"\biphones?\b", normalized):
+        return None
+    match = re.search(
+        r"\biphones?\s+(?P<number>\d{1,2})\s+(?:pra|para)\s+cima\b",
+        normalized,
+    )
+    return int(match.group("number")) if match else None
+
+
 def _matches_requested_model(query: str, item: Any) -> bool:
     if _is_accessory_catalog_query(query):
         return _is_sealed_accessory_item(item) and _matches_requested_accessory(query, item)
     if not _matches_requested_family(query, item):
         return False
+    floor = _requested_iphone_model_floor(query)
+    if floor is not None:
+        item_model = _model_key(getattr(item, "name", ""))
+        return (
+            _is_iphone_catalog_item(item)
+            and item_model is not None
+            and isinstance(item_model[0], int)
+            and item_model[0] >= floor
+        )
     targets = _requested_iphone_model_keys(query)
     if not targets:
         return True
