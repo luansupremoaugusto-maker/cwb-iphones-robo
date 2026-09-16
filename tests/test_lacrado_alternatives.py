@@ -9,6 +9,7 @@ from app.agent import AgentService, _normalize
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
+from app.trade_in import is_trade_in_request
 
 
 class EmptyMercadoClient:
@@ -418,6 +419,29 @@ async def test_charger_inclusion_question_uses_accessories_policy_without_listin
     assert decision.product_references == []
     assert "lista completa" not in _normalize(decision.reply)
     assert "cabo e fonte novos" in decision.reply
+    assert "apenas o cabo original" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_purchase_accessory_inclusion_question_does_not_open_trade_in_form(tmp_path):
+    agent = build_agent(tmp_path)
+    query = "na compra de um iphone, acompanha alguma coisa? como capa, película e carregador?"
+
+    assert is_trade_in_request(query) is False
+
+    decision = await agent.respond(
+        query,
+        history=[
+            {"role": "user", "content": "ola, boa tarde"},
+            {"role": "assistant", "content": "Olá, boa tarde! 😊 Como posso ajudar?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "lista de avaliação" not in _normalize(decision.reply)
+    assert "capinha, película e protetor de câmera por R$ 10,00 cada" in decision.reply
+    assert "cabo e fonte novos, homologados pela Anatel" in decision.reply
     assert "apenas o cabo original" in decision.reply
 
 
