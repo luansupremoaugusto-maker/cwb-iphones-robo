@@ -694,7 +694,7 @@ def _is_accessory_catalog_request(text: str) -> bool:
         return False
     return normalized in {"fonte", "fontes", "carregador", "carregadores"} or bool(
         re.search(
-            r"\b(?:tem|vende\w*|possui|disponivel|estoque|a venda|valor|preco|custa|original|tipo|usb|20w)\b",
+            r"\b(?:tem|vende\w*|possui|disponivel|estoque|a venda|valor|valores|preco|precos|custa|original|tipo|usb|20w)\b",
             normalized,
         )
     )
