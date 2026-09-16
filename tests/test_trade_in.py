@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
+from app.adapters.catalog_cache import StoreCatalogCache
 from app.agent import AgentService
 from app.config import Settings
 from app.faq import FAQStore
 from app.runtime import build_runtime
+from app.schemas import InventoryItem
 from app.trade_in import (
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
@@ -127,6 +131,62 @@ def test_new_phone_payment_split_is_not_trade_in():
 
     assert is_trade_in_request(text) is False
     assert is_trade_in_context_request(text, history) is False
+
+
+@pytest.mark.asyncio
+async def test_voice_catalog_purchase_observation_does_not_open_trade_in_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-branco-128",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1740,
+            source="mercado_phone",
+            search_text="iphone 13 branco 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = (
+        "Oi, boa tarde. Então, eu gostei do iPhone, sim, o iPhone 13, mas eu não vou poder "
+        "comprar ele agora, esse mês, só pra mês que vem, que daí eu vou presentear ele pra "
+        "minha irmã. Mas daí, se por acaso, né, até lá vender esse iPhone 13 e eu ver que, né, "
+        "teve um 12 Pro disponível ainda, ou, né, se repor outro 13, eu compro. Mas eu tava "
+        "dando uma olhadinha só."
+    )
+    history = [
+        {"role": "user", "content": "Boa tarde! o Iphone 13 - Branco de 1740 ainda está disponível ?"},
+        {
+            "role": "assistant",
+            "content": "Sim, o iPhone 13 Branco por R$ 1.740,00 ainda está disponível.",
+        },
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-branco-128"]
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert "iPhone 13" in decision.reply
+    assert "R$ 1.740,00" in decision.reply
 
 
 @pytest.mark.parametrize(
