@@ -400,6 +400,8 @@ def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
+    if _is_variant_catalog_list_request(text):
+        return True
     if _is_generic_iphone_list_request(text):
         return True
     if _has_product_reference(normalized):
@@ -423,6 +425,22 @@ def _is_available_list_request(text: str) -> bool:
         "tabela de valores",
     )
     return any(phrase in normalized for phrase in phrases)
+
+
+def _is_variant_catalog_list_request(text: str) -> bool:
+    """Recognize a list request for a variant without a generation number."""
+    normalized = _normalize(text)
+    if not re.search(r"\bpro\s+max\b", normalized):
+        return False
+    if _requested_iphone_model_keys(text):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:quais?|opcoes?|modelos?|lista|tem|teria|disponivel|"
+            r"disponibilidade|estoque|valor|valores|preco|precos)\b",
+            normalized,
+        )
+    )
 
 
 def _is_all_iphone_17_line_request(text: str) -> bool:
@@ -3034,6 +3052,7 @@ class AgentService:
         return AgentDecision(reply=reply, confidence="high")
 
     async def _try_available_products(self, text: str) -> AgentDecision | None:
+        variant_list_request = _is_variant_catalog_list_request(text)
         sealed_iphone_only = _is_sealed_iphone_list_request(text)
         sealed_only = _is_sealed_catalog_list_request(text) or sealed_iphone_only
         if not (_is_available_list_request(text) or sealed_only or sealed_iphone_only):
@@ -3058,6 +3077,32 @@ class AgentService:
                 "lacrados_pronta_entrega": lacrados_pronta_entrega,
                 "lacrados": lacrados,
             }
+        if variant_list_request:
+            normalized = _normalize(text)
+
+            def is_requested_variant(entry: dict[str, Any]) -> bool:
+                model = _model_key(entry.get("nome", ""))
+                return model is not None and model[1] == "pro max"
+
+            result = {
+                **result,
+                "seminovos": [
+                    entry for entry in result.get("seminovos", []) if is_requested_variant(entry)
+                ],
+                "lacrados_pronta_entrega": [
+                    entry
+                    for entry in result.get("lacrados_pronta_entrega", [])
+                    if is_requested_variant(entry)
+                ],
+                "lacrados": [
+                    entry for entry in result.get("lacrados", []) if is_requested_variant(entry)
+                ],
+            }
+            if _has_seminovo_reference(normalized) and not _has_sealed_reference(normalized):
+                result["lacrados_pronta_entrega"] = []
+                result["lacrados"] = []
+            elif _has_sealed_reference(normalized) and not _has_seminovo_reference(normalized):
+                result["seminovos"] = []
         if _is_generic_iphone_list_request(text) or sealed_iphone_only:
             normalized = _normalize(text)
             other_family_requested = bool(
