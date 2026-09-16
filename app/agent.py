@@ -3637,10 +3637,8 @@ class AgentService:
                     confidence="medium",
                 )
 
-            requested_variants = {variant for _number, variant in requested_models if variant}
-            same_variant_multi_model_request = (
+            multiple_model_request_without_capacity = (
                 len(requested_models) > 1
-                and len(requested_variants) == 1
                 and not requested_capacities
             )
             return_all_matching_units = (
@@ -3649,7 +3647,7 @@ class AgentService:
                         len(requested_models) == 1
                         and (bool(requested_conditions) or len(requested_capacities) == 1)
                     )
-                    or same_variant_multi_model_request
+                    or multiple_model_request_without_capacity
                 )
                 and requested_quantity is None
                 and _requested_battery_health(query) is None
@@ -3998,6 +3996,22 @@ class AgentService:
         requested_models = _requested_iphone_model_keys(query)
         requested_capacities = _requested_capacity_keys(query)
         requested_condition = _requested_photo_condition(query)
+        photo_model_batch_request = (
+            len(requested_models) > 1
+            or _requested_iphone_model_floor(query) is not None
+        )
+        return_all_matching_photo_units = (
+            photo_model_batch_request
+            and (
+                _requested_iphone_model_floor(query) is not None
+                or not requested_capacities
+            )
+            and _requested_battery_health(query) is None
+            and not _has_requested_catalog_color(
+                query,
+                list(getattr(self.cache, "items", []) or []),
+            )
+        )
         finder = getattr(self.cache, "find_product_photos", None)
 
         def condition_matches(item: Any) -> bool:
@@ -4036,8 +4050,12 @@ class AgentService:
             best_score = max(score for score, _item in positive)
             return [item for score, item in positive if score == best_score]
 
-        def multiple_photo_matches(items: list[Any]) -> list[Any]:
-            """Select the best photo item for each explicitly requested model/capacity."""
+        def multiple_photo_matches(
+            items: list[Any],
+            *,
+            include_all_matching_units: bool = False,
+        ) -> list[Any]:
+            """Select requested photo units without losing valid alternatives."""
             scored: list[tuple[int, Any]] = []
             seen: set[str] = set()
             for item in items:
@@ -4063,30 +4081,33 @@ class AgentService:
                 seen.add(external_id)
                 scored.append((score, item))
 
-            selected: list[Any] = []
-            for requested_model in requested_models:
-                model_matches = [
-                    (score, item)
-                    for score, item in scored
-                    if _model_key(getattr(item, "name", "")) == requested_model
-                ]
-                capacities = requested_capacities or (None,)
-                for capacity in capacities:
-                    capacity_matches = [
+            if include_all_matching_units:
+                selected = [item for _score, item in scored]
+            else:
+                selected = []
+                for requested_model in requested_models:
+                    model_matches = [
                         (score, item)
-                        for score, item in model_matches
-                        if capacity is None
-                        or _capacity_key(
-                            getattr(item, "capacity", None) or getattr(item, "name", "")
-                        )
-                        == capacity
+                        for score, item in scored
+                        if _model_key(getattr(item, "name", "")) == requested_model
                     ]
-                    if not capacity_matches:
-                        continue
-                    best_score = max(score for score, _item in capacity_matches)
-                    selected.extend(
-                        item for score, item in capacity_matches if score == best_score
-                    )
+                    capacities = requested_capacities or (None,)
+                    for capacity in capacities:
+                        capacity_matches = [
+                            (score, item)
+                            for score, item in model_matches
+                            if capacity is None
+                            or _capacity_key(
+                                getattr(item, "capacity", None) or getattr(item, "name", "")
+                            )
+                            == capacity
+                        ]
+                        if not capacity_matches:
+                            continue
+                        best_score = max(score for score, _item in capacity_matches)
+                        selected.extend(
+                            item for score, item in capacity_matches if score == best_score
+                        )
 
             selected_by_id: dict[str, Any] = {}
             for item in selected:
@@ -4122,12 +4143,15 @@ class AgentService:
                 confidence="high",
             )
 
-        if len(requested_models) > 1:
+        if photo_model_batch_request:
             try:
                 items = await self.cache.search(query, limit=300)
             except Exception:
                 return None
-            items = multiple_photo_matches(items)
+            items = multiple_photo_matches(
+                items,
+                include_all_matching_units=return_all_matching_photo_units,
+            )
         elif callable(finder):
             try:
                 selected = await finder(query)
@@ -4210,7 +4234,7 @@ class AgentService:
                 return None
         items = [item for item in items if condition_matches(item)]
         if items:
-            if len(requested_models) > 1:
+            if photo_model_batch_request:
                 approved_urls = [
                     url
                     for item in items

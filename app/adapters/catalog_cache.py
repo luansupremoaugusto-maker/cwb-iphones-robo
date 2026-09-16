@@ -703,9 +703,21 @@ class StoreCatalogCache(InventoryCache):
         # Fetch enough candidates before re-ranking so an exact base model is
         # not discarded by a close Pro/Max variant. Unavailable Mercado Phone
         # states are removed before every customer-facing search path.
+        inventory_items = await super().search(query, limit=max(limit, 300))
+        if _requested_iphone_model_floor(query) is not None:
+            # InventoryCache.search_inventory prefilters on literal query
+            # tokens. A plural request such as "iPhones 13 pra cima" can
+            # otherwise drop every generation except the one whose number is
+            # written in the query before the range matcher runs.
+            seen_inventory_ids = {str(getattr(item, "external_id", "")) for item in inventory_items}
+            inventory_items.extend(
+                item
+                for item in self.items
+                if str(getattr(item, "external_id", "")) not in seen_inventory_ids
+            )
         candidates = [
             item
-            for item in await super().search(query, limit=max(limit, 300))
+            for item in inventory_items
             if (_is_device_item(item) or (accessory_query and _is_sealed_accessory_item(item)))
             and (getattr(item, "source", "") != "mercado_phone" or _is_available_item(item))
         ]
