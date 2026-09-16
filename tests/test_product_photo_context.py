@@ -405,6 +405,139 @@ async def test_photo_followup_after_three_product_cards_sends_all_requested_phot
 
 
 @pytest.mark.asyncio
+async def test_multi_model_photo_request_sends_all_options_for_each_requested_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-13-14-photos.json",
+    )
+    photo_urls = {
+        "iphone-13-128": "https://photos.example/iphone-13-128.jpg",
+        "iphone-14-128": "https://photos.example/iphone-14-128.jpg",
+        "iphone-14-256": "https://photos.example/iphone-14-256.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1900,
+            search_text="iphone 13 meia noite 128gb celular seminovo",
+            photo_urls=[photo_urls["iphone-13-128"]],
+        ),
+        InventoryItem(
+            external_id="iphone-14-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2400,
+            search_text="iphone 14 azul 128gb celular seminovo fotos cadastradas",
+            photo_urls=[photo_urls["iphone-14-128"]],
+        ),
+        InventoryItem(
+            external_id="iphone-14-256",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="256GB",
+            color="ROXO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2700,
+            search_text="iphone 14 roxo 256gb celular seminovo",
+            photo_urls=[photo_urls["iphone-14-256"]],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Manda as fotos do iPhone 13 e 14")
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == set(photo_urls.values())
+    assert set(decision.product_references) == set(photo_urls)
+    assert "iphone 13" in decision.reply.lower()
+    assert "iphone 14" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_range_photo_request_sends_all_available_range_options(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-range-photos.json",
+    )
+    photo_urls = {
+        "iphone-13-128": "https://photos.example/range-iphone-13-128.jpg",
+        "iphone-14-128": "https://photos.example/range-iphone-14-128.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name=f"IPHONE {number}",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1900 + number * 100,
+            search_text=f"iphone {number} preto 128gb celular seminovo",
+            photo_urls=[photo_urls[external_id]],
+        )
+        for external_id, number in (("iphone-13-128", 13), ("iphone-14-128", 14))
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "passa valores dols outros iphone e fotos que seja iphone 13 pra cima",
+        history=[
+            {
+                "role": "user",
+                "content": "o que tem de iphone 13 pra cima",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 13 disponíveis:\n"
+                    "• IPHONE 13 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.900,00 | Bat: 95%"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "vcs trocam a tela do 13?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "A assistência técnica, incluindo troca de bateria, tela e outros reparos, "
+                    "é tratada por um atendente. Vou encaminhar sua mensagem para ele confirmar "
+                    "valores e disponibilidade."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == set(photo_urls.values())
+    assert set(decision.product_references) == set(photo_urls)
+    assert "iphone 13" in decision.reply.lower()
+    assert "iphone 14" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_typo_photo_request_for_listed_16_pro_max_sends_all_same_capacity_units(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

@@ -231,6 +231,69 @@ async def test_iphone_range_from_13_up_lists_every_available_model(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_batched_base_model_query_keeps_all_options_for_each_requested_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-13-14-options.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1900,
+            search_text="iphone 13 meia noite 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2400,
+            search_text="iphone 14 azul 128gb celular seminovo valores cadastrados",
+        ),
+        InventoryItem(
+            external_id="iphone-14-256",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="256GB",
+            color="ROXO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2700,
+            search_text="iphone 14 roxo 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Quero os valores do iPhone 13 e 14")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-13-128",
+        "iphone-14-128",
+        "iphone-14-256",
+    }
+    assert "IPHONE 13" in decision.reply.upper()
+    assert decision.reply.upper().count("IPHONE 14") >= 2
+    assert "128GB" in decision.reply.upper()
+    assert "256GB" in decision.reply.upper()
+
+
+@pytest.mark.asyncio
 async def test_bare_model_capacity_value_question_returns_only_requested_iphone(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items.insert(
