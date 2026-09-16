@@ -382,6 +382,19 @@ async def test_plural_type_c_charger_price_uses_the_sealed_catalog(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_plural_source_value_question_does_not_return_full_iphone_list(tmp_path):
+    agent = build_accessory_agent(tmp_path)
+
+    decision = await agent.respond("Gostaria de saber sobre valores de fonte para iPhones")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:bot:8"]
+    assert "Fonte Tipo-C 20W original" in decision.reply
+    assert "R$ 150,00" in decision.reply
+    assert "lista completa" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_carregador_followup_uses_the_sealed_catalog(tmp_path):
     agent = build_accessory_agent(tmp_path)
 
