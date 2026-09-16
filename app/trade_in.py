@@ -577,10 +577,15 @@ def _has_complete_device_listing(text: str) -> bool:
 
 _COMPLETE_DEVICE_REFERENCE_RE = re.compile(
     r"\b(?:"
+    r"(?:"
     r"(?:tenho|possuo|estou com|to com)\s+(?:um|uma)?\s*"
     r"|(?:meu|minha|meus|minhas)\s+"
     r")(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|"
-    r"aparelho|smartphone|telefone)\b",
+    r"aparelho|smartphone|telefone)\b"
+    r"|(?:o|a)\s+(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|"
+    r"aparelho|smartphone|telefone)\s+"
+    r"(?:antig(?:o|a)|usad(?:o|a)|seminov(?:o|a))\b"
+    r")",
     re.IGNORECASE,
 )
 
