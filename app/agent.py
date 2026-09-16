@@ -3472,7 +3472,13 @@ class AgentService:
         if _is_photo_context_followup(text, history) and not capacity_availability_followup:
             return None
         current_query = _current_catalog_context(text, image_description)
-        if _is_bare_model_availability_request(current_query):
+        if (
+            _is_bare_model_availability_request(current_query)
+            and len(_requested_iphone_model_keys(current_query)) <= 1
+        ):
+            # Expand shorthand only for a single model. In a batched request
+            # such as "um 13 ou 14", prefixing the first bare number would
+            # make the explicit-model parser discard the other alternative.
             bare_model = _extract_bare_catalog_model_reference(current_query)
             if bare_model:
                 current_query = f"{bare_model} {current_query}".strip()
