@@ -822,6 +822,80 @@ async def test_generic_availability_followup_does_not_inherit_prior_sealed_offer
 
 
 @pytest.mark.asyncio
+async def test_bare_model_switch_after_15_plus_lists_16_used_and_sealed_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 5200)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-15-plus-16-followup.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-plus-seminovo",
+            name="iPhone 15 Plus",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2770,
+            battery_health=87,
+            search_text="iphone 15 plus azul 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-seminovo",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL ULTRAMARINO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3800,
+            battery_health=90,
+            search_text="iphone 16 azul ultramarino 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Gostaria de saber se tem o 15 plus?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 15 PLUS disponíveis:\n"
+                "• IPHONE 15 PLUS — AZUL — 128GB — SEMINOVO — R$ 2.770,00 | Bat: 87%"
+            ),
+        },
+        {"role": "user", "content": "?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Tenho sim 😊 iPhone 15 Plus azul, 128GB, seminovo, por R$ 2.770,00, "
+                "com 87% de saúde da bateria. Quer fotos ou saber sobre as formas de pagamento?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("E o 16?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"iphone-16-seminovo", "iphone-16-lacrado"}
+    assert "iPhone 16" in decision.reply
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "3.800,00" in decision.reply
+    assert "5.200,00" in decision.reply
+    assert "iPhone 15 Plus" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_bare_model_switch_does_not_reuse_previous_pro_max_context(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
