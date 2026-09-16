@@ -112,6 +112,24 @@ _STOCK_QUERY_RE = re.compile(
     r"usado|seminovo)\b",
     re.IGNORECASE,
 )
+_CATALOG_PURCHASE_OBSERVATION_RE = re.compile(
+    r"\b(?:gost(?:ei|aria)|compr\w*|presentear|olhadinha)\b",
+    re.IGNORECASE,
+)
+_CATALOG_FUTURE_STOCK_RE = re.compile(
+    r"\b(?:ate\s+la|mes\s+que\s+vem|disponivel|repor\w*)\b",
+    re.IGNORECASE,
+)
+_CATALOG_OWNED_DEVICE_RE = re.compile(
+    r"\b(?:meu|minha|meus|minhas)\s+(?:iphone|ipad|macbook|airpods?|"
+    r"apple\s+watch|celular|aparelho|smartphone|telefone)\b"
+    r"|\b(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma)?\s*"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+    r"smartphone|telefone)\b"
+    r"|\b(?:troca\w*|parte\s+do\s+pagamento|como\s+entrada|"
+    r"de\s+entrada|avaliar|avaliacao|aceitam|compram|pegam)\b",
+    re.IGNORECASE,
+)
 _PARTS_RE = re.compile(
     r"\b(?:pecas?|tela|bateria|display|vidro|conector|camera|"
     r"carca\u00e7a|carcaca|microfone|alto\s+falante|chip|flex|placa|componente[s]?)\b",
@@ -366,6 +384,16 @@ def _has_personal_device_reference(text: str) -> bool:
             text,
             flags=re.IGNORECASE,
         )
+    )
+
+
+def _is_catalog_purchase_observation(text: str) -> bool:
+    """Keep future catalog interest out of the device buyback classifier."""
+    return bool(
+        _APPLE_PRODUCT_RE.search(text)
+        and _CATALOG_PURCHASE_OBSERVATION_RE.search(text)
+        and _CATALOG_FUTURE_STOCK_RE.search(text)
+        and not _CATALOG_OWNED_DEVICE_RE.search(text)
     )
 
 
@@ -663,6 +691,8 @@ def is_trade_in_request(text: str | None) -> bool:
     if re.search(r"\b(?:nao quero|so quero|s[oó] quero)\s+comprar\b", normalized):
         return False
     if re.search(r"\bcompr(?:ar|o|ei)\b.{0,20}\bda\s+apple\b", normalized):
+        return False
+    if _is_catalog_purchase_observation(normalized):
         return False
 
     has_offer = _has_device_offer(normalized)

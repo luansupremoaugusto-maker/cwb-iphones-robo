@@ -1869,7 +1869,7 @@ def _extract_budget_limit(text: str) -> float | None:
     """Extract a maximum price from a natural-language budget request."""
     normalized = _normalize(text)
     marker = re.search(
-        r"\b(?:ate|no maximo(?: de)?|maximo(?: de)?|na faixa de|faixa de|"
+        r"\b(?:ate(?!\s+la\b)|no maximo(?: de)?|maximo(?: de)?|na faixa de|faixa de|"
         r"orcamento(?: de)?|em torno de|cerca de|por volta de)\b",
         normalized,
     )
