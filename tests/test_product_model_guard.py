@@ -144,6 +144,71 @@ async def test_real_17_pro_max_request_returns_both_bare_capacity_options(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_bare_variant_followup_after_base_model_reply_lists_17_pro_max_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-17-pro-max-followup.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="17-pro-max-seminovo",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=6500,
+            battery_health=95,
+            search_text="iphone 17 pro max preto 256 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "17 pro max",
+        history=[
+            {"role": "user", "content": "Olá tudo bem"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {"role": "user", "content": "Qual valor do 17"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de iPhone 17 disponíveis:\n"
+                    "• iPhone 17 — Lavanda | Azul-névoa | Sálvia | Branco | Preto — 256 GB — "
+                    "NOVO LACRADO — R$ 5.600,00 | Bat: não se aplica"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.confidence == "high"
+    assert set(decision.product_references) == {
+        "17-pro-max-seminovo",
+        "17-pro-max-128",
+        "17-pro-max-256",
+    }
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "6.500,00" in decision.reply
+    assert "7.000,00" in decision.reply
+    assert "7.800,00" in decision.reply
+    assert "iPhone 17 —" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_missing_iphone_13_pro_512_does_not_return_17_pro_options(tmp_path):
     agent = build_agent(tmp_path)
 

@@ -577,15 +577,20 @@ def _confirmed_catalog_price(item: Any) -> float | None:
     return price if math.isfinite(price) and price >= 0 else None
 
 
-def _is_product_availability_request(text: str) -> bool:
+def _is_product_availability_request(
+    text: str,
+    history: list[dict[str, str]] | None = None,
+) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
     accessory_request = _is_accessory_catalog_request(normalized)
     bare_model_request = _is_bare_model_availability_request(text)
+    catalog_followup = _is_bare_model_catalog_followup(text, history)
     if not normalized or (
         not _has_product_reference(normalized)
         and not accessory_request
         and not bare_model_request
+        and not catalog_followup
     ):
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
@@ -610,6 +615,8 @@ def _is_product_availability_request(text: str) -> bool:
         )
     ):
         return False
+    if catalog_followup:
+        return True
     if accessory_request:
         return True
     if _is_cheapest_catalog_request(normalized):
@@ -2247,19 +2254,26 @@ _BARE_MODEL_CATALOG_FOLLOWUP_RE = re.compile(
     r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air))?\s*[?!.,]*$",
     re.IGNORECASE,
 )
+_BARE_VARIANT_CATALOG_FOLLOWUP_RE = re.compile(
+    r"^(?:iphone\s*)?\d{1,2}\s+(?:pro\s+max|pro|max|plus|mini|air)\s*[?!.,]*$",
+    re.IGNORECASE,
+)
 
 
 def _is_bare_model_catalog_followup(
     text: str | None,
     history: list[dict[str, str]] | None,
 ) -> bool:
-    """Recognize a model switch such as "E o 16?" after a catalog answer."""
+    """Recognize a short model follow-up after a catalog answer."""
     normalized = _normalize(text)
+    is_model_followup = bool(
+        _BARE_MODEL_CATALOG_FOLLOWUP_RE.fullmatch(normalized)
+        or _BARE_VARIANT_CATALOG_FOLLOWUP_RE.fullmatch(normalized)
+    )
     return bool(
         history
         and normalized
-        and not _has_product_reference(normalized)
-        and _BARE_MODEL_CATALOG_FOLLOWUP_RE.fullmatch(normalized)
+        and is_model_followup
         and _has_recent_catalog_product_context(history)
     )
 
@@ -3530,7 +3544,7 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
-        if not _is_product_availability_request(query):
+        if not _is_product_availability_request(query, history=history):
             return None
 
         requested_budget = _extract_budget_limit(query)
