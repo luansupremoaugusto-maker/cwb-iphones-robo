@@ -652,6 +652,7 @@ def _is_product_availability_request(text: str) -> bool:
             "gostaria de ver",
             "gostaria de saber mais",
             "gostaria de informacoes sobre",
+            "queria ver",
             "quero ver",
             "quero comprar",
             "procuro",

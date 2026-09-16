@@ -1115,6 +1115,54 @@ async def test_bare_model_after_generic_intro_lists_both_conditions(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_queria_ver_iphone_16_lists_used_and_sealed_options(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item("iphone-16-lacrado", "iPhone 16", "128 GB", 5200)]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-seminovo",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL ULTRAMARINO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3800,
+            battery_health=90,
+            search_text="iphone 16 azul ultramarino 128 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Queria ver o iPhone 16",
+        history=[
+            {"role": "user", "content": "Olá"},
+            {"role": "user", "content": "Boa noite"},
+            {"role": "assistant", "content": "Olá! Boa noite 😊 Como posso te ajudar?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.confidence == "high"
+    assert set(decision.product_references) == {"iphone-16-seminovo", "iphone-16-lacrado"}
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "3.800,00" in decision.reply
+    assert "5.200,00" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_battery_origin_followup_reuses_iphone_15_from_previous_list(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
