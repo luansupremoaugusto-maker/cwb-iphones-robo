@@ -506,6 +506,13 @@ def _is_store_buyback_question(text: str) -> bool:
         text,
         flags=re.IGNORECASE,
     )
+    # In "na compra de um iPhone", compra is a noun describing the
+    # customer's purchase, not a verb asking whether the store buys a device.
+    customer_purchase_context = re.search(
+        r"\b(?:na|em|para|pela|por)\s+compra\s+de\b",
+        text,
+        flags=re.IGNORECASE,
+    )
     verb_first = re.search(
         r"\b(?:compram|compra|pegam|pegm|aceitam|recebem|avaliam)\b.{0,45}\b"
         r"(?:algum(?:a|s|as)?|produto(?:s)?|iphone|ipad|macbook|apple\s+watch|"
@@ -514,7 +521,10 @@ def _is_store_buyback_question(text: str) -> bool:
         text,
         flags=re.IGNORECASE,
     )
-    return bool((store_subject or verb_first) and _has_device_reference(text)) or bool(
+    return bool(
+        (store_subject or (verb_first and not customer_purchase_context))
+        and _has_device_reference(text)
+    ) or bool(
         re.search(r"\b(?:vocês|voces|vcs|loja)\b.{0,35}\baceitam\s+usado\b", text, re.IGNORECASE)
     )
 
