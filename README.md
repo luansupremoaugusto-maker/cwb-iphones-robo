@@ -119,8 +119,9 @@ janela configurável, mostra até 50 itens por vez e permite carregar mais. Em c
 conversa, o painel monta um rascunho com o histórico e os dados atuais do robô;
 o operador revisa e confirma o envio de uma mensagem por vez. O envio exige
 CSRF, verifica se surgiu uma mensagem nova antes de enviar, registra auditoria e
-não dispara em massa. Rascunhos que incluam fotos ficam bloqueados nesta fila de
-texto para evitar prometer anexos ausentes.
+não dispara em massa. A busca consulta toda a fila e reconhece telefones
+brasileiros com ou sem o nono dígito. Rascunhos que incluam fotos ficam
+bloqueados nesta fila de texto para evitar prometer anexos ausentes.
 
 ## Docker na VPS
 

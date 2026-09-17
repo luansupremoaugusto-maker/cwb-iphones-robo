@@ -12,6 +12,25 @@ def normalize_phone(value: str | None) -> str:
     return re.sub(r"\D", "", value or "")
 
 
+def phone_variants(value: str | None) -> tuple[str, ...]:
+    """Return the stored number and its Brazilian mobile ninth-digit alias."""
+    normalized = normalize_phone(value)
+    if not normalized:
+        return ()
+
+    variants = [normalized]
+    if normalized.startswith("55") and len(normalized) == 12 and normalized[4] in "6789":
+        variants.append(f"{normalized[:4]}9{normalized[4:]}")
+    elif (
+        normalized.startswith("55")
+        and len(normalized) == 13
+        and normalized[4] == "9"
+        and normalized[5] in "6789"
+    ):
+        variants.append(f"{normalized[:4]}{normalized[5:]}")
+    return tuple(dict.fromkeys(variants))
+
+
 def split_phones(value: str | None) -> set[str]:
     return {
         normalized
