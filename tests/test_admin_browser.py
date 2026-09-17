@@ -223,7 +223,7 @@ def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_brows
                 '#recovery-queue-body button[data-recovery-action="prepare"]'
             ).click()
 
-            assert not page.locator("#recovery-editor").is_hidden()
+            page.locator("#recovery-editor").wait_for(state="visible")
             page.wait_for_function(
                 "() => document.querySelector('#recovery-message').value.length > 0"
             )
@@ -237,6 +237,31 @@ def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_brows
                 page.locator("#send-recovery-message").click()
 
             assert '"expected_last_message_id":7' in (send_request.value.post_data or "").replace(" ", "")
+        finally:
+            browser.close()
+
+
+def test_recovery_editor_can_be_closed_in_a_real_browser():
+    html = render_admin_page("csrf-token")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _open_admin_page(page, html)
+
+            page.locator(
+                '#recovery-queue-body button[data-recovery-action="prepare"]'
+            ).click()
+            page.wait_for_function(
+                "() => document.querySelector('#recovery-message').value.length > 0"
+            )
+            assert page.locator("#recovery-editor").is_visible()
+
+            page.locator("#close-recovery-editor").click()
+
+            assert page.locator("#recovery-editor").is_hidden()
+            assert not page.locator("#recovery-editor").is_visible()
         finally:
             browser.close()
 
