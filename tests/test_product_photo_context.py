@@ -405,6 +405,116 @@ async def test_photo_followup_after_three_product_cards_sends_all_requested_phot
 
 
 @pytest.mark.asyncio
+async def test_bare_iphone_13_photo_request_ignores_stale_history_variants(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-13-photo-followup.json",
+    )
+    photo_urls = {
+        "iphone-13-estelar-128": "https://photos.example/iphone-13-estelar-128.jpg",
+        "iphone-13-meia-noite-128": "https://photos.example/iphone-13-meia-noite-128.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-estelar-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="ESTELAR",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1740.0,
+            source="mercado_phone",
+            search_text="iphone 13 estelar 128gb celular seminovo",
+            photo_urls=[photo_urls["iphone-13-estelar-128"]],
+        ),
+        InventoryItem(
+            external_id="iphone-13-meia-noite-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA-NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1900.0,
+            source="mercado_phone",
+            search_text="iphone 13 meia-noite 128gb celular seminovo",
+            photo_urls=[photo_urls["iphone-13-meia-noite-128"]],
+        ),
+        InventoryItem(
+            external_id="iphone-13-pro-128",
+            name="IPHONE 13 PRO",
+            category="Celular",
+            capacity="128GB",
+            color="GRAFITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2350.0,
+            source="mercado_phone",
+            search_text="iphone 13 pro grafite 128gb celular seminovo",
+            photo_urls=["https://photos.example/iphone-13-pro-128.jpg"],
+        ),
+        InventoryItem(
+            external_id="iphone-13-pro-max-128",
+            name="IPHONE 13 PRO MAX",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL SIERRA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3000.0,
+            source="mercado_phone",
+            search_text="iphone 13 pro max azul sierra 128gb celular seminovo",
+            photo_urls=["https://photos.example/iphone-13-pro-max-128.jpg"],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Quais iPhones 13 tem disponível?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim. Encontrei estas opções de IPHONE 13 disponíveis: "
+                "IPHONE 13 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.900,00 | Bat: 95%\n"
+                "IPHONE 13 — ESTELAR — 128GB — SEMINOVO — R$ 1.740,00 | Bat: 100%"
+            ),
+        },
+        {"role": "user", "content": "Qual os 12?"},
+        {
+            "role": "assistant",
+            "content": (
+                "No momento, não temos iPhone 12 disponível no estoque. "
+                "Temos apenas os iPhones 13 seminovos que te enviei."
+            ),
+        },
+        {"role": "user", "content": "Tem como enviar a foto dos que tem disponível?"},
+        {
+            "role": "assistant",
+            "content": (
+                "No momento, não localizei esse produto seminovo disponível no sistema. "
+                "Algum outro modelo também interessaria? Para facilitar, segue a lista "
+                "dos seminovos disponíveis para você escolher: IPHONE 13, IPHONE 13 PRO, "
+                "IPHONE 13 PRO MAX"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Quero vê as fotos do 13", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == set(photo_urls.values())
+    assert set(decision.product_references) == set(photo_urls)
+    assert "iphone 13 pro" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_multi_model_photo_request_sends_all_options_for_each_requested_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
