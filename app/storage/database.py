@@ -409,19 +409,18 @@ class Repository:
             return result
 
     @staticmethod
-    def _recovery_filter(latest_messages: Any) -> Any:
+    def _recovery_filter() -> Any:
         skipped = select(RecoverySkipRecord.id).where(
             RecoverySkipRecord.conversation_id == ConversationRecord.id
         ).exists()
+        has_customer_message = select(MessageRecord.id).where(
+            MessageRecord.conversation_id == ConversationRecord.id,
+            MessageRecord.direction == "inbound",
+        ).exists()
         return and_(
             ~skipped,
-            or_(
-                ConversationRecord.status == "human_pending",
-                and_(
-                    ConversationRecord.status == "bot_active",
-                    latest_messages.c.direction == "inbound",
-                ),
-            ),
+            has_customer_message,
+            ConversationRecord.status.in_(("human_pending", "bot_active")),
         )
 
     def list_recovery_conversations(
@@ -465,7 +464,7 @@ class Repository:
                 )
                 .where(
                     ConversationRecord.updated_at < before,
-                    self._recovery_filter(latest_messages),
+                    self._recovery_filter(),
                 )
                 .order_by(ConversationRecord.updated_at.asc(), ConversationRecord.id.asc())
                 .offset(safe_offset)
@@ -511,7 +510,7 @@ class Repository:
                 )
                 .where(
                     ConversationRecord.updated_at < before,
-                    self._recovery_filter(latest_messages),
+                    self._recovery_filter(),
                 )
             )
             return int(session.scalar(statement) or 0)
