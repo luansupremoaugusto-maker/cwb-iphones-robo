@@ -4012,6 +4012,14 @@ class AgentService:
                 confidence="medium",
             )
         current_query = _current_catalog_context(text, image_description)
+        if not _has_product_reference(_normalize(current_query)):
+            # A current photo request such as "fotos do 13" names a model even
+            # when the customer omits the word "iPhone". Promote that shorthand
+            # before inheriting a previous assistant list, which may mention
+            # neighboring Pro and Pro Max variants.
+            bare_model = _extract_bare_catalog_model_reference(current_query)
+            if bare_model and _is_photo_request(current_query):
+                current_query = f"{bare_model} {current_query}".strip()
         if _is_photo_context_followup(text, history) and not _has_product_reference(
             _normalize(current_query)
         ):
