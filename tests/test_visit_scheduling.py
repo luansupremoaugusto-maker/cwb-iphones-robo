@@ -426,3 +426,37 @@ async def test_hours_followup_after_ipad_installment_reply_uses_faq_without_hand
     assert "18:00" in decision.reply
     assert "horário marcado" in decision.reply
     assert "atendente" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_explicit_saturday_hours_question_after_address_reply_uses_faq_hours(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 9, 17, 14, 50, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "vcs abrem no sabado tbm ?",
+        history=[
+            {"role": "user", "content": "qual endereço da loja"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim, temos loja física. Hoje é quinta-feira, 17/09/2026. "
+                    "Atendemos hoje das 09:00 às 18:00, com horário marcado. "
+                    "Endereço: Avenida Nossa Senhora da Luz, 1341 - Jardim Social, "
+                    "Curitiba - PR, 82520-060. Posso marcar uma visita para hoje? "
+                    "Qual horário fica melhor para você?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sábado" in decision.reply.lower()
+    assert "fechad" in decision.reply.lower()
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "hoje é" not in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
