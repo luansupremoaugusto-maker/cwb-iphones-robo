@@ -1002,10 +1002,29 @@ def _is_today_store_status_request(text: str) -> bool:
     )
 
 
+def _is_store_day_hours_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    has_day = bool(
+        re.search(
+            r"\b(?:segunda(?:-feira)?|terca(?:-feira)?|quarta(?:-feira)?|"
+            r"quinta(?:-feira)?|sexta(?:-feira)?|sabado|domingo)\b",
+            normalized,
+        )
+    )
+    has_hours_marker = bool(
+        re.search(r"\b(?:abr\w*|fechad\w*|atend\w*|funcion\w*|trabalh\w*)\b", normalized)
+    ) or any(marker in normalized for marker in ("horario", "horas"))
+    return has_day and has_hours_marker
+
+
 def _is_store_hours_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or "hoje" in normalized:
         return False
+    if _is_store_day_hours_request(text):
+        return True
     phrases = (
         "ate que horas",
         "ate que horario",
@@ -1147,6 +1166,7 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
         or _is_available_list_request(text)
         or _is_sealed_catalog_list_request(text)
         or _is_product_availability_request(text)
+        or _is_store_hours_request(text)
         or _is_physical_store_request(text)
     ):
         return False
