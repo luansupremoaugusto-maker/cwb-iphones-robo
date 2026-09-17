@@ -496,8 +496,10 @@ def _has_device_offer(text: str) -> bool:
         return True
 
     if re.search(
-        r"\b(?:vender|vendo|venda|avaliar|avaliacao|quanto vale|"
+        r"\b(?:vender|venda|avaliar|avaliacao|quanto vale|"
         r"quanto voces dao|quanto vcs dao)\b.{0,35}\b(?:meu|minha|"
+        r"celular|iphone|aparelho|usado|ele|ela)\b"
+        r"|\bvendo\s+(?:o|a|um|uma)?\s*(?:meu|minha|meus|minhas|"
         r"celular|iphone|aparelho|usado|ele|ela)\b",
         text,
         flags=re.IGNORECASE,
