@@ -667,12 +667,16 @@ def _is_product_availability_request(
             "necessito",
         )
     )
+    has_purchase_interest = bool(
+        re.search(r"\b(?:me\s+)?interessei\s+(?:no|na|em)\b", normalized)
+        and not re.search(r"\bn[aã]o\s+me\s+interessei\b", normalized)
+    )
     has_broad_filter = any(
         marker in normalized
         for marker in ("faixa de", "ate ", "orcamento", "em torno de", "cerca de", "por volta de")
     )
     return bool(
-        (has_purchase_intent or has_broad_filter)
+        (has_purchase_intent or has_purchase_interest or has_broad_filter)
         and (
             _catalog_families(normalized)
             or _has_product_reference(normalized)

@@ -213,6 +213,62 @@ async def test_voice_catalog_purchase_observation_does_not_open_trade_in_form(tm
     assert "R$ 1.740,00" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_story_interest_in_iphone_16_pro_max_uses_catalog_not_trade_in_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(
+        openai_api_key=None,
+        google_sheets_enabled=False,
+        faq_path=str(tmp_path / "faq.yaml"),
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            battery_health=100,
+            search_text="iphone 16 pro max 256 gb titanio preto celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "estava vendo o story, me interessei no iphone 16 pro max 256gb"
+    history = [
+        {"role": "user", "content": "boa tarde, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Boa tarde! Tudo bem, e com você? Como posso ajudar? 😊",
+        },
+        {"role": "user", "content": "estou bem também"},
+        {"role": "assistant", "content": "Que bom! 😊 Como posso ajudar você hoje?"},
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-pro-max-256"]
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert "iPhone 16 Pro Max" in decision.reply
+    assert "256 GB" in decision.reply
+    assert "R$ 5.200,00" in decision.reply
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -268,6 +324,7 @@ async def test_non_apple_exchange_question_returns_policy_reply_without_form(tmp
         "da pra usar ele de entrada?",
         "quero comprar um 15 novo e dar meu celular como entrada",
         "quero vender meu iphone 13",
+        "vendo meu iphone 11 pro max",
         "tenho um iPhone 11 Pro Max para vender",
         "estou vendendo meu iPhone 11 Pro Max",
     ],
