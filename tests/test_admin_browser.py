@@ -61,7 +61,7 @@ def _route_page(route: Route, html: str) -> None:
             content_type="application/json",
             body=json.dumps(
                 {
-                    "phone": "5511999999999",
+                    "phone": "551196543210",
                     "chat_name": "Maria",
                     "last_message_id": 7,
                     "source_message_id": 7,
@@ -88,7 +88,7 @@ def _route_page(route: Route, html: str) -> None:
             content_type="application/json",
             body=json.dumps(
                 {
-                    "phone": "5511999999999",
+                    "phone": "551196543210",
                     "sent": True,
                     "suppressed": False,
                     "status": "human_active",
@@ -102,7 +102,7 @@ def _route_page(route: Route, html: str) -> None:
             content_type="application/json",
             body=json.dumps(
                 {
-                    "phone": "5511999999999",
+                    "phone": "551196543210",
                     "skipped": True,
                     "message": "Conversa pulada até chegar uma nova mensagem do cliente.",
                 }
@@ -127,7 +127,8 @@ def _route_page(route: Route, html: str) -> None:
             "has_more": False,
             "items": [
                 {
-                    "phone": "5511999999999",
+                    "phone": "551196543210",
+                    "phone_aliases": ["551196543210", "5511996543210"],
                     "chat_name": "Maria",
                     "category_label": "Compra, preço ou estoque",
                     "last_message": "Tem iPhone 15?",
@@ -267,5 +268,25 @@ def test_recovery_editor_is_above_queue_and_each_row_can_skip_in_a_real_browser(
             assert '"expected_last_message_id":7' in (
                 skip_request.value.post_data or ""
             ).replace(" ", "")
+        finally:
+            browser.close()
+
+
+def test_recovery_search_accepts_brazilian_mobile_ninth_digit_alias_in_a_real_browser():
+    html = render_admin_page("csrf-token")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _open_admin_page(page, html)
+
+            with page.expect_request(
+                lambda request: "/admin/api/recovery?" in request.url
+                and "search=5511996543210" in request.url
+            ):
+                page.locator("#recovery-search").fill("5511996543210")
+
+            assert page.locator('#recovery-queue-body button[data-recovery-action="prepare"]').count() == 1
         finally:
             browser.close()

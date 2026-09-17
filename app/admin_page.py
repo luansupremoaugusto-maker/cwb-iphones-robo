@@ -493,6 +493,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       let recoveryQueue = [];
       let recoveryTotal = 0;
       let recoveryDraft = null;
+      let recoverySearchTimer = null;
       let auditEvents = [];
       const healthDefinitions = [
         ["database", "Banco de dados", null],
@@ -513,7 +514,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       const asText = (value, fallback = "—") => value === null || value === undefined || value === "" ? fallback : String(value);
       const batteryText = (value) => value === null || value === undefined || value === "" ? "—" : `${value}%`;
       const queueText = (item) => [item.chat_name, item.phone, item.status, item.status_label, item.last_message, item.paused_reason].join(" ").toLocaleLowerCase();
-      const recoveryText = (item) => [item.chat_name, item.phone, item.category_label, item.last_message].join(" ").toLocaleLowerCase();
+      const recoveryText = (item) => [item.chat_name, item.phone, ...(item.phone_aliases || []), item.category_label, item.last_message].join(" ").toLocaleLowerCase();
       const auditText = (item) => [item.event_type, item.subject, JSON.stringify(item.detail || {})].join(" ").toLocaleLowerCase();
 
       async function fetchJson(path, options = {}) {
@@ -937,6 +938,8 @@ _PAGE_TEMPLATE = """<!doctype html>
         try {
           const offset = append ? recoveryQueue.length : 0;
           const params = new URLSearchParams({ older_than_hours: String(hours), limit: "50", offset: String(offset) });
+          const query = byId("recovery-search")?.value.trim() || "";
+          if (query) params.set("search", query);
           const result = await fetchJson(`/admin/api/recovery?${params.toString()}`);
           recoveryTotal = Number(result.total || 0);
           recoveryQueue = append ? [...recoveryQueue, ...(result.items || [])] : (result.items || []);
@@ -1288,7 +1291,11 @@ _PAGE_TEMPLATE = """<!doctype html>
       byId("recovery-more").addEventListener("click", () => loadRecoveryQueue(true));
       byId("refresh-audit").addEventListener("click", loadAudit);
       byId("human-queue-search").addEventListener("input", renderHumanQueue);
-      byId("recovery-search")?.addEventListener("input", renderRecoveryQueue);
+      byId("recovery-search")?.addEventListener("input", () => {
+        renderRecoveryQueue();
+        window.clearTimeout(recoverySearchTimer);
+        recoverySearchTimer = window.setTimeout(() => loadRecoveryQueue(), 250);
+      });
       byId("recovery-older-hours").addEventListener("change", loadRecoveryQueue);
       byId("audit-search").addEventListener("input", renderAudit);
       ["catalog-category-filter", "catalog-capacity-filter", "catalog-color-filter", "catalog-condition-filter", "catalog-stock-filter", "catalog-price-min", "catalog-price-max", "catalog-photos-filter"].forEach((id) => {

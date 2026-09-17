@@ -487,6 +487,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         older_than_hours: float = 24,
         limit: int = 50,
         offset: int = 0,
+        search: str = "",
     ) -> dict[str, Any]:
         _require_admin_operator(request)
         current: Runtime = request.app.state.runtime
@@ -501,8 +502,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             before=cutoff,
             limit=limit,
             offset=offset,
+            search=search,
         )
-        total = current.repository.count_recovery_conversations(before=cutoff)
+        total = current.repository.count_recovery_conversations(before=cutoff, search=search)
         payload = admin_recovery_payload(
             records,
             total=total,

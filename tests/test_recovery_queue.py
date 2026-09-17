@@ -200,6 +200,57 @@ def test_recovery_draft_uses_customer_message_when_bot_replied_last():
     assert recording_agent.text == "Ainda tenho interesse no iPhone 15."
 
 
+def test_recovery_draft_accepts_modern_phone_for_legacy_stored_conversation():
+    runtime = _runtime()
+    legacy_phone = "554196114674"
+    modern_phone = "5541996114674"
+    runtime.repository.get_or_create_conversation(legacy_phone, "Cliente antigo")
+    latest_id = runtime.repository.add_message(
+        legacy_phone, "inbound", "text", "Ainda tenho interesse no iPhone 15."
+    )
+    _age_messages(runtime, legacy_phone, [latest_id], age_hours=72)
+    recording_agent = _RecordingAgent()
+    runtime.agent = recording_agent
+    token = build_admin_csrf_token(runtime.settings)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/admin/api/recovery/draft",
+            json={"phone": modern_phone},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["phone"] == legacy_phone
+    assert response.json()["source_message_id"] == latest_id
+    assert recording_agent.text == "Ainda tenho interesse no iPhone 15."
+
+
+def test_recovery_search_finds_legacy_stored_phone_by_modern_number():
+    runtime = _runtime()
+    legacy_phone = "554196114674"
+    modern_phone = "5541996114674"
+    runtime.repository.get_or_create_conversation(legacy_phone, "Cliente antigo")
+    latest_id = runtime.repository.add_message(
+        legacy_phone, "inbound", "text", "Ainda tenho interesse no iPhone 15."
+    )
+    _age_messages(runtime, legacy_phone, [latest_id], age_hours=72)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.get(
+            "/admin/api/recovery",
+            params={"older_than_hours": 24, "search": modern_phone},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    item = response.json()["items"][0]
+    assert item["phone"] == legacy_phone
+    assert item["phone_aliases"] == [legacy_phone, modern_phone]
+
+
 def test_recovery_send_accepts_old_bot_conversation_after_reviewed_draft():
     runtime = _runtime()
     runtime.repository.get_or_create_conversation("5511000000004", "Cliente antigo")

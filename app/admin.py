@@ -23,7 +23,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 
-from app.config import Settings, normalize_phone
+from app.config import Settings, normalize_phone, phone_variants
 from app.storage.database import Repository
 
 
@@ -532,6 +532,9 @@ def admin_recovery_payload(
     older_than_hours: float,
     generated_at: str,
 ) -> dict[str, Any]:
+    items = admin_conversations_payload(records)
+    for item in items:
+        item["phone_aliases"] = list(phone_variants(item.get("phone")))
     return {
         "generated_at": generated_at,
         "total": int(total),
@@ -539,7 +542,7 @@ def admin_recovery_payload(
         "limit": int(limit),
         "older_than_hours": float(older_than_hours),
         "has_more": int(offset) + len(records) < int(total),
-        "items": admin_conversations_payload(records),
+        "items": items,
     }
 
 

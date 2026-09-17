@@ -24,6 +24,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 from sqlalchemy.pool import StaticPool
 
+from app.config import normalize_phone, phone_variants
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -321,11 +323,30 @@ class Repository:
             session.commit()
             return len(records)
 
+    @staticmethod
+    def _find_conversation(session: Session, phone: str) -> ConversationRecord | None:
+        variants = phone_variants(phone)
+        if not variants:
+            return None
+        record = session.scalar(
+            select(ConversationRecord).where(ConversationRecord.phone == variants[0])
+        )
+        if record is not None or len(variants) == 1:
+            return record
+        return session.scalar(
+            select(ConversationRecord).where(ConversationRecord.phone == variants[1])
+        )
+
     def get_or_create_conversation(self, phone: str, chat_name: str | None = None) -> ConversationRecord:
+        normalized_phone = normalize_phone(phone)
         with Session(self.engine, expire_on_commit=False) as session:
-            record = session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))
+            record = self._find_conversation(session, normalized_phone)
             if record is None:
-                record = ConversationRecord(phone=phone, chat_name=chat_name, status="bot_active")
+                record = ConversationRecord(
+                    phone=normalized_phone,
+                    chat_name=chat_name,
+                    status="bot_active",
+                )
                 session.add(record)
             elif chat_name and not record.chat_name:
                 record.chat_name = chat_name
@@ -335,7 +356,7 @@ class Repository:
 
     def get_conversation(self, phone: str) -> ConversationRecord | None:
         with Session(self.engine, expire_on_commit=False) as session:
-            return session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))
+            return self._find_conversation(session, phone)
 
     def conversation_status_counts(self) -> dict[str, int]:
         with Session(self.engine) as session:
@@ -423,12 +444,29 @@ class Repository:
             ConversationRecord.status.in_(("human_pending", "bot_active")),
         )
 
+    @staticmethod
+    def _recovery_search_filter(search: str | None, latest_messages: Any) -> Any | None:
+        term = str(search or "").strip()
+        if not term:
+            return None
+        pattern = f"%{term}%"
+        clauses = [
+            ConversationRecord.chat_name.ilike(pattern),
+            ConversationRecord.phone.ilike(pattern),
+            latest_messages.c.text.ilike(pattern),
+        ]
+        normalized = normalize_phone(term)
+        if normalized:
+            clauses.append(ConversationRecord.phone.in_(phone_variants(normalized)))
+        return or_(*clauses)
+
     def list_recovery_conversations(
         self,
         *,
         before: datetime,
         limit: int = 50,
         offset: int = 0,
+        search: str | None = None,
     ) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), 200))
         safe_offset = max(0, int(offset))
@@ -449,6 +487,13 @@ class Repository:
                 )
                 .subquery()
             )
+            conditions = [
+                ConversationRecord.updated_at < before,
+                self._recovery_filter(),
+            ]
+            search_filter = self._recovery_search_filter(search, latest_messages)
+            if search_filter is not None:
+                conditions.append(search_filter)
             statement = (
                 select(
                     ConversationRecord,
@@ -462,10 +507,7 @@ class Repository:
                     (latest_messages.c.conversation_id == ConversationRecord.id)
                     & (latest_messages.c.row_number == 1),
                 )
-                .where(
-                    ConversationRecord.updated_at < before,
-                    self._recovery_filter(),
-                )
+                .where(*conditions)
                 .order_by(ConversationRecord.updated_at.asc(), ConversationRecord.id.asc())
                 .offset(safe_offset)
                 .limit(safe_limit)
@@ -486,12 +528,13 @@ class Repository:
                 for record, last_message_id, last_direction, last_text, last_message_at in rows
             ]
 
-    def count_recovery_conversations(self, *, before: datetime) -> int:
+    def count_recovery_conversations(self, *, before: datetime, search: str | None = None) -> int:
         with Session(self.engine) as session:
             latest_messages = (
                 select(
                     MessageRecord.conversation_id.label("conversation_id"),
                     MessageRecord.direction.label("direction"),
+                    MessageRecord.text.label("text"),
                     func.row_number()
                     .over(
                         partition_by=MessageRecord.conversation_id,
@@ -501,6 +544,13 @@ class Repository:
                 )
                 .subquery()
             )
+            conditions = [
+                ConversationRecord.updated_at < before,
+                self._recovery_filter(),
+            ]
+            search_filter = self._recovery_search_filter(search, latest_messages)
+            if search_filter is not None:
+                conditions.append(search_filter)
             statement = (
                 select(func.count(ConversationRecord.id))
                 .outerjoin(
@@ -508,19 +558,14 @@ class Repository:
                     (latest_messages.c.conversation_id == ConversationRecord.id)
                     & (latest_messages.c.row_number == 1),
                 )
-                .where(
-                    ConversationRecord.updated_at < before,
-                    self._recovery_filter(),
-                )
+                .where(*conditions)
             )
             return int(session.scalar(statement) or 0)
 
     def conversation_detail(self, phone: str, *, limit: int = 80) -> dict[str, Any] | None:
         safe_limit = max(1, min(int(limit), 200))
         with Session(self.engine) as session:
-            conversation = session.scalar(
-                select(ConversationRecord).where(ConversationRecord.phone == phone)
-            )
+            conversation = self._find_conversation(session, phone)
             if conversation is None:
                 return None
             records = session.scalars(
@@ -551,10 +596,15 @@ class Repository:
             }
 
     def set_conversation_status(self, phone: str, status: str, reason: str | None = None) -> None:
+        normalized_phone = normalize_phone(phone)
         with Session(self.engine) as session:
-            record = session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))
+            record = self._find_conversation(session, normalized_phone)
             if record is None:
-                record = ConversationRecord(phone=phone, status=status, paused_reason=reason)
+                record = ConversationRecord(
+                    phone=normalized_phone,
+                    status=status,
+                    paused_reason=reason,
+                )
                 session.add(record)
             else:
                 record.status = status
@@ -569,9 +619,7 @@ class Repository:
         operator: str | None = None,
     ) -> bool:
         with Session(self.engine) as session:
-            conversation = session.scalar(
-                select(ConversationRecord).where(ConversationRecord.phone == phone)
-            )
+            conversation = self._find_conversation(session, phone)
             if conversation is None:
                 return False
             latest_message_id = session.scalar(
@@ -611,10 +659,13 @@ class Repository:
         """
         with Session(self.engine) as session:
             now = utc_now()
+            conversation = self._find_conversation(session, phone)
+            if conversation is None:
+                return False
             result = session.execute(
                 update(ConversationRecord)
                 .where(
-                    ConversationRecord.phone == phone,
+                    ConversationRecord.id == conversation.id,
                     ConversationRecord.status == "bot_active",
                 )
                 .values(
@@ -654,10 +705,11 @@ class Repository:
         provider_message_id: str | None = None,
         raw: dict | None = None,
     ) -> int:
+        normalized_phone = normalize_phone(phone)
         with Session(self.engine) as session:
-            conversation = session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))
+            conversation = self._find_conversation(session, normalized_phone)
             if conversation is None:
-                conversation = ConversationRecord(phone=phone, status="bot_active")
+                conversation = ConversationRecord(phone=normalized_phone, status="bot_active")
                 session.add(conversation)
                 session.flush()
             record = MessageRecord(
@@ -699,7 +751,7 @@ class Repository:
 
     def recent_messages(self, phone: str, limit: int = 20) -> list[dict[str, str]]:
         with Session(self.engine) as session:
-            conversation = session.scalar(select(ConversationRecord).where(ConversationRecord.phone == phone))
+            conversation = self._find_conversation(session, phone)
             if conversation is None:
                 return []
             records = session.scalars(
