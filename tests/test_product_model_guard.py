@@ -100,6 +100,67 @@ def build_agent(tmp_path):
 def test_delivery_deadline_is_not_parsed_as_budget_limit():
     assert _extract_budget_limit("iPhone 17 com entrega em até 1 semana") is None
     assert _extract_budget_limit("iPhone 17 até R$ 7.200,00") == 7200
+    assert _extract_budget_limit("orçamento do iPhone 15 Pro Max") is None
+
+
+@pytest.mark.asyncio
+async def test_orcamento_do_iphone_15_pro_max_nao_vira_limite_de_15_reais(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-15-pro-max-budget-regression.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-max-256-86",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4130,
+            battery_health=86,
+            search_text="iphone 15 pro max titanio azul 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-256-87",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4070,
+            battery_health=87,
+            search_text="iphone 15 pro max titanio azul 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Gostaria de saber sobre o orçamento do iPhone 15 pro Max",
+        history=[
+            {"role": "user", "content": "Ola boa tarde"},
+            {"role": "assistant", "content": "Olá, boa tarde! 😊 Como posso ajudar?"},
+        ],
+    )
+    normalized = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-15-pro-max-256-86",
+        "iphone-15-pro-max-256-87",
+    }
+    assert "iPhone 15 Pro Max" in decision.reply
+    assert "R$ 4.130,00" in decision.reply
+    assert "R$ 4.070,00" in decision.reply
+    assert "até R$ 15,00" not in decision.reply
+    assert "não localizei aparelhos" not in normalized
 
 
 @pytest.mark.asyncio
