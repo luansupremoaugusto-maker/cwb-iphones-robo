@@ -2377,19 +2377,30 @@ def _is_photo_context_followup(
         return True
     if _requested_capacity_keys(text):
         return True
-    return bool(
-        re.fullmatch(
-            r"(?:eu\s+)?vi\s+que\s+(?:voce|voces|vc)\s+tem",
-            normalized,
+    if re.fullmatch(
+        r"(?:eu\s+)?vi\s+que\s+(?:voce|voces|vc)\s+tem",
+        normalized,
+    ) or re.fullmatch(
+        r"(?:eu\s+)?vi\s+(?:ali\s+)?que\s+tem\s+(?:um\s+)?"
+        r"(?:iphone\s*)?\d{1,2}"
+        r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air|e))?"
+        r"(?:\s+[a-z]+)?",
+        normalized,
+    ):
+        return True
+    if _requested_iphone_model_keys(text):
+        # A customer can extend a photo request with another explicit model
+        # without repeating "foto", e.g. "e do 14 pro max e do 15 pro max".
+        # Keep availability/price questions on their normal route instead of
+        # treating them as a request to send the previous photo context.
+        return not bool(
+            re.search(
+                r"\b(?:tem|teria|disponivel|disponibilidade|estoque|vende|"
+                r"vender|possui|valor|valores|preco|precos|custa|quanto)\b",
+                normalized,
+            )
         )
-        or re.fullmatch(
-            r"(?:eu\s+)?vi\s+(?:ali\s+)?que\s+tem\s+(?:um\s+)?"
-            r"(?:iphone\s*)?\d{1,2}"
-            r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air|e))?"
-            r"(?:\s+[a-z]+)?",
-            normalized,
-        )
-    )
+    return False
 
 
 def _is_capacity_availability_followup(
