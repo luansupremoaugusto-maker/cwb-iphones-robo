@@ -121,6 +121,57 @@ def test_recovery_queue_includes_old_bot_conversations_with_unanswered_customer_
     assert "5511000000002" not in phones
 
 
+def test_recovery_draft_accepts_old_bot_conversation_with_unanswered_customer_message():
+    runtime = _runtime()
+    runtime.repository.get_or_create_conversation("5511000000003", "Cliente antigo")
+    latest_id = runtime.repository.add_message(
+        "5511000000003", "inbound", "text", "Ainda posso comprar o iPhone 15?"
+    )
+    _age_messages(runtime, "5511000000003", [latest_id], age_hours=72)
+    recording_agent = _RecordingAgent()
+    runtime.agent = recording_agent
+    token = build_admin_csrf_token(runtime.settings)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/admin/api/recovery/draft",
+            json={"phone": "5511000000003"},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "bot_active"
+    assert response.json()["source_message_id"] == latest_id
+    assert recording_agent.text == "Ainda posso comprar o iPhone 15?"
+
+
+def test_recovery_send_accepts_old_bot_conversation_after_reviewed_draft():
+    runtime = _runtime()
+    runtime.repository.get_or_create_conversation("5511000000004", "Cliente antigo")
+    latest_id = runtime.repository.add_message(
+        "5511000000004", "inbound", "text", "Ainda posso comprar o iPhone 15?"
+    )
+    _age_messages(runtime, "5511000000004", [latest_id], age_hours=72)
+    token = build_admin_csrf_token(runtime.settings)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/admin/api/recovery/send",
+            json={
+                "phone": "5511000000004",
+                "message": "Olá! Retomando seu atendimento.",
+                "expected_last_message_id": latest_id,
+            },
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["suppressed"] is True
+    assert runtime.repository.get_conversation("5511000000004").status == "human_active"
+
+
 class _RecordingAgent:
     def __init__(self):
         self.text = None

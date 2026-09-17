@@ -55,6 +55,7 @@ from app.storage.database import utc_now
 CONTROL_CALLBACK_MARKERS = ("delivery", "status", "disconnect", "connection")
 ADMIN_SESSION_COOKIE = "cwb_admin_session"
 ADMIN_SESSION_MAX_AGE = 8 * 60 * 60
+RECOVERY_CONVERSATION_STATUSES = frozenset(("bot_active", "human_pending", "human_active"))
 logger = logging.getLogger(__name__)
 _ADMIN_NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
@@ -547,8 +548,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         detail = current.repository.conversation_detail(phone, limit=80)
         if detail is None:
             raise HTTPException(status_code=404, detail="Conversa não encontrada")
-        if detail["status"] not in {"human_pending", "human_active"}:
-            raise HTTPException(status_code=409, detail="A conversa não está na fila humana")
+        if detail["status"] not in RECOVERY_CONVERSATION_STATUSES:
+            raise HTTPException(status_code=409, detail="A conversa não está na fila de recuperação")
         source = recovery_source_message(detail["messages"])
         if source is None:
             raise HTTPException(status_code=409, detail="Conversa sem mensagem de texto do cliente")
@@ -630,8 +631,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         detail = current.repository.conversation_detail(phone, limit=1)
         if detail is None:
             raise HTTPException(status_code=404, detail="Conversa não encontrada")
-        if detail["status"] not in {"human_pending", "human_active"}:
-            raise HTTPException(status_code=409, detail="A conversa não está na fila humana")
+        if detail["status"] not in RECOVERY_CONVERSATION_STATUSES:
+            raise HTTPException(status_code=409, detail="A conversa não está na fila de recuperação")
         if detail["last_message_id"] != command.expected_last_message_id:
             raise HTTPException(
                 status_code=409,
