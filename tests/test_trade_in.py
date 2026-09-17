@@ -96,6 +96,30 @@ def test_parts_buyback_detector_ignores_part_details_in_upgrade_request():
     assert is_parts_buyback_request(text) is False
 
 
+@pytest.mark.asyncio
+async def test_owned_iphone_battery_replacement_context_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Luan tenho o meu celular iPhone 14 de 256gb e gostaria de saber se você compra, "
+        "a bateria tem que trocar pq usei muuuuito pra trabalhar e sabe como é, acho que tá em 82% só. "
+        "Mas dependendo do valor que tu me pagar vale a pena trocar pra vender"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_parts_buyback_request(text) is False
+    assert is_trade_in_request(text) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert "assistência técnica" not in decision.reply.lower()
+
+
 def test_parts_buyback_detector_ignores_complete_device_details_after_buyback_question():
     text = (
         "Queria saber se vcs pegam iPhone 17\n"

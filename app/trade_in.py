@@ -152,6 +152,8 @@ _NON_APPLE_EXCHANGE_RE = re.compile(
     r"como\s+entrada|de\s+entrada|retoma\w*|retomar)\b",
     re.IGNORECASE,
 )
+# Informal messages often put the percentage after the battery sentence:
+# "a bateria ... acho que tá em 82%".
 _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"\b(?:caixa|caixinha|mes(?:es)?\s+de\s+uso|uso|impecavel|perfeito|"
     r"estado|saude\s+(?:da\s+)?bateria)\b"
@@ -159,7 +161,8 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"|\b\d{1,3}\s*%\s*(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?bateria\b"
-    r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%|boa|ruim)\b",
+    r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%|boa|ruim)\b"
+    r"|\b(?:em|com)\s+\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
 _BARE_IPHONE_MODEL_RE = re.compile(
@@ -529,7 +532,7 @@ def _is_store_buyback_question(text: str) -> bool:
         return True
 
     store_subject = re.search(
-        r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
+        r"\b(?:voce|voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
         r"(?:compram|compra|comprar|pegam|pegm|aceitam|recebem|avaliam)\b",
         text,
         flags=re.IGNORECASE,
@@ -554,6 +557,16 @@ def _is_store_buyback_question(text: str) -> bool:
         and _has_device_reference(text)
     ) or bool(
         re.search(r"\b(?:vocês|voces|vcs|loja)\b.{0,35}\baceitam\s+usado\b", text, re.IGNORECASE)
+    )
+
+
+def _has_complete_owned_device_buyback_offer(text: str) -> bool:
+    """Allow a complete-device sale context to take precedence over repair wording."""
+    if not _has_complete_owned_device_profile(text):
+        return False
+    return bool(
+        _is_store_buyback_question(text)
+        or re.search(r"\b(?:para|pra)\s+vend\w*\b", text, flags=re.IGNORECASE)
     )
 
 
@@ -684,7 +697,10 @@ def is_trade_in_request(text: str | None) -> bool:
         r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
         r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
         normalized,
-    ) and not _has_implicit_device_upgrade_offer(normalized):
+    ) and not (
+        _has_implicit_device_upgrade_offer(normalized)
+        or _has_complete_owned_device_buyback_offer(normalized)
+    ):
         return False
     if _NEGATION_RE.search(normalized):
         return False

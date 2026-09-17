@@ -39,6 +39,7 @@ async def test_battery_replacement_question_is_answered_and_forwarded(tmp_path):
         "Vocês trocam a tela do iPhone 13?",
         "Meu iPhone está com a tela trincada, vocês consertam?",
         "Quero trocar a bateria do meu iPhone 11.",
+        "Quero trocar a bateria do meu iPhone 14 256gb, está em 82%.",
     ],
 )
 async def test_other_repair_questions_are_also_forwarded(tmp_path, question):
