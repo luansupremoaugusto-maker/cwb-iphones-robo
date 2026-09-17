@@ -581,6 +581,94 @@ async def test_multi_model_photo_request_sends_all_options_for_each_requested_mo
 
 
 @pytest.mark.asyncio
+async def test_literal_followup_sends_14_and_15_pro_max_photos_after_13_photo(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-14-15-pro-max-followup.json",
+    )
+    photo_urls = {
+        "14-pro-max-256": "https://photos.example/14-pro-max-256.jpg",
+        "15-pro-max-256-a": "https://photos.example/15-pro-max-256-a.jpg",
+        "15-pro-max-256-b": "https://photos.example/15-pro-max-256-b.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id="14-pro-max-256",
+            name="IPHONE 14 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3570.0,
+            source="mercado_phone",
+            search_text="iphone 14 pro max roxo profundo 256gb celular seminovo",
+            photo_urls=[photo_urls["14-pro-max-256"]],
+        ),
+        InventoryItem(
+            external_id="15-pro-max-256-a",
+            name="IPHONE 15 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4130.0,
+            source="mercado_phone",
+            search_text="iphone 15 pro max titanio azul 256gb celular seminovo",
+            photo_urls=[photo_urls["15-pro-max-256-a"]],
+        ),
+        InventoryItem(
+            external_id="15-pro-max-256-b",
+            name="IPHONE 15 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4070.0,
+            source="mercado_phone",
+            search_text="iphone 15 pro max titanio azul 256gb celular seminovo",
+            photo_urls=[photo_urls["15-pro-max-256-b"]],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    decision = await agent.respond(
+        "e do 14 pro max e do 15 pro max\npor favor",
+        history=[
+            {
+                "role": "user",
+                "content": "Boa tarde, gostaria de ver os modelos de IPhone com 256GB",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "📋 Lista completa de produtos disponíveis:\n"
+                    "IPHONE 14 PRO MAX — ROXO PROFUNDO — 256GB — SEMINOVO — R$ 3.570,00\n"
+                    "IPHONE 15 PRO MAX — TITÂNIO AZUL — 256GB — SEMINOVO — R$ 4.130,00\n"
+                    "IPHONE 15 PRO MAX — TITÂNIO AZUL — 256GB — SEMINOVO — R$ 4.070,00"
+                ),
+            },
+            {"role": "user", "content": "consegue me mandar uma foto do 13 pro 256GB"},
+            {"role": "assistant", "content": "Claro! Seguem as fotos do IPHONE 13 PRO 256GB."},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == set(photo_urls.values())
+    assert set(decision.product_references) == set(photo_urls)
+    assert "14 pro max" in decision.reply.lower()
+    assert "15 pro max" in decision.reply.lower()
+    assert "não possui fotos" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_range_photo_request_sends_all_available_range_options(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
