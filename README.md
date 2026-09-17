@@ -113,13 +113,14 @@ revogar sessões e atualizar fontes individualmente. O painel não edita
 estoque/preços.
 
 A área **Recuperação pós-viagem** lista conversas humanas antigas e também
-conversas `bot_active` cujo último contato foi do cliente sem resposta. A fila
-protege mensagens recentes por uma janela configurável, mostra até 50 itens por
-vez e permite carregar mais. Em cada conversa, o painel monta um rascunho com o
-histórico e os dados atuais do robô; o operador revisa e confirma o envio de uma
-mensagem por vez. O envio exige CSRF, verifica se surgiu uma mensagem nova antes
-de enviar, registra auditoria e não dispara em massa. Rascunhos que incluam fotos
-ficam bloqueados nesta fila de texto para evitar prometer anexos ausentes.
+conversas `bot_active` antigas que têm histórico de mensagens do cliente, mesmo
+quando o robô respondeu por último. A fila protege mensagens recentes por uma
+janela configurável, mostra até 50 itens por vez e permite carregar mais. Em cada
+conversa, o painel monta um rascunho com o histórico e os dados atuais do robô;
+o operador revisa e confirma o envio de uma mensagem por vez. O envio exige
+CSRF, verifica se surgiu uma mensagem nova antes de enviar, registra auditoria e
+não dispara em massa. Rascunhos que incluam fotos ficam bloqueados nesta fila de
+texto para evitar prometer anexos ausentes.
 
 ## Docker na VPS
 

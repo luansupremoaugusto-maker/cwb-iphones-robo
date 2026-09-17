@@ -273,7 +273,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       <div class="panel-heading">
         <div>
           <h2 id="recovery-title">Recuperação pós-viagem</h2>
-          <p class="muted">Prepare respostas para conversas humanas antigas. Mensagens novas ficam fora desta fila até envelhecerem.</p>
+          <p class="muted">Prepare respostas para conversas antigas, inclusive quando o robô respondeu por último. Mensagens novas ficam fora desta fila até envelhecerem.</p>
         </div>
         <div class="actions">
           <label for="recovery-older-hours">Sem atualização há</label>

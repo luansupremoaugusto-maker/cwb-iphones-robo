@@ -92,7 +92,7 @@ def test_recovery_queue_returns_only_old_pending_conversations_in_oldest_order()
     assert [item["phone"] for item in next_response.json()["items"]] == ["5511888888888"]
 
 
-def test_recovery_queue_includes_old_bot_conversations_with_unanswered_customer_message():
+def test_recovery_queue_includes_old_bot_conversations_with_customer_history_for_review():
     runtime = _runtime()
     runtime.repository.get_or_create_conversation("5511000000001", "Pausa")
     unanswered_id = runtime.repository.add_message(
@@ -118,7 +118,32 @@ def test_recovery_queue_includes_old_bot_conversations_with_unanswered_customer_
     assert response.status_code == 200
     phones = [item["phone"] for item in response.json()["items"]]
     assert "5511000000001" in phones
-    assert "5511000000002" not in phones
+    assert "5511000000002" in phones
+
+
+def test_recovery_queue_includes_old_bot_conversations_with_latest_outbound_reply_for_review():
+    runtime = _runtime()
+    runtime.repository.get_or_create_conversation("5511000000007", "Resposta automática")
+    inbound_id = runtime.repository.add_message(
+        "5511000000007", "inbound", "text", "Ainda tenho interesse no aparelho."
+    )
+    outbound_id = runtime.repository.add_message(
+        "5511000000007", "outbound", "text", "Por nada! Qualquer coisa, é só chamar."
+    )
+    _age_messages(runtime, "5511000000007", [inbound_id, outbound_id], age_hours=72)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.get(
+            "/admin/api/recovery?older_than_hours=24",
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    item = next(
+        item for item in response.json()["items"] if item["phone"] == "5511000000007"
+    )
+    assert item["last_message_direction"] == "outbound"
+    assert item["last_message"] == "Por nada! Qualquer coisa, é só chamar."
 
 
 def test_recovery_draft_accepts_old_bot_conversation_with_unanswered_customer_message():
@@ -144,6 +169,35 @@ def test_recovery_draft_accepts_old_bot_conversation_with_unanswered_customer_me
     assert response.json()["status"] == "bot_active"
     assert response.json()["source_message_id"] == latest_id
     assert recording_agent.text == "Ainda posso comprar o iPhone 15?"
+
+
+def test_recovery_draft_uses_customer_message_when_bot_replied_last():
+    runtime = _runtime()
+    runtime.repository.get_or_create_conversation("5511000000008", "Cliente antigo")
+    customer_id = runtime.repository.add_message(
+        "5511000000008", "inbound", "text", "Ainda tenho interesse no iPhone 15."
+    )
+    bot_reply_id = runtime.repository.add_message(
+        "5511000000008", "outbound", "text", "Durante a viagem, continuo atendendo online."
+    )
+    _age_messages(runtime, "5511000000008", [customer_id, bot_reply_id], age_hours=72)
+    recording_agent = _RecordingAgent()
+    runtime.agent = recording_agent
+    token = build_admin_csrf_token(runtime.settings)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/admin/api/recovery/draft",
+            json={"phone": "5511000000008"},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_message_id"] == customer_id
+    assert payload["last_message_id"] == bot_reply_id
+    assert recording_agent.text == "Ainda tenho interesse no iPhone 15."
 
 
 def test_recovery_send_accepts_old_bot_conversation_after_reviewed_draft():
@@ -409,5 +463,6 @@ def test_admin_page_contains_recovery_queue_and_draft_controls():
     assert "/admin/api/recovery/skip" in html
     assert "Preparar resposta" in html
     assert "Pular" in html
+    assert "inclusive quando o robô respondeu por último" in html
     assert 'id="recovery-more"' in html
     assert html.index('id="recovery-editor"') < html.index('id="recovery-queue-body"')
