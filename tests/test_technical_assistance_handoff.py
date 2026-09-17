@@ -175,6 +175,24 @@ async def test_catalog_battery_replacement_followup_is_forwarded_as_product_ques
 
 
 @pytest.mark.asyncio
+async def test_named_model_battery_replacement_question_is_product_question(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("o iphone 16 plus tem a bateria trocada?")
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
+    assert "dúvida" in decision.reply.lower()
+    assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_explicit_battery_repair_after_catalog_context_stays_technical(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = InventoryCache(

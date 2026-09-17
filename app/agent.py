@@ -1451,7 +1451,17 @@ def _is_catalog_buyer_details_question(
         r"icloud|restric\w*)\b",
         normalized,
     )
-    if not buyer_context and not (has_catalog_context and state_question):
+    named_product_state_question = bool(
+        _has_product_reference(normalized)
+        and re.search(r"\b(?:tem|possui|esta|vem)\b", normalized)
+        and re.search(r"\b(?:bateria|tela|display|vidro|pecas?)\b", normalized)
+        and re.search(r"\b(?:trocad\w*|substituid\w*)\b", normalized)
+    )
+    if (
+        not buyer_context
+        and not (has_catalog_context and state_question)
+        and not named_product_state_question
+    ):
         return False
 
     detail_groups = (
