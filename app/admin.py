@@ -201,6 +201,11 @@ class AdminRecoverySendRequest(BaseModel):
     expected_last_message_id: int = Field(ge=1)
 
 
+class AdminRecoverySkipRequest(BaseModel):
+    phone: str | None = None
+    expected_last_message_id: int = Field(ge=1)
+
+
 def build_admin_csrf_token(settings: Settings) -> str:
     if not settings.admin_panel_configured:
         raise ValueError("Painel administrativo não configurado")

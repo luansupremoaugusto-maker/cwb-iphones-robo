@@ -24,6 +24,7 @@ from app.admin import (
     AdminRefreshRequest,
     AdminRecoveryDraftRequest,
     AdminRecoverySendRequest,
+    AdminRecoverySkipRequest,
     AdminCommandService,
     admin_audit_payload,
     admin_conversations_payload,
@@ -611,6 +612,53 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "send_allowed": not bool(decision.image_urls),
                 "product_references": list(decision.product_references),
                 "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    @app.post("/admin/api/recovery/skip")
+    async def admin_recovery_skip(
+        request: Request,
+        command: AdminRecoverySkipRequest,
+    ) -> dict[str, Any]:
+        operator = _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        phone = normalize_phone(command.phone)
+        if not 10 <= len(phone) <= 15:
+            raise HTTPException(status_code=400, detail="Telefone inválido")
+        detail = current.repository.conversation_detail(phone, limit=1)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+        if detail["status"] not in RECOVERY_CONVERSATION_STATUSES:
+            raise HTTPException(status_code=409, detail="A conversa não está na fila de recuperação")
+        if detail["last_message_id"] != command.expected_last_message_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Chegou uma nova mensagem; atualize a fila antes de pular a conversa.",
+            )
+        skipped = current.repository.skip_recovery_conversation(
+            phone,
+            command.expected_last_message_id,
+            operator=operator,
+        )
+        if not skipped:
+            raise HTTPException(
+                status_code=409,
+                detail="Chegou uma nova mensagem; atualize a fila antes de pular a conversa.",
+            )
+        current.repository.audit(
+            "admin_recovery_skipped",
+            phone,
+            {
+                "operator": operator,
+                "last_message_id": command.expected_last_message_id,
+            },
+        )
+        return _admin_json(
+            {
+                "phone": phone,
+                "skipped": True,
+                "message": "Conversa pulada até chegar uma nova mensagem do cliente.",
             }
         )
 
