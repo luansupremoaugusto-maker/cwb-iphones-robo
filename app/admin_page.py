@@ -147,6 +147,21 @@ _PAGE_TEMPLATE = """<!doctype html>
     .queue-actions button { font-size: 12px; padding: 7px 9px; }
     .audit-detail { color: var(--muted); font-size: 12px; max-width: 330px; overflow-wrap: anywhere; }
     .nowrap { white-space: nowrap; }
+    .recovery-editor { background: #fbfcff; border: 1px solid #c7d7fe; border-radius: 12px; display: grid; gap: 14px; margin-top: 16px; padding: 14px; }
+    .recovery-editor h3 { font-size: 16px; margin: 0 0 4px; }
+    .recovery-history { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; max-height: 300px; overflow: auto; padding: 10px; }
+    .recovery-message { border-radius: 9px; padding: 9px 11px; white-space: pre-wrap; }
+    .recovery-message.inbound { background: #eef3ff; margin-right: 12%; }
+    .recovery-message.outbound { background: #f2f4f7; margin-left: 12%; }
+    .recovery-message strong { display: block; font-size: 12px; margin-bottom: 3px; }
+    .recovery-message small { color: var(--muted); display: block; font-size: 11px; margin-top: 4px; }
+    .recovery-compose { display: grid; gap: 7px; }
+    textarea { border: 1px solid #cfd5df; border-radius: 9px; color: var(--ink); font: inherit; min-height: 150px; padding: 10px 11px; resize: vertical; width: 100%; }
+    .recovery-review { margin: 0; }
+    .recovery-review.warning { margin: 0; }
+    .recovery-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+    .recovery-actions .status { margin: 0; }
+    .category-badge { background: #f2f4f7; border-radius: 999px; color: var(--ink); display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; }
     .command-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) minmax(260px, 1.4fr) auto; }
     .command-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .command-actions button { white-space: nowrap; }
@@ -249,6 +264,57 @@ _PAGE_TEMPLATE = """<!doctype html>
         <div class="monitoring-card"><strong>Estado global do robô</strong><p id="bot-control-status">Carregando…</p></div>
         <div class="monitoring-card"><strong>Fontes desatualizadas</strong><p id="monitoring-stale-status">Verificando…</p></div>
         <div class="monitoring-card"><strong>Falhas nas últimas 24 horas</strong><p id="monitoring-error-status">Verificando…</p></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="recovery-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="recovery-title">Recuperação pós-viagem</h2>
+          <p class="muted">Prepare respostas para conversas humanas antigas. Mensagens novas ficam fora desta fila até envelhecerem.</p>
+        </div>
+        <div class="actions">
+          <label for="recovery-older-hours">Sem atualização há</label>
+          <input id="recovery-older-hours" type="number" min="0" max="8760" step="1" value="24" aria-label="Horas sem atualização">
+          <span class="muted">horas</span>
+          <button id="refresh-recovery" class="secondary" type="button">Atualizar fila</button>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input id="recovery-search" type="search" placeholder="Buscar cliente, telefone ou assunto" autocomplete="off" aria-label="Buscar na recuperação">
+        <span id="recovery-summary" class="status muted" role="status" aria-live="polite">Carregando fila…</span>
+        <span id="recovery-status" class="status muted" role="status" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap compact-table">
+        <table>
+          <thead>
+            <tr><th>Categoria</th><th>Cliente</th><th>Telefone</th><th>Última mensagem</th><th>Idade</th><th>Ação</th></tr>
+          </thead>
+          <tbody id="recovery-queue-body"></tbody>
+        </table>
+      </div>
+      <div class="recovery-actions">
+        <button id="recovery-more" class="secondary" type="button" hidden>Carregar mais 50</button>
+      </div>
+      <div id="recovery-editor" class="recovery-editor" hidden>
+        <div class="panel-heading">
+          <div>
+            <h3 id="recovery-editor-title">Preparar resposta</h3>
+            <p id="recovery-editor-meta" class="muted"></p>
+          </div>
+          <button id="close-recovery-editor" class="secondary" type="button">Fechar editor</button>
+        </div>
+        <div id="recovery-history" class="recovery-history" aria-label="Histórico da conversa"></div>
+        <div class="recovery-compose">
+          <label for="recovery-message">Rascunho da resposta</label>
+          <textarea id="recovery-message" maxlength="4000" aria-describedby="recovery-review"></textarea>
+          <p id="recovery-review" class="warning recovery-review" hidden></p>
+        </div>
+        <div class="recovery-actions">
+          <button id="send-recovery-message" type="button">Enviar resposta</button>
+          <button id="skip-recovery-message" class="secondary" type="button">Pular conversa</button>
+          <span id="recovery-editor-status" class="status muted" role="status" aria-live="polite"></span>
+        </div>
       </div>
     </section>
 
@@ -422,6 +488,9 @@ _PAGE_TEMPLATE = """<!doctype html>
       let catalog = null;
       let dashboard = null;
       let humanQueue = [];
+      let recoveryQueue = [];
+      let recoveryTotal = 0;
+      let recoveryDraft = null;
       let auditEvents = [];
       const healthDefinitions = [
         ["database", "Banco de dados", null],
@@ -442,10 +511,11 @@ _PAGE_TEMPLATE = """<!doctype html>
       const asText = (value, fallback = "—") => value === null || value === undefined || value === "" ? fallback : String(value);
       const batteryText = (value) => value === null || value === undefined || value === "" ? "—" : `${value}%`;
       const queueText = (item) => [item.chat_name, item.phone, item.status, item.status_label, item.last_message, item.paused_reason].join(" ").toLocaleLowerCase();
+      const recoveryText = (item) => [item.chat_name, item.phone, item.category_label, item.last_message].join(" ").toLocaleLowerCase();
       const auditText = (item) => [item.event_type, item.subject, JSON.stringify(item.detail || {})].join(" ").toLocaleLowerCase();
 
-      async function fetchJson(path) {
-        const response = await fetch(path, { credentials: "same-origin" });
+      async function fetchJson(path, options = {}) {
+        const response = await fetch(path, { credentials: "same-origin", ...options });
         const result = await response.json();
         if (!response.ok) throw new Error(result.detail || "Não foi possível carregar os dados administrativos.");
         return result;
@@ -570,6 +640,79 @@ _PAGE_TEMPLATE = """<!doctype html>
           row.append(actionsCell);
           body.append(row);
         });
+      }
+
+      function renderRecoveryQueue() {
+        const body = byId("recovery-queue-body");
+        const query = byId("recovery-search")?.value.trim().toLocaleLowerCase() || "";
+        const matches = recoveryQueue.filter((item) => !query || recoveryText(item).includes(query));
+        body.replaceChildren();
+        if (!matches.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 6;
+          cell.className = "empty";
+          cell.textContent = "Nenhuma conversa antiga encontrada nesta janela.";
+          row.append(cell);
+          body.append(row);
+          return;
+        }
+        matches.forEach((item) => {
+          const row = document.createElement("tr");
+          const categoryCell = document.createElement("td");
+          const category = document.createElement("span");
+          category.className = "category-badge";
+          category.textContent = asText(item.category_label, "Dúvida geral");
+          categoryCell.append(category);
+          row.append(categoryCell);
+          appendCell(row, item.chat_name || "Sem nome");
+          appendCell(row, item.phone, "nowrap");
+          appendCell(row, item.last_message || item.paused_reason || "Sem mensagem registrada");
+          appendCell(row, item.age_hours === null || item.age_hours === undefined ? "—" : `${item.age_hours} h`, "nowrap");
+          const actionsCell = document.createElement("td");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.dataset.recoveryPhone = item.phone || "";
+          button.textContent = "Preparar resposta";
+          actionsCell.append(button);
+          row.append(actionsCell);
+          body.append(row);
+        });
+      }
+
+      function renderRecoveryEditor() {
+        const editor = byId("recovery-editor");
+        if (!recoveryDraft) {
+          editor.hidden = true;
+          return;
+        }
+        editor.hidden = false;
+        byId("recovery-editor-title").textContent = `Resposta para ${recoveryDraft.chat_name || recoveryDraft.phone}`;
+        byId("recovery-editor-meta").textContent = [
+          recoveryDraft.phone,
+          recoveryDraft.category_label,
+          `confiança ${recoveryDraft.confidence}`,
+        ].filter(Boolean).join(" · ");
+        const history = byId("recovery-history");
+        history.replaceChildren();
+        (recoveryDraft.messages || []).forEach((item) => {
+          const bubble = document.createElement("div");
+          bubble.className = `recovery-message ${item.direction === "inbound" ? "inbound" : "outbound"}`;
+          const author = document.createElement("strong");
+          author.textContent = item.direction === "inbound" ? "Cliente" : "Atendimento";
+          const content = document.createElement("span");
+          content.textContent = item.text || `[${item.kind || "mídia"} sem texto]`;
+          const date = document.createElement("small");
+          date.textContent = formatDate(item.created_at);
+          bubble.append(author, content, date);
+          history.append(bubble);
+        });
+        byId("recovery-message").value = recoveryDraft.draft || "";
+        const review = byId("recovery-review");
+        review.hidden = !recoveryDraft.review_required;
+        review.textContent = recoveryDraft.review_reason || "Revise esta resposta antes de enviar.";
+        byId("send-recovery-message").disabled = !recoveryDraft.draft || recoveryDraft.send_allowed === false;
       }
 
       function renderAudit() {
@@ -763,6 +906,108 @@ _PAGE_TEMPLATE = """<!doctype html>
         }
       }
 
+      async function loadRecoveryQueue(append = false) {
+        const status = byId("recovery-status");
+        const summary = byId("recovery-summary");
+        const hours = Number.parseFloat(byId("recovery-older-hours").value);
+        if (!Number.isFinite(hours) || hours < 0 || hours > 8760) {
+          status.className = "status error";
+          status.textContent = "Informe uma janela entre 0 e 8760 horas.";
+          return;
+        }
+        status.className = "status muted";
+        status.textContent = append ? "Carregando mais conversas…" : "Atualizando fila…";
+        byId("refresh-recovery").disabled = true;
+        byId("recovery-more").disabled = true;
+        try {
+          const offset = append ? recoveryQueue.length : 0;
+          const params = new URLSearchParams({ older_than_hours: String(hours), limit: "50", offset: String(offset) });
+          const result = await fetchJson(`/admin/api/recovery?${params.toString()}`);
+          recoveryTotal = Number(result.total || 0);
+          recoveryQueue = append ? [...recoveryQueue, ...(result.items || [])] : (result.items || []);
+          renderRecoveryQueue();
+          summary.textContent = `${recoveryQueue.length} de ${recoveryTotal} conversa(s) carregada(s).`;
+          byId("recovery-more").hidden = !result.has_more;
+          status.textContent = `Fila atualizada ${formatDate(result.generated_at)}.`;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          byId("refresh-recovery").disabled = false;
+          byId("recovery-more").disabled = false;
+        }
+      }
+
+      async function prepareRecovery(phone) {
+        const status = byId("recovery-editor-status");
+        status.className = "status muted";
+        status.textContent = "Preparando rascunho…";
+        byId("send-recovery-message").disabled = true;
+        try {
+          const result = await fetchJson("/admin/api/recovery/draft", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({ phone })
+          });
+          recoveryDraft = result;
+          renderRecoveryEditor();
+          byId("recovery-editor").scrollIntoView({ behavior: "smooth", block: "start" });
+          status.textContent = result.review_required
+            ? "Rascunho pronto. Revise o alerta antes de enviar."
+            : "Rascunho pronto para revisão.";
+        } catch (error) {
+          recoveryDraft = null;
+          renderRecoveryEditor();
+          status.className = "status error";
+          status.textContent = error.message;
+        }
+      }
+
+      function closeRecoveryEditor() {
+        recoveryDraft = null;
+        renderRecoveryEditor();
+      }
+
+      async function sendRecoveryMessage() {
+        if (!recoveryDraft) return;
+        const message = byId("recovery-message").value.trim();
+        const status = byId("recovery-editor-status");
+        if (!message) {
+          status.className = "status error";
+          status.textContent = "Escreva uma mensagem antes de enviar.";
+          return;
+        }
+        const confirmation = `Enviar esta mensagem para ${recoveryDraft.phone}?\n\n${message}`;
+        if (!window.confirm(confirmation)) return;
+        status.className = "status muted";
+        status.textContent = "Enviando…";
+        byId("send-recovery-message").disabled = true;
+        try {
+          const response = await fetch("/admin/api/recovery/send", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({
+              phone: recoveryDraft.phone,
+              message,
+              expected_last_message_id: recoveryDraft.last_message_id
+            })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "Não foi possível enviar a resposta.");
+          status.className = "status success";
+          status.textContent = result.message;
+          recoveryDraft = null;
+          renderRecoveryEditor();
+          await Promise.all([loadRecoveryQueue(), loadHumanQueue(), loadDashboard()]);
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+          byId("send-recovery-message").disabled = false;
+        }
+      }
+
       async function loadAudit() {
         const status = byId("audit-status");
         status.className = "status muted";
@@ -782,7 +1027,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       }
 
       async function loadOperationalPanel() {
-        await Promise.all([loadDashboard(), loadHumanQueue(), loadAudit()]);
+        await Promise.all([loadDashboard(), loadHumanQueue(), loadRecoveryQueue(), loadAudit()]);
       }
 
       async function loadCatalog() {
@@ -992,8 +1237,12 @@ _PAGE_TEMPLATE = """<!doctype html>
       byId("catalog-search").addEventListener("input", renderTable);
       byId("refresh-dashboard").addEventListener("click", loadDashboard);
       byId("refresh-queue").addEventListener("click", loadHumanQueue);
+      byId("refresh-recovery").addEventListener("click", loadRecoveryQueue);
+      byId("recovery-more").addEventListener("click", () => loadRecoveryQueue(true));
       byId("refresh-audit").addEventListener("click", loadAudit);
       byId("human-queue-search").addEventListener("input", renderHumanQueue);
+      byId("recovery-search")?.addEventListener("input", renderRecoveryQueue);
+      byId("recovery-older-hours").addEventListener("change", loadRecoveryQueue);
       byId("audit-search").addEventListener("input", renderAudit);
       ["catalog-category-filter", "catalog-capacity-filter", "catalog-color-filter", "catalog-condition-filter", "catalog-stock-filter", "catalog-price-min", "catalog-price-max", "catalog-photos-filter"].forEach((id) => {
         byId(id).addEventListener("input", renderTable);
@@ -1007,6 +1256,20 @@ _PAGE_TEMPLATE = """<!doctype html>
       byId("human-queue-body").addEventListener("click", (event) => {
         const button = event.target.closest("button[data-action]");
         if (button) prepareCommand(button.dataset.action, button.dataset.phone);
+      });
+      byId("recovery-queue-body").addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-recovery-phone]");
+        if (button) prepareRecovery(button.dataset.recoveryPhone);
+      });
+      byId("close-recovery-editor").addEventListener("click", closeRecoveryEditor);
+      byId("skip-recovery-message").addEventListener("click", closeRecoveryEditor);
+      byId("send-recovery-message").addEventListener("click", sendRecoveryMessage);
+      byId("recovery-message").addEventListener("input", () => {
+        if (recoveryDraft) {
+          const message = byId("recovery-message").value.trim();
+          const unchangedAttachmentDraft = recoveryDraft.send_allowed === false && message === recoveryDraft.draft;
+          byId("send-recovery-message").disabled = !message || unchangedAttachmentDraft;
+        }
       });
       byId("command-action").addEventListener("change", () => { updatePhoneField(); invalidateCommandPreview(); });
       byId("command-form").addEventListener("submit", (event) => { event.preventDefault(); previewCommand(); });

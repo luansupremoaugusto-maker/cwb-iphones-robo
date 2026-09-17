@@ -9,7 +9,7 @@ import os
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -22,10 +22,13 @@ from app.admin import (
     AdminCommandPreviewRequest,
     AdminControlRequest,
     AdminRefreshRequest,
+    AdminRecoveryDraftRequest,
+    AdminRecoverySendRequest,
     AdminCommandService,
     admin_audit_payload,
     admin_conversations_payload,
     admin_dashboard_payload,
+    admin_recovery_payload,
     admin_role_allows,
     admin_sessions_payload,
     build_admin_csrf_token,
@@ -38,8 +41,15 @@ from app.admin import (
 )
 from app.adapters.zapi import normalize_received_callback
 from app.admin_page import render_admin_login_page, render_admin_page
-from app.config import get_settings
+from app.config import get_settings, normalize_phone
 from app.runtime import Runtime, build_runtime
+from app.recovery import (
+    build_recovery_draft,
+    classify_recovery_message,
+    clean_recovery_text,
+    recovery_source_message,
+)
+from app.storage.database import utc_now
 
 
 CONTROL_CALLBACK_MARKERS = ("delivery", "status", "disconnect", "connection")
@@ -465,6 +475,202 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "items": admin_conversations_payload(
                     current.repository.list_conversations(statuses, limit=limit)
+                ),
+            }
+        )
+
+    @app.get("/admin/api/recovery")
+    async def admin_recovery(
+        request: Request,
+        older_than_hours: float = 24,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        if not 0 <= float(older_than_hours) <= 24 * 365:
+            raise HTTPException(status_code=400, detail="Janela de recuperação inválida")
+        if not 1 <= int(limit) <= 200:
+            raise HTTPException(status_code=400, detail="Limite de recuperação inválido")
+        if int(offset) < 0:
+            raise HTTPException(status_code=400, detail="Deslocamento de recuperação inválido")
+        cutoff = utc_now() - timedelta(hours=float(older_than_hours))
+        records = current.repository.list_recovery_conversations(
+            before=cutoff,
+            limit=limit,
+            offset=offset,
+        )
+        total = current.repository.count_recovery_conversations(before=cutoff)
+        payload = admin_recovery_payload(
+            records,
+            total=total,
+            offset=offset,
+            limit=limit,
+            older_than_hours=float(older_than_hours),
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        for item in payload["items"]:
+            category, category_label = classify_recovery_message(item.get("last_message"))
+            item["category"] = category
+            item["category_label"] = category_label
+            last_message_at = next(
+                (
+                    record.get("last_message_at")
+                    for record in records
+                    if record.get("phone") == item.get("phone")
+                ),
+                None,
+            )
+            if isinstance(last_message_at, datetime):
+                message_time = (
+                    last_message_at.replace(tzinfo=timezone.utc)
+                    if last_message_at.tzinfo is None
+                    else last_message_at.astimezone(timezone.utc)
+                )
+                age = (utc_now() - message_time).total_seconds() / 3600
+                item["age_hours"] = round(max(0.0, age), 1)
+            else:
+                item["age_hours"] = None
+        return _admin_json(payload)
+
+    @app.post("/admin/api/recovery/draft")
+    async def admin_recovery_draft(
+        request: Request,
+        command: AdminRecoveryDraftRequest,
+    ) -> dict[str, Any]:
+        operator = _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        phone = normalize_phone(command.phone)
+        if not 10 <= len(phone) <= 15:
+            raise HTTPException(status_code=400, detail="Telefone inválido")
+        detail = current.repository.conversation_detail(phone, limit=80)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+        if detail["status"] not in {"human_pending", "human_active"}:
+            raise HTTPException(status_code=409, detail="A conversa não está na fila humana")
+        source = recovery_source_message(detail["messages"])
+        if source is None:
+            raise HTTPException(status_code=409, detail="Conversa sem mensagem de texto do cliente")
+        source_message, history = source
+        try:
+            decision = await current.agent.respond(
+                str(source_message.get("text") or ""),
+                history=history,
+            )
+        except Exception as exc:
+            current.repository.audit(
+                "admin_recovery_draft_error",
+                phone,
+                {"operator": operator, "error_type": type(exc).__name__},
+            )
+            raise HTTPException(status_code=503, detail="Não foi possível preparar o rascunho") from exc
+        category, category_label = classify_recovery_message(source_message.get("text"), decision)
+        review_required = bool(
+            decision.handoff
+            or decision.confidence != "high"
+            or decision.image_urls
+        )
+        review_reason = decision.handoff_reason
+        if not review_reason and decision.image_urls:
+            review_reason = (
+                "A resposta automática inclui fotos, mas esta fila envia somente texto. "
+                "Trate os anexos pela conversa normal."
+            )
+        messages = [
+            {
+                "id": item["id"],
+                "direction": item["direction"],
+                "kind": item["kind"],
+                "text": clean_recovery_text(item.get("text"), limit=1200),
+                "created_at": (
+                    item["created_at"].isoformat()
+                    if isinstance(item.get("created_at"), datetime)
+                    else item.get("created_at")
+                ),
+            }
+            for item in detail["messages"]
+        ]
+        return _admin_json(
+            {
+                "phone": detail["phone"],
+                "chat_name": detail["chat_name"],
+                "status": detail["status"],
+                "last_message_id": detail["last_message_id"],
+                "source_message_id": source_message["id"],
+                "source_message": clean_recovery_text(source_message.get("text"), limit=1200),
+                "messages": messages,
+                "category": category,
+                "category_label": category_label,
+                "draft": build_recovery_draft(decision.reply),
+                "confidence": decision.confidence,
+                "review_required": review_required,
+                "review_reason": review_reason,
+                "attachment_count": len(decision.image_urls),
+                "send_allowed": not bool(decision.image_urls),
+                "product_references": list(decision.product_references),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    @app.post("/admin/api/recovery/send")
+    async def admin_recovery_send(
+        request: Request,
+        command: AdminRecoverySendRequest,
+    ) -> dict[str, Any]:
+        operator = _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        phone = normalize_phone(command.phone)
+        message = str(command.message or "").strip()
+        if not 10 <= len(phone) <= 15:
+            raise HTTPException(status_code=400, detail="Telefone inválido")
+        if not message:
+            raise HTTPException(status_code=400, detail="Mensagem vazia")
+        detail = current.repository.conversation_detail(phone, limit=1)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+        if detail["status"] not in {"human_pending", "human_active"}:
+            raise HTTPException(status_code=409, detail="A conversa não está na fila humana")
+        if detail["last_message_id"] != command.expected_last_message_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Chegou uma nova mensagem; prepare o rascunho novamente antes de enviar.",
+            )
+        result = await current.processor.send_admin_reply(phone, message)
+        if not result.sent and not result.suppressed:
+            current.repository.audit(
+                "admin_recovery_send_error",
+                phone,
+                {"operator": operator, "channel": "web", "message_length": len(message)},
+            )
+            raise HTTPException(status_code=502, detail="Não foi possível enviar a resposta ao cliente.")
+        current.repository.audit(
+            "admin_recovery_sent",
+            phone,
+            {
+                "operator": operator,
+                "channel": "web",
+                "message_length": len(message),
+                "sent": result.sent,
+                "suppressed": result.suppressed,
+            },
+        )
+        current.repository.set_conversation_status(
+            phone,
+            "human_active",
+            f"Resposta manual pelo painel por {operator}",
+        )
+        return _admin_json(
+            {
+                "phone": phone,
+                "sent": result.sent,
+                "suppressed": result.suppressed,
+                "status": "human_active",
+                "message": (
+                    "Resposta registrada; o envio externo está suprimido neste ambiente."
+                    if result.suppressed
+                    else "Resposta enviada ao cliente."
                 ),
             }
         )

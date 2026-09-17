@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from app.adapters.openai_media import OpenAIMediaError
-from app.adapters.zapi import ZapiClient, ZapiError, normalize_received_callback
+from app.adapters.zapi import SendResult, ZapiClient, ZapiError, normalize_received_callback
 from app.admin import AdminCommandService
 from app.agent import AgentService
 from app.config import Settings, normalize_phone
@@ -408,7 +408,8 @@ class MessageProcessor:
         text: str,
         reply_to: str | None = None,
         kind: str = "text",
-    ) -> None:
+    ) -> SendResult:
+        result = SendResult(sent=False)
         provider_id: str | None = None
         try:
             result = await self.zapi.send_text(phone, text, reply_to=reply_to)
@@ -425,6 +426,11 @@ class MessageProcessor:
             provider_message_id=provider_id,
             raw={"suppressed": self.settings.outbound_mode != "live"},
         )
+        return result
+
+    async def send_admin_reply(self, phone: str, text: str) -> SendResult:
+        """Send and persist one human-approved recovery reply."""
+        return await self._send_phone(phone, text, kind="admin_recovery")
 
     async def _notify_admins(
         self,
