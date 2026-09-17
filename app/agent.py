@@ -1906,7 +1906,17 @@ def _extract_budget_limit(text: str) -> float | None:
     # Do not treat delivery deadlines, installment counts, or quantities as
     # prices. This matters when a previous catalog answer is part of the
     # follow-up context, for example: "entrega em até 1 semana".
-    suffix = normalized[marker.end() + amount_match.end() :]
+    amount_start = marker.end() + amount_match.start("value")
+    amount_end = marker.end() + amount_match.end()
+    prefix = normalized[:amount_start]
+    suffix = normalized[amount_end:]
+    # A model generation is commonly written immediately after "iPhone" or
+    # followed by its variant, as in "orçamento do iPhone 15 Pro Max". It is
+    # a product reference, not a fifteen-real price limit.
+    if re.search(r"\biphones?\s*$", prefix) or re.match(
+        r"\s*(?:pro(?:\s+max)?|max|plus|mini|air|e)\b", suffix
+    ):
+        return None
     if re.match(
         r"\s*(?:x\b|semanas?\b|dias?\b|horas?\b|mes(?:es)?\b|"
         r"vez(?:es)?\b|parcelas?\b|unidades?\b|aparelhos?\b|"
