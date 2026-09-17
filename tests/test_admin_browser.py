@@ -56,6 +56,47 @@ def _route_page(route: Route, html: str) -> None:
             body=b"Categoria;Produto\r\n",
         )
         return
+    if path == "/admin/api/recovery/draft" and request.method == "POST":
+        route.fulfill(
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "phone": "5511999999999",
+                    "chat_name": "Maria",
+                    "last_message_id": 7,
+                    "source_message_id": 7,
+                    "category_label": "Compra, preço ou estoque",
+                    "confidence": "high",
+                    "messages": [
+                        {
+                            "id": 7,
+                            "direction": "inbound",
+                            "kind": "text",
+                            "text": "Tem iPhone 15?",
+                            "created_at": "2026-09-15T12:00:00+00:00",
+                        }
+                    ],
+                    "draft": "Olá! Desculpe a demora. Retomando seu atendimento.",
+                    "review_required": False,
+                    "review_reason": None,
+                }
+            ),
+        )
+        return
+    if path == "/admin/api/recovery/send" and request.method == "POST":
+        route.fulfill(
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "phone": "5511999999999",
+                    "sent": True,
+                    "suppressed": False,
+                    "status": "human_active",
+                    "message": "Resposta enviada ao cliente.",
+                }
+            ),
+        )
+        return
 
     responses = {
         "/admin/api/dashboard": {
@@ -68,6 +109,20 @@ def _route_page(route: Route, html: str) -> None:
             "role": "owner",
         },
         "/admin/api/conversations": {"items": []},
+        "/admin/api/recovery": {
+            "generated_at": CATALOG["generated_at"],
+            "total": 1,
+            "has_more": False,
+            "items": [
+                {
+                    "phone": "5511999999999",
+                    "chat_name": "Maria",
+                    "category_label": "Compra, preço ou estoque",
+                    "last_message": "Tem iPhone 15?",
+                    "age_hours": 72.0,
+                }
+            ],
+        },
         "/admin/api/audit": {"items": []},
         "/admin/api/control": {
             "permissions": {"owner_controls": True},
@@ -136,5 +191,35 @@ def test_admin_page_controls_work_in_a_real_browser():
             assert unquote(csv_request.value.url).endswith(
                 "/admin/api/catalog.csv?sections=seminovos,lacrados"
             )
+        finally:
+            browser.close()
+
+
+def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_browser():
+    html = render_admin_page("csrf-token")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _open_admin_page(page, html)
+            page.on("dialog", lambda dialog: dialog.accept())
+
+            page.locator('#recovery-queue-body button[data-recovery-phone]').click()
+
+            assert not page.locator("#recovery-editor").is_hidden()
+            page.wait_for_function(
+                "() => document.querySelector('#recovery-message').value.length > 0"
+            )
+            assert page.locator("#recovery-message").input_value().startswith("Olá!")
+            assert "Tem iPhone 15?" in page.locator("#recovery-history").inner_text()
+
+            with page.expect_request(
+                lambda request: request.url.endswith("/admin/api/recovery/send")
+                and request.method == "POST"
+            ) as send_request:
+                page.locator("#send-recovery-message").click()
+
+            assert '"expected_last_message_id":7' in (send_request.value.post_data or "").replace(" ", "")
         finally:
             browser.close()

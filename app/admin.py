@@ -191,6 +191,16 @@ class AdminRefreshRequest(BaseModel):
     justification: str | None = Field(default=None, max_length=250)
 
 
+class AdminRecoveryDraftRequest(BaseModel):
+    phone: str | None = None
+
+
+class AdminRecoverySendRequest(BaseModel):
+    phone: str | None = None
+    message: str = Field(min_length=1, max_length=4000)
+    expected_last_message_id: int = Field(ge=1)
+
+
 def build_admin_csrf_token(settings: Settings) -> str:
     if not settings.admin_panel_configured:
         raise ValueError("Painel administrativo não configurado")
@@ -499,12 +509,33 @@ def admin_conversations_payload(records: list[dict[str, Any]]) -> list[dict[str,
             ),
             "paused_reason": record.get("paused_reason"),
             "updated_at": _iso_datetime(record.get("updated_at")),
+            "last_message_id": record.get("last_message_id"),
             "last_message": record.get("last_message") or "",
             "last_message_direction": record.get("last_message_direction"),
             "last_message_at": _iso_datetime(record.get("last_message_at")),
         }
         for record in records
     ]
+
+
+def admin_recovery_payload(
+    records: list[dict[str, Any]],
+    *,
+    total: int,
+    offset: int,
+    limit: int,
+    older_than_hours: float,
+    generated_at: str,
+) -> dict[str, Any]:
+    return {
+        "generated_at": generated_at,
+        "total": int(total),
+        "offset": int(offset),
+        "limit": int(limit),
+        "older_than_hours": float(older_than_hours),
+        "has_more": int(offset) + len(records) < int(total),
+        "items": admin_conversations_payload(records),
+    }
 
 
 def admin_audit_payload(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

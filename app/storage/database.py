@@ -3,7 +3,21 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, create_engine, func, select, update
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    and_,
+    create_engine,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
@@ -336,6 +350,7 @@ class Repository:
             latest_messages = (
                 select(
                     MessageRecord.conversation_id.label("conversation_id"),
+                    MessageRecord.id.label("id"),
                     MessageRecord.direction.label("direction"),
                     MessageRecord.text.label("text"),
                     MessageRecord.created_at.label("created_at"),
@@ -350,6 +365,7 @@ class Repository:
             )
             statement = select(
                 ConversationRecord,
+                latest_messages.c.id,
                 latest_messages.c.direction,
                 latest_messages.c.text,
                 latest_messages.c.created_at,
@@ -357,14 +373,15 @@ class Repository:
                 latest_messages,
                 (latest_messages.c.conversation_id == ConversationRecord.id)
                 & (latest_messages.c.row_number == 1),
-            ).order_by(
-                ConversationRecord.updated_at.desc(), ConversationRecord.id.desc()
             )
             if statuses:
                 statement = statement.where(ConversationRecord.status.in_(statuses))
+            statement = statement.order_by(
+                ConversationRecord.updated_at.desc(), ConversationRecord.id.desc()
+            )
             rows = session.execute(statement.limit(safe_limit)).all()
             result: list[dict[str, Any]] = []
-            for record, last_direction, last_text, last_created_at in rows:
+            for record, last_message_id, last_direction, last_text, last_created_at in rows:
                 result.append(
                     {
                         "phone": record.phone,
@@ -372,12 +389,150 @@ class Repository:
                         "status": record.status,
                         "paused_reason": record.paused_reason,
                         "updated_at": record.updated_at,
+                        "last_message_id": int(last_message_id) if last_message_id else None,
                         "last_message": (last_text or "")[:400],
                         "last_message_direction": last_direction,
                         "last_message_at": last_created_at,
                     }
                 )
             return result
+
+    @staticmethod
+    def _recovery_filter(latest_messages: Any) -> Any:
+        return or_(
+            ConversationRecord.status == "human_pending",
+            and_(
+                ConversationRecord.status == "bot_active",
+                latest_messages.c.direction == "inbound",
+            ),
+        )
+
+    def list_recovery_conversations(
+        self,
+        *,
+        before: datetime,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 200))
+        safe_offset = max(0, int(offset))
+        with Session(self.engine) as session:
+            latest_messages = (
+                select(
+                    MessageRecord.conversation_id.label("conversation_id"),
+                    MessageRecord.id.label("id"),
+                    MessageRecord.direction.label("direction"),
+                    MessageRecord.text.label("text"),
+                    MessageRecord.created_at.label("created_at"),
+                    func.row_number()
+                    .over(
+                        partition_by=MessageRecord.conversation_id,
+                        order_by=(MessageRecord.created_at.desc(), MessageRecord.id.desc()),
+                    )
+                    .label("row_number"),
+                )
+                .subquery()
+            )
+            statement = (
+                select(
+                    ConversationRecord,
+                    latest_messages.c.id,
+                    latest_messages.c.direction,
+                    latest_messages.c.text,
+                    latest_messages.c.created_at,
+                )
+                .outerjoin(
+                    latest_messages,
+                    (latest_messages.c.conversation_id == ConversationRecord.id)
+                    & (latest_messages.c.row_number == 1),
+                )
+                .where(
+                    ConversationRecord.updated_at < before,
+                    self._recovery_filter(latest_messages),
+                )
+                .order_by(ConversationRecord.updated_at.asc(), ConversationRecord.id.asc())
+                .offset(safe_offset)
+                .limit(safe_limit)
+            )
+            rows = session.execute(statement).all()
+            return [
+                {
+                    "phone": record.phone,
+                    "chat_name": record.chat_name,
+                    "status": record.status,
+                    "paused_reason": record.paused_reason,
+                    "updated_at": record.updated_at,
+                    "last_message_id": int(last_message_id) if last_message_id else None,
+                    "last_message": (last_text or "")[:400],
+                    "last_message_direction": last_direction,
+                    "last_message_at": last_message_at,
+                }
+                for record, last_message_id, last_direction, last_text, last_message_at in rows
+            ]
+
+    def count_recovery_conversations(self, *, before: datetime) -> int:
+        with Session(self.engine) as session:
+            latest_messages = (
+                select(
+                    MessageRecord.conversation_id.label("conversation_id"),
+                    MessageRecord.direction.label("direction"),
+                    func.row_number()
+                    .over(
+                        partition_by=MessageRecord.conversation_id,
+                        order_by=(MessageRecord.created_at.desc(), MessageRecord.id.desc()),
+                    )
+                    .label("row_number"),
+                )
+                .subquery()
+            )
+            statement = (
+                select(func.count(ConversationRecord.id))
+                .outerjoin(
+                    latest_messages,
+                    (latest_messages.c.conversation_id == ConversationRecord.id)
+                    & (latest_messages.c.row_number == 1),
+                )
+                .where(
+                    ConversationRecord.updated_at < before,
+                    self._recovery_filter(latest_messages),
+                )
+            )
+            return int(session.scalar(statement) or 0)
+
+    def conversation_detail(self, phone: str, *, limit: int = 80) -> dict[str, Any] | None:
+        safe_limit = max(1, min(int(limit), 200))
+        with Session(self.engine) as session:
+            conversation = session.scalar(
+                select(ConversationRecord).where(ConversationRecord.phone == phone)
+            )
+            if conversation is None:
+                return None
+            records = session.scalars(
+                select(MessageRecord)
+                .where(MessageRecord.conversation_id == conversation.id)
+                .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
+                .limit(safe_limit)
+            ).all()
+            messages = [
+                {
+                    "id": int(item.id),
+                    "direction": item.direction,
+                    "kind": item.kind,
+                    "text": item.text or "",
+                    "created_at": item.created_at,
+                }
+                for item in reversed(records)
+            ]
+            latest = messages[-1] if messages else None
+            return {
+                "phone": conversation.phone,
+                "chat_name": conversation.chat_name,
+                "status": conversation.status,
+                "paused_reason": conversation.paused_reason,
+                "updated_at": conversation.updated_at,
+                "last_message_id": latest["id"] if latest else None,
+                "messages": messages,
+            }
 
     def set_conversation_status(self, phone: str, status: str, reason: str | None = None) -> None:
         with Session(self.engine) as session:
