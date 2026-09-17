@@ -42,6 +42,12 @@ _MODEL_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_REVERSED_IPHONE_MODEL_PATTERN = re.compile(
+    r"\biphones?\s+(?P<variant>pro\s+max|pro|max|plus|mini|air|e)\s+"
+    r"(?P<number>1[0-9])\b",
+    flags=re.IGNORECASE,
+)
+
 _SHARED_MODEL_VARIANT_PATTERN = re.compile(
     r"(?<!\w)(?P<numbers>1[0-9](?:\s+1[0-9]|\s*(?:[,/;]|\b(?:e|ou|or)\b)\s*1[0-9])+)"
     r"\s+(?P<variant>pro\s+max|pro|max|plus|mini|air|e)\b",
@@ -64,6 +70,10 @@ def _is_price_fragment(text: str, match: re.Match[str]) -> bool:
 def _model_key(value: Any) -> tuple[int | str, str] | None:
     """Return the last explicit iPhone model/variant mentioned in a text."""
     normalized = _normalize(value)
+    reversed_matches = list(_REVERSED_IPHONE_MODEL_PATTERN.finditer(normalized))
+    if reversed_matches:
+        match = reversed_matches[-1]
+        return int(match.group("number")), " ".join(match.group("variant").split()).lower()
     matches = list(_MODEL_PATTERN.finditer(normalized))
     if not matches:
         return None
@@ -146,7 +156,7 @@ def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
     normalized = _score_text(value)
     if re.search(r"\biphones?\b", normalized) and not re.search(
         r"\biphones?\s+(?:\d{1,2}\b|xr\b)", normalized
-    ):
+    ) and not _REVERSED_IPHONE_MODEL_PATTERN.search(normalized):
         return None
     target = _model_key(value)
     if target is None:

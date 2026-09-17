@@ -542,6 +542,89 @@ async def test_explicit_iphone_16_catalog_question_does_not_return_complete_list
 
 
 @pytest.mark.asyncio
+async def test_reversed_iphone_pro_16_price_question_returns_only_requested_device(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-16-pro-reversed-word-order.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3200,
+            battery_health=90,
+            search_text="iphone 15 preto 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-128",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="128 GB",
+            color="TITANIO PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4800,
+            battery_health=94,
+            search_text="iphone 16 pro titanio preto 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-256",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="TITANIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5100,
+            battery_health=92,
+            search_text="iphone 16 pro titanio natural 256 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-17-128",
+            name="iPhone 17",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5600,
+            battery_health=96,
+            search_text="iphone 17 azul 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    customer_message = "Qual\nValor do iPhone pro 16- 128 gb"
+
+    decision = await agent.respond(customer_message)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-pro-128"]
+    assert "iPhone 16 Pro" in decision.reply
+    assert "128 GB" in decision.reply
+    assert "R$ 4.800,00" in decision.reply
+    assert "lista completa" not in decision.reply.lower()
+    assert "iPhone 15" not in decision.reply
+    assert "iPhone 17" not in decision.reply
+    assert "256 GB" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_cheapest_iphone_question_returns_lowest_available_price(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
