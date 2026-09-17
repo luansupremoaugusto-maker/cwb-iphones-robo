@@ -148,6 +148,7 @@ _PAGE_TEMPLATE = """<!doctype html>
     .audit-detail { color: var(--muted); font-size: 12px; max-width: 330px; overflow-wrap: anywhere; }
     .nowrap { white-space: nowrap; }
     .recovery-editor { background: #fbfcff; border: 1px solid #c7d7fe; border-radius: 12px; display: grid; gap: 14px; margin: 16px 0; padding: 14px; }
+    .recovery-editor[hidden] { display: none; }
     .recovery-editor h3 { font-size: 16px; margin: 0 0 4px; }
     .recovery-history { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; max-height: 300px; overflow: auto; padding: 10px; }
     .recovery-message { border-radius: 9px; padding: 9px 11px; white-space: pre-wrap; }
