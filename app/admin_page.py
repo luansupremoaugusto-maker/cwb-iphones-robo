@@ -147,7 +147,7 @@ _PAGE_TEMPLATE = """<!doctype html>
     .queue-actions button { font-size: 12px; padding: 7px 9px; }
     .audit-detail { color: var(--muted); font-size: 12px; max-width: 330px; overflow-wrap: anywhere; }
     .nowrap { white-space: nowrap; }
-    .recovery-editor { background: #fbfcff; border: 1px solid #c7d7fe; border-radius: 12px; display: grid; gap: 14px; margin-top: 16px; padding: 14px; }
+    .recovery-editor { background: #fbfcff; border: 1px solid #c7d7fe; border-radius: 12px; display: grid; gap: 14px; margin: 16px 0; padding: 14px; }
     .recovery-editor h3 { font-size: 16px; margin: 0 0 4px; }
     .recovery-history { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 8px; max-height: 300px; overflow: auto; padding: 10px; }
     .recovery-message { border-radius: 9px; padding: 9px 11px; white-space: pre-wrap; }
@@ -161,6 +161,8 @@ _PAGE_TEMPLATE = """<!doctype html>
     .recovery-review.warning { margin: 0; }
     .recovery-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
     .recovery-actions .status { margin: 0; }
+    .recovery-row-actions { display: grid; gap: 6px; min-width: 138px; }
+    .recovery-row-actions button { font-size: 12px; padding: 7px 9px; }
     .category-badge { background: #f2f4f7; border-radius: 999px; color: var(--ink); display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; }
     .command-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) minmax(260px, 1.4fr) auto; }
     .command-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -280,22 +282,6 @@ _PAGE_TEMPLATE = """<!doctype html>
           <button id="refresh-recovery" class="secondary" type="button">Atualizar fila</button>
         </div>
       </div>
-      <div class="toolbar">
-        <input id="recovery-search" type="search" placeholder="Buscar cliente, telefone ou assunto" autocomplete="off" aria-label="Buscar na recuperação">
-        <span id="recovery-summary" class="status muted" role="status" aria-live="polite">Carregando fila…</span>
-        <span id="recovery-status" class="status muted" role="status" aria-live="polite"></span>
-      </div>
-      <div class="table-wrap compact-table">
-        <table>
-          <thead>
-            <tr><th>Categoria</th><th>Cliente</th><th>Telefone</th><th>Última mensagem</th><th>Idade</th><th>Ação</th></tr>
-          </thead>
-          <tbody id="recovery-queue-body"></tbody>
-        </table>
-      </div>
-      <div class="recovery-actions">
-        <button id="recovery-more" class="secondary" type="button" hidden>Carregar mais 50</button>
-      </div>
       <div id="recovery-editor" class="recovery-editor" hidden>
         <div class="panel-heading">
           <div>
@@ -315,6 +301,22 @@ _PAGE_TEMPLATE = """<!doctype html>
           <button id="skip-recovery-message" class="secondary" type="button">Pular conversa</button>
           <span id="recovery-editor-status" class="status muted" role="status" aria-live="polite"></span>
         </div>
+      </div>
+      <div class="toolbar">
+        <input id="recovery-search" type="search" placeholder="Buscar cliente, telefone ou assunto" autocomplete="off" aria-label="Buscar na recuperação">
+        <span id="recovery-summary" class="status muted" role="status" aria-live="polite">Carregando fila…</span>
+        <span id="recovery-status" class="status muted" role="status" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap compact-table">
+        <table>
+          <thead>
+            <tr><th>Categoria</th><th>Cliente</th><th>Telefone</th><th>Última mensagem</th><th>Idade</th><th>Ação</th></tr>
+          </thead>
+          <tbody id="recovery-queue-body"></tbody>
+        </table>
+      </div>
+      <div class="recovery-actions">
+        <button id="recovery-more" class="secondary" type="button" hidden>Carregar mais 50</button>
       </div>
     </section>
 
@@ -670,12 +672,25 @@ _PAGE_TEMPLATE = """<!doctype html>
           appendCell(row, item.last_message || item.paused_reason || "Sem mensagem registrada");
           appendCell(row, item.age_hours === null || item.age_hours === undefined ? "—" : `${item.age_hours} h`, "nowrap");
           const actionsCell = document.createElement("td");
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "secondary";
-          button.dataset.recoveryPhone = item.phone || "";
-          button.textContent = "Preparar resposta";
-          actionsCell.append(button);
+          const actions = document.createElement("div");
+          actions.className = "recovery-row-actions";
+          const prepareButton = document.createElement("button");
+          prepareButton.type = "button";
+          prepareButton.className = "secondary";
+          prepareButton.dataset.recoveryAction = "prepare";
+          prepareButton.dataset.recoveryPhone = item.phone || "";
+          prepareButton.dataset.recoveryLastMessageId = item.last_message_id || "";
+          prepareButton.textContent = "Preparar resposta";
+          const skipButton = document.createElement("button");
+          skipButton.type = "button";
+          skipButton.className = "secondary";
+          skipButton.dataset.recoveryAction = "skip";
+          skipButton.dataset.recoveryPhone = item.phone || "";
+          skipButton.dataset.recoveryLastMessageId = item.last_message_id || "";
+          skipButton.textContent = "Pular";
+          skipButton.title = "Pular até o cliente enviar uma nova mensagem";
+          actions.append(prepareButton, skipButton);
+          actionsCell.append(actions);
           row.append(actionsCell);
           body.append(row);
         });
@@ -961,6 +976,38 @@ _PAGE_TEMPLATE = """<!doctype html>
           renderRecoveryEditor();
           status.className = "status error";
           status.textContent = error.message;
+        }
+      }
+
+      async function skipRecovery(phone, expectedLastMessageId, button = null) {
+        if (!phone || !expectedLastMessageId) return;
+        if (!window.confirm("Pular esta conversa até o cliente enviar uma nova mensagem?")) return;
+        const status = byId("recovery-status");
+        status.className = "status muted";
+        status.textContent = "Pulando conversa…";
+        if (button) button.disabled = true;
+        try {
+          const result = await fetchJson("/admin/api/recovery/skip", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({
+              phone,
+              expected_last_message_id: Number(expectedLastMessageId),
+            })
+          });
+          if (recoveryDraft?.phone === phone) {
+            recoveryDraft = null;
+            renderRecoveryEditor();
+          }
+          await loadRecoveryQueue();
+          await loadAudit();
+          status.className = "status success";
+          status.textContent = result.message || "Conversa pulada até chegar uma nova mensagem do cliente.";
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+          if (button) button.disabled = false;
         }
       }
 
@@ -1258,11 +1305,24 @@ _PAGE_TEMPLATE = """<!doctype html>
         if (button) prepareCommand(button.dataset.action, button.dataset.phone);
       });
       byId("recovery-queue-body").addEventListener("click", (event) => {
-        const button = event.target.closest("button[data-recovery-phone]");
-        if (button) prepareRecovery(button.dataset.recoveryPhone);
+        const button = event.target.closest("button[data-recovery-action]");
+        if (!button) return;
+        if (button.dataset.recoveryAction === "skip") {
+          skipRecovery(
+            button.dataset.recoveryPhone,
+            button.dataset.recoveryLastMessageId,
+            button,
+          );
+          return;
+        }
+        prepareRecovery(button.dataset.recoveryPhone);
       });
       byId("close-recovery-editor").addEventListener("click", closeRecoveryEditor);
-      byId("skip-recovery-message").addEventListener("click", closeRecoveryEditor);
+      byId("skip-recovery-message").addEventListener("click", () => {
+        if (recoveryDraft) {
+          skipRecovery(recoveryDraft.phone, recoveryDraft.last_message_id, byId("skip-recovery-message"));
+        }
+      });
       byId("send-recovery-message").addEventListener("click", sendRecoveryMessage);
       byId("recovery-message").addEventListener("input", () => {
         if (recoveryDraft) {

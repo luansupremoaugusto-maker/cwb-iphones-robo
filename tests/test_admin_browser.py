@@ -97,6 +97,18 @@ def _route_page(route: Route, html: str) -> None:
             ),
         )
         return
+    if path == "/admin/api/recovery/skip" and request.method == "POST":
+        route.fulfill(
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "phone": "5511999999999",
+                    "skipped": True,
+                    "message": "Conversa pulada até chegar uma nova mensagem do cliente.",
+                }
+            ),
+        )
+        return
 
     responses = {
         "/admin/api/dashboard": {
@@ -119,6 +131,7 @@ def _route_page(route: Route, html: str) -> None:
                     "chat_name": "Maria",
                     "category_label": "Compra, preço ou estoque",
                     "last_message": "Tem iPhone 15?",
+                    "last_message_id": 7,
                     "age_hours": 72.0,
                 }
             ],
@@ -205,7 +218,9 @@ def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_brows
             _open_admin_page(page, html)
             page.on("dialog", lambda dialog: dialog.accept())
 
-            page.locator('#recovery-queue-body button[data-recovery-phone]').click()
+            page.locator(
+                '#recovery-queue-body button[data-recovery-action="prepare"]'
+            ).click()
 
             assert not page.locator("#recovery-editor").is_hidden()
             page.wait_for_function(
@@ -221,5 +236,36 @@ def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_brows
                 page.locator("#send-recovery-message").click()
 
             assert '"expected_last_message_id":7' in (send_request.value.post_data or "").replace(" ", "")
+        finally:
+            browser.close()
+
+
+def test_recovery_editor_is_above_queue_and_each_row_can_skip_in_a_real_browser():
+    html = render_admin_page("csrf-token")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _open_admin_page(page, html)
+            page.on("dialog", lambda dialog: dialog.accept())
+
+            assert page.locator("#recovery-editor").evaluate(
+                "(editor) => Boolean(editor.compareDocumentPosition(document.querySelector('#recovery-queue-body')) & Node.DOCUMENT_POSITION_FOLLOWING)"
+            )
+            skip_button = page.locator(
+                '#recovery-queue-body button[data-recovery-action="skip"]'
+            ).first
+            skip_button.wait_for()
+
+            with page.expect_request(
+                lambda request: request.url.endswith("/admin/api/recovery/skip")
+                and request.method == "POST"
+            ) as skip_request:
+                skip_button.click()
+
+            assert '"expected_last_message_id":7' in (
+                skip_request.value.post_data or ""
+            ).replace(" ", "")
         finally:
             browser.close()

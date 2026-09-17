@@ -172,6 +172,66 @@ def test_recovery_send_accepts_old_bot_conversation_after_reviewed_draft():
     assert runtime.repository.get_conversation("5511000000004").status == "human_active"
 
 
+def test_recovery_skip_hides_conversation_until_new_customer_message():
+    runtime = _runtime()
+    phone = "5511000000005"
+    latest_id = _make_pending(runtime, phone, "Ainda tem iPhone 15?", age_hours=72)
+    token = build_admin_csrf_token(runtime.settings)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/admin/api/recovery/skip",
+            json={"phone": phone, "expected_last_message_id": latest_id},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+        hidden = client.get(
+            "/admin/api/recovery?older_than_hours=24",
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["skipped"] is True
+    assert phone not in {item["phone"] for item in hidden.json()["items"]}
+
+    outbound_id = runtime.repository.add_message(phone, "outbound", "text", "Tudo bem.")
+    _age_messages(runtime, phone, [latest_id, outbound_id], age_hours=72)
+    with TestClient(create_app(runtime)) as client:
+        still_hidden = client.get(
+            "/admin/api/recovery?older_than_hours=24",
+            auth=("admin", "secret"),
+        )
+    assert phone not in {item["phone"] for item in still_hidden.json()["items"]}
+
+    inbound_id = runtime.repository.add_message(phone, "inbound", "text", "E o preço?")
+    _age_messages(runtime, phone, [latest_id, outbound_id, inbound_id], age_hours=72)
+    with TestClient(create_app(runtime)) as client:
+        visible_again = client.get(
+            "/admin/api/recovery?older_than_hours=24",
+            auth=("admin", "secret"),
+        )
+    assert phone in {item["phone"] for item in visible_again.json()["items"]}
+
+
+def test_recovery_skip_rejects_stale_conversation_after_new_customer_message():
+    runtime = _runtime()
+    phone = "5511000000006"
+    latest_id = _make_pending(runtime, phone, "Ainda tem iPhone 15?", age_hours=72)
+    runtime.repository.add_message(phone, "inbound", "text", "E o preço?")
+    token = build_admin_csrf_token(runtime.settings)
+
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/admin/api/recovery/skip",
+            json={"phone": phone, "expected_last_message_id": latest_id},
+            headers={"X-Admin-CSRF": token},
+            auth=("admin", "secret"),
+        )
+
+    assert response.status_code == 409
+    assert "nova mensagem" in response.json()["detail"].lower()
+
+
 class _RecordingAgent:
     def __init__(self):
         self.text = None
@@ -346,5 +406,8 @@ def test_admin_page_contains_recovery_queue_and_draft_controls():
     assert "/admin/api/recovery" in html
     assert "/admin/api/recovery/draft" in html
     assert "/admin/api/recovery/send" in html
+    assert "/admin/api/recovery/skip" in html
     assert "Preparar resposta" in html
+    assert "Pular" in html
     assert 'id="recovery-more"' in html
+    assert html.index('id="recovery-editor"') < html.index('id="recovery-queue-body"')

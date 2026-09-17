@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     and_,
     create_engine,
+    delete,
     func,
     or_,
     select,
@@ -48,6 +49,16 @@ class ConversationRecord(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     messages = relationship("MessageRecord", back_populates="conversation", cascade="all, delete-orphan")
+
+
+class RecoverySkipRecord(Base):
+    __tablename__ = "recovery_skips"
+
+    id = Column(Integer, primary_key=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, unique=True, index=True)
+    skipped_last_message_id = Column(Integer, nullable=False)
+    operator = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class MessageRecord(Base):
@@ -399,11 +410,17 @@ class Repository:
 
     @staticmethod
     def _recovery_filter(latest_messages: Any) -> Any:
-        return or_(
-            ConversationRecord.status == "human_pending",
-            and_(
-                ConversationRecord.status == "bot_active",
-                latest_messages.c.direction == "inbound",
+        skipped = select(RecoverySkipRecord.id).where(
+            RecoverySkipRecord.conversation_id == ConversationRecord.id
+        ).exists()
+        return and_(
+            ~skipped,
+            or_(
+                ConversationRecord.status == "human_pending",
+                and_(
+                    ConversationRecord.status == "bot_active",
+                    latest_messages.c.direction == "inbound",
+                ),
             ),
         )
 
@@ -546,6 +563,45 @@ class Repository:
                 record.updated_at = utc_now()
             session.commit()
 
+    def skip_recovery_conversation(
+        self,
+        phone: str,
+        expected_last_message_id: int,
+        operator: str | None = None,
+    ) -> bool:
+        with Session(self.engine) as session:
+            conversation = session.scalar(
+                select(ConversationRecord).where(ConversationRecord.phone == phone)
+            )
+            if conversation is None:
+                return False
+            latest_message_id = session.scalar(
+                select(MessageRecord.id)
+                .where(MessageRecord.conversation_id == conversation.id)
+                .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
+                .limit(1)
+            )
+            if int(latest_message_id or 0) != int(expected_last_message_id):
+                return False
+            record = session.scalar(
+                select(RecoverySkipRecord).where(
+                    RecoverySkipRecord.conversation_id == conversation.id
+                )
+            )
+            if record is None:
+                record = RecoverySkipRecord(
+                    conversation_id=conversation.id,
+                    skipped_last_message_id=int(expected_last_message_id),
+                    operator=operator,
+                )
+                session.add(record)
+            else:
+                record.skipped_last_message_id = int(expected_last_message_id)
+                record.operator = operator
+                record.created_at = utc_now()
+            session.commit()
+            return True
+
     def claim_human_handoff(self, phone: str, reason: str | None = None) -> bool:
         """Atomically claim the first handoff for an active bot conversation.
 
@@ -614,6 +670,12 @@ class Repository:
                 raw=raw or {},
             )
             session.add(record)
+            if direction == "inbound":
+                session.execute(
+                    delete(RecoverySkipRecord).where(
+                        RecoverySkipRecord.conversation_id == conversation.id
+                    )
+                )
             conversation.updated_at = utc_now()
             session.commit()
             return int(record.id)
