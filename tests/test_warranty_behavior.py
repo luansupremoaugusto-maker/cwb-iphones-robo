@@ -99,6 +99,7 @@ async def test_colloquial_semis_warranty_followup_returns_only_used_device_polic
 
     decision = await agent.respond("Os semis têm garantia?", history=history)
 
+    assert decision.reply == "Produtos seminovos têm garantia de 90 dias."
     assert "90 dias" in decision.reply
     assert "1 ano" not in decision.reply
     assert "Apple" not in decision.reply
