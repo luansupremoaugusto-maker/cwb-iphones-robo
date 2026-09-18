@@ -30,6 +30,26 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
     assert not is_trade_in_request("Quero trocar a película do meu iPhone")
 
 
+def test_purchase_context_keeps_owned_iphone_buyback_offer():
+    assert is_trade_in_request("Vocês compram meu iPhone pra compra de um novo?")
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_buyback_purchase_context_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond("Vocês compram meu iPhone pra compra de um novo?")
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -155,6 +175,53 @@ def test_new_phone_payment_split_is_not_trade_in():
 
     assert is_trade_in_request(text) is False
     assert is_trade_in_context_request(text, history) is False
+
+
+@pytest.mark.asyncio
+async def test_literal_semi_purchase_does_not_open_trade_in_form(tmp_path):
+    settings = Settings(
+        openai_api_key=None,
+        google_sheets_enabled=False,
+        faq_path=str(tmp_path / "faq.yaml"),
+    )
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-15-semi",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2830,
+            battery_health=90,
+            search_text="iphone 15 128 gb preto celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "O Vinicius me indicou vocês pra compra de um iPhone semi"
+    history = [
+        {"role": "user", "content": "Olá boa tarde"},
+        {"role": "assistant", "content": "Olá, boa tarde! 😊 Como posso ajudar?"},
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["used:iphone-15-semi"]
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert "iPhone 15" in decision.reply
+    assert "SEMINOVO" in decision.reply
 
 
 @pytest.mark.asyncio
