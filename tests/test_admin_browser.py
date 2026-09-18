@@ -260,6 +260,47 @@ def test_admin_page_controls_work_in_a_real_browser():
             browser.close()
 
 
+def test_admin_page_panels_can_be_collapsed_and_remember_state():
+    html = render_admin_page("csrf-token")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _open_admin_page(page, html)
+
+            panels = page.locator("section.panel[data-panel-key]")
+            assert panels.count() == 8
+            assert panels.locator("[data-panel-toggle]").count() == 8
+
+            operations = page.locator('section.panel[data-panel-key="operations"]')
+            toggle = operations.locator("[data-panel-toggle]")
+            assert toggle.get_attribute("aria-expanded") == "true"
+            assert toggle.get_attribute("aria-label") == "Minimizar painel"
+            assert not page.locator("#health-grid").is_hidden()
+
+            toggle.click()
+            assert toggle.get_attribute("aria-expanded") == "false"
+            assert toggle.get_attribute("aria-label") == "Maximizar painel"
+            assert page.locator("#health-grid").is_hidden()
+
+            toggle.click()
+            assert toggle.get_attribute("aria-expanded") == "true"
+            assert not page.locator("#health-grid").is_hidden()
+
+            page.evaluate(
+                "sessionStorage.setItem('cwb-admin-panel-state-v1', JSON.stringify({operations: false}))"
+            )
+            page.reload()
+            operations = page.locator('section.panel[data-panel-key="operations"]')
+            assert operations.locator("[data-panel-toggle]").get_attribute(
+                "aria-expanded"
+            ) == "false"
+            assert page.locator("#health-grid").is_hidden()
+        finally:
+            browser.close()
+
+
 def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_browser():
     html = render_admin_page("csrf-token")
 
