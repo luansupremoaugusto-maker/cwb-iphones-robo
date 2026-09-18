@@ -102,6 +102,7 @@ _PAGE_TEMPLATE = """<!doctype html>
     button.danger { background: var(--danger); border-color: var(--danger); }
     button:disabled { cursor: wait; opacity: .6; }
     .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 5px 18px rgba(16, 24, 40, .04); margin-top: 18px; padding: 20px; }
+    .panel > [hidden] { display: none !important; }
     .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .operational-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .summary-card { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 15px; }
@@ -141,6 +142,21 @@ _PAGE_TEMPLATE = """<!doctype html>
     .badge.pending { background: #fffaeb; color: #7a2e0b; }
     .badge.active { background: #ecfdf3; color: var(--success); }
     .badge.closed { background: #f2f4f7; color: var(--muted); }
+    .panel-toggle {
+      align-items: center;
+      background: var(--surface);
+      border-color: var(--line);
+      color: var(--muted);
+      display: inline-flex;
+      font-size: 20px;
+      height: 36px;
+      justify-content: center;
+      line-height: 1;
+      min-width: 36px;
+      padding: 0;
+    }
+    .panel-toggle:hover { background: #eef3ff; border-color: var(--brand); color: var(--brand); }
+    .panel-toggle:focus-visible { outline: 3px solid #c7d7fe; outline-offset: 2px; }
     .compact-table table { min-width: 980px; }
     .compact-table th, .compact-table td { padding: 10px; }
     .queue-actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -217,9 +233,14 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </header>
 
-    <section class="panel" aria-labelledby="commands-title">
-      <h2 id="commands-title">Comandos operacionais</h2>
-      <p class="muted">As ações abaixo alteram o estado das conversas e ficam registradas na auditoria.</p>
+    <section class="panel" data-panel-key="commands" aria-labelledby="commands-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="commands-title">Comandos operacionais</h2>
+          <p class="muted">As ações abaixo alteram o estado das conversas e ficam registradas na auditoria.</p>
+        </div>
+        <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
+      </div>
       <form id="command-form">
         <div class="command-grid">
           <div class="field">
@@ -250,7 +271,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       </form>
     </section>
 
-    <section class="panel" aria-labelledby="operations-title">
+    <section class="panel" data-panel-key="operations" aria-labelledby="operations-title">
       <div class="panel-heading">
         <div>
           <h2 id="operations-title">Visão geral do atendimento</h2>
@@ -259,6 +280,7 @@ _PAGE_TEMPLATE = """<!doctype html>
         <div class="actions">
           <button id="refresh-dashboard" class="secondary" type="button">Atualizar painel</button>
           <span id="operations-status" class="status muted" role="status" aria-live="polite"></span>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
         </div>
       </div>
       <div class="summary-grid operational-summary" aria-label="Resumo do atendimento">
@@ -276,12 +298,13 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="conversation-lookup-title">
+    <section class="panel" data-panel-key="conversation-lookup" aria-labelledby="conversation-lookup-title">
       <div class="panel-heading">
         <div>
           <h2 id="conversation-lookup-title">Consultar conversa</h2>
           <p class="muted">Abra o registro temporário pelo protocolo CWB ou pelo telefone para investigar uma falha.</p>
         </div>
+        <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
       </div>
       <div class="toolbar">
         <input id="conversation-lookup" type="search" placeholder="CWB-00000001 ou 5541999999999" autocomplete="off" aria-label="Protocolo ou telefone da conversa">
@@ -301,7 +324,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="recovery-title">
+    <section class="panel" data-panel-key="recovery" aria-labelledby="recovery-title">
       <div class="panel-heading">
         <div>
           <h2 id="recovery-title">Recuperação pós-viagem</h2>
@@ -312,6 +335,7 @@ _PAGE_TEMPLATE = """<!doctype html>
           <input id="recovery-older-hours" type="number" min="0" max="8760" step="1" value="24" aria-label="Horas sem atualização">
           <span class="muted">horas</span>
           <button id="refresh-recovery" class="secondary" type="button">Atualizar fila</button>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
         </div>
       </div>
       <div id="recovery-editor" class="recovery-editor" hidden>
@@ -352,9 +376,14 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="catalog-title">
-      <h2 id="catalog-title">Catálogo de disponíveis</h2>
-      <p class="muted">A lista usa o mesmo catálogo do robô: estoque físico do Mercado Phone e preços de lacrados por encomenda da planilha.</p>
+    <section class="panel" data-panel-key="catalog" aria-labelledby="catalog-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="catalog-title">Catálogo de disponíveis</h2>
+          <p class="muted">A lista usa o mesmo catálogo do robô: estoque físico do Mercado Phone e preços de lacrados por encomenda da planilha.</p>
+        </div>
+        <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
+      </div>
       <div class="summary-grid" aria-label="Resumo do catálogo">
         <div class="summary-card"><span>Total de opções</span><strong id="catalog-total">—</strong></div>
         <div class="summary-card"><span>Seminovos</span><strong id="count-seminovos">—</strong></div>
@@ -420,13 +449,16 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="queue-title">
+    <section class="panel" data-panel-key="queue" aria-labelledby="queue-title">
       <div class="panel-heading">
         <div>
           <h2 id="queue-title">Fila de atendimento humano</h2>
           <p class="muted">Veja quem aguarda atendimento ou já está sendo atendido. As ações preparam o comando sem executá-lo automaticamente.</p>
         </div>
-        <button id="refresh-queue" class="secondary" type="button">Atualizar fila</button>
+        <div class="actions">
+          <button id="refresh-queue" class="secondary" type="button">Atualizar fila</button>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
+        </div>
       </div>
       <div class="toolbar">
         <input id="human-queue-search" type="search" placeholder="Buscar nome, telefone ou mensagem" autocomplete="off" aria-label="Buscar na fila humana">
@@ -442,13 +474,16 @@ _PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="control-title">
+    <section class="panel" data-panel-key="control" aria-labelledby="control-title">
       <div class="panel-heading">
         <div>
           <h2 id="control-title">Controles gerais</h2>
           <p class="muted">Pause as respostas do robô, ative manutenção e acompanhe os acessos ao painel.</p>
         </div>
-        <span id="control-role" class="badge">Perfil: —</span>
+        <div class="actions">
+          <span id="control-role" class="badge">Perfil: —</span>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
+        </div>
       </div>
       <form id="admin-control-form">
         <div class="control-grid">
@@ -488,13 +523,16 @@ _PAGE_TEMPLATE = """<!doctype html>
       <p id="sessions-status" class="status muted" role="status" aria-live="polite">Carregando sessões…</p>
     </section>
 
-    <section class="panel" aria-labelledby="audit-title">
+    <section class="panel" data-panel-key="audit" aria-labelledby="audit-title">
       <div class="panel-heading">
         <div>
           <h2 id="audit-title">Auditoria recente</h2>
           <p class="muted">Comandos e eventos importantes registrados pelo robô, com operador, canal e resultado.</p>
         </div>
-        <button id="refresh-audit" class="secondary" type="button">Atualizar auditoria</button>
+        <div class="actions">
+          <button id="refresh-audit" class="secondary" type="button">Atualizar auditoria</button>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
+        </div>
       </div>
       <div class="toolbar">
         <input id="audit-search" type="search" placeholder="Filtrar por evento, telefone ou operador" autocomplete="off" aria-label="Buscar na auditoria">
@@ -536,6 +574,45 @@ _PAGE_TEMPLATE = """<!doctype html>
       ];
 
       const byId = (id) => document.getElementById(id);
+      const PANEL_STATE_STORAGE_KEY = "cwb-admin-panel-state-v1";
+      const panelState = (() => {
+        try {
+          const raw = sessionStorage.getItem(PANEL_STATE_STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+          return {};
+        }
+      })();
+      const savePanelState = () => {
+        try {
+          sessionStorage.setItem(PANEL_STATE_STORAGE_KEY, JSON.stringify(panelState));
+        } catch (error) {
+          // A sessão pode bloquear storage; nesse caso o painel continua utilizável.
+        }
+      };
+      const setPanelExpanded = (panel, expanded, persist = true) => {
+        const heading = Array.from(panel.children).find((child) => child.classList.contains("panel-heading"));
+        const toggle = heading?.querySelector("[data-panel-toggle]");
+        if (!heading || !toggle) return;
+        Array.from(panel.children).forEach((child) => {
+          if (child !== heading) child.hidden = !expanded;
+        });
+        const label = expanded ? "Minimizar painel" : "Maximizar painel";
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.setAttribute("aria-label", label);
+        toggle.title = label;
+        toggle.textContent = expanded ? "−" : "+";
+        if (persist) {
+          panelState[panel.dataset.panelKey] = expanded;
+          savePanelState();
+        }
+      };
+      const initializeCollapsiblePanels = () => {
+        document.querySelectorAll("section.panel[data-panel-key]").forEach((panel) => {
+          setPanelExpanded(panel, panelState[panel.dataset.panelKey] !== false, false);
+        });
+      };
       const formatPrice = (value) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value));
       const formatDate = (value) => {
         if (!value) return "não carregado";
@@ -1529,6 +1606,16 @@ _PAGE_TEMPLATE = """<!doctype html>
         }
       });
 
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const toggle = target.closest("[data-panel-toggle]");
+        if (!toggle) return;
+        const panel = toggle.closest("section.panel[data-panel-key]");
+        if (!panel) return;
+        setPanelExpanded(panel, toggle.getAttribute("aria-expanded") !== "true");
+      });
+      initializeCollapsiblePanels();
       updatePhoneField();
       invalidateCommandPreview();
       loadCatalog();
