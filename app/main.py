@@ -27,6 +27,7 @@ from app.admin import (
     AdminRecoverySkipRequest,
     AdminCommandService,
     admin_audit_payload,
+    admin_conversation_detail_payload,
     admin_conversations_payload,
     admin_dashboard_payload,
     admin_recovery_payload,
@@ -479,6 +480,26 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                     current.repository.list_conversations(statuses, limit=limit)
                 ),
             }
+        )
+
+    @app.get("/admin/api/conversations/{reference}")
+    async def admin_conversation_detail(
+        request: Request,
+        reference: str,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        _require_admin_operator(request)
+        current: Runtime = request.app.state.runtime
+        if not 1 <= int(limit) <= 200:
+            raise HTTPException(status_code=400, detail="Limite de mensagens inválido")
+        detail = current.repository.conversation_detail(reference, limit=limit)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+        return _admin_json(
+            admin_conversation_detail_payload(
+                detail,
+                datetime.now(timezone.utc).isoformat(),
+            )
         )
 
     @app.get("/admin/api/recovery")

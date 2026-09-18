@@ -69,6 +69,72 @@ async def test_processor_calls_agent_once_and_sends_one_reply_for_batch():
 
 
 @pytest.mark.asyncio
+async def test_processor_records_agent_failure_in_the_conversation_trace():
+    settings = Settings(
+        database_url="sqlite:///:memory:",
+        openai_api_key=None,
+        mercado_phone_api_key=None,
+        outbound_mode="disabled",
+    )
+    runtime = build_runtime(settings, offline=True)
+
+    class FailingAgent:
+        async def respond(self, text, history=None, image_description=None):
+            raise RuntimeError("simulated agent failure")
+
+    runtime.processor.agent = FailingAgent()
+    customer = "5511888888888"
+    try:
+        await runtime.processor.process_payload(
+            {
+                "messageId": "agent-error-1",
+                "phone": customer,
+                "text": {"message": "Quero saber o preço."},
+            }
+        )
+        detail = runtime.repository.conversation_detail(customer)
+    finally:
+        await runtime.aclose()
+
+    assert detail is not None
+    agent_errors = [event for event in detail["audit"] if event["event_type"] == "agent_error"]
+    assert len(agent_errors) == 1
+    assert agent_errors[0]["detail"]["error_type"] == "RuntimeError"
+    assert agent_errors[0]["detail"]["protocol"] == detail["protocol"]
+    assert agent_errors[0]["detail"]["message_ids"] == [detail["messages"][0]["id"]]
+    assert detail["diagnostics"]["error_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_processor_records_media_failure_in_the_conversation_trace():
+    settings = Settings(
+        database_url="sqlite:///:memory:",
+        openai_api_key=None,
+        mercado_phone_api_key=None,
+        outbound_mode="disabled",
+    )
+    runtime = build_runtime(settings, offline=True)
+    customer = "5511888888888"
+    try:
+        await runtime.processor.process_payload(
+            {
+                "messageId": "media-error-1",
+                "phone": customer,
+                "audio": {"audioUrl": "https://example.test/audio.ogg"},
+            }
+        )
+        detail = runtime.repository.conversation_detail(customer)
+    finally:
+        await runtime.aclose()
+
+    assert detail is not None
+    media_errors = [event for event in detail["audit"] if event["event_type"] == "media_error"]
+    assert len(media_errors) == 1
+    assert media_errors[0]["detail"]["error_type"] == "OpenAIMediaError"
+    assert media_errors[0]["detail"]["protocol"] == detail["protocol"]
+
+
+@pytest.mark.asyncio
 async def test_processor_persists_image_context_for_followup_photo_request():
     settings = Settings(
         database_url="sqlite:///:memory:",

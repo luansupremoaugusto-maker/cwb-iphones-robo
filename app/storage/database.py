@@ -15,12 +15,14 @@ from sqlalchemy import (
     create_engine,
     delete,
     func,
+    inspect as sqlalchemy_inspect,
     or_,
     select,
+    text,
     update,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 from sqlalchemy.pool import StaticPool
 
@@ -35,6 +37,11 @@ def _utc_datetime(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def conversation_protocol(conversation_id: int) -> str:
+    """Return the short, non-sensitive support reference for a conversation."""
+    return f"CWB-{int(conversation_id):08d}"
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -44,6 +51,9 @@ class ConversationRecord(Base):
 
     id = Column(Integer, primary_key=True)
     phone = Column(String(32), unique=True, nullable=False, index=True)
+    # Nullable keeps the ORM compatible with databases created before support
+    # references existed; Repository.initialize backfills old rows.
+    protocol = Column(String(32), nullable=True)
     chat_name = Column(String(255), nullable=True)
     status = Column(String(32), nullable=False, default="bot_active", index=True)
     paused_reason = Column(String(255), nullable=True)
@@ -180,6 +190,38 @@ class Repository:
 
     def initialize(self) -> None:
         Base.metadata.create_all(self.engine)
+        inspector = sqlalchemy_inspect(self.engine)
+        columns = {column["name"] for column in inspector.get_columns("conversations")}
+        if "protocol" not in columns:
+            try:
+                with self.engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE conversations ADD COLUMN protocol VARCHAR(32)"))
+            except OperationalError:
+                # Two app processes can initialize the same database during a
+                # deployment. Re-read before surfacing a genuinely unrelated
+                # schema error.
+                columns = {
+                    column["name"]
+                    for column in sqlalchemy_inspect(self.engine).get_columns("conversations")
+                }
+                if "protocol" not in columns:
+                    raise
+
+        with Session(self.engine) as session:
+            records = session.scalars(select(ConversationRecord).order_by(ConversationRecord.id)).all()
+            for record in records:
+                if not record.protocol:
+                    record.protocol = conversation_protocol(record.id)
+            session.commit()
+
+        # create_all does not add indexes to an already existing table.
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_protocol "
+                    "ON conversations (protocol)"
+                )
+            )
 
     def healthcheck(self) -> bool:
         try:
@@ -337,6 +379,23 @@ class Repository:
             select(ConversationRecord).where(ConversationRecord.phone == variants[1])
         )
 
+    @classmethod
+    def _find_conversation_reference(cls, session: Session, reference: str) -> ConversationRecord | None:
+        candidate = str(reference or "").strip()
+        if candidate.upper().startswith("CWB-"):
+            return session.scalar(
+                select(ConversationRecord).where(
+                    ConversationRecord.protocol == candidate.upper()
+                )
+            )
+        return cls._find_conversation(session, candidate)
+
+    @staticmethod
+    def _ensure_protocol(session: Session, record: ConversationRecord) -> None:
+        session.flush()
+        if not record.protocol:
+            record.protocol = conversation_protocol(record.id)
+
     def get_or_create_conversation(self, phone: str, chat_name: str | None = None) -> ConversationRecord:
         normalized_phone = normalize_phone(phone)
         with Session(self.engine, expire_on_commit=False) as session:
@@ -348,8 +407,12 @@ class Repository:
                     status="bot_active",
                 )
                 session.add(record)
+                self._ensure_protocol(session, record)
             elif chat_name and not record.chat_name:
                 record.chat_name = chat_name
+                self._ensure_protocol(session, record)
+            else:
+                self._ensure_protocol(session, record)
             record.updated_at = utc_now()
             session.commit()
             return record
@@ -416,6 +479,7 @@ class Repository:
             for record, last_message_id, last_direction, last_text, last_created_at in rows:
                 result.append(
                     {
+                        "protocol": record.protocol,
                         "phone": record.phone,
                         "chat_name": record.chat_name,
                         "status": record.status,
@@ -515,6 +579,7 @@ class Repository:
             rows = session.execute(statement).all()
             return [
                 {
+                    "protocol": record.protocol,
                     "phone": record.phone,
                     "chat_name": record.chat_name,
                     "status": record.status,
@@ -562,12 +627,13 @@ class Repository:
             )
             return int(session.scalar(statement) or 0)
 
-    def conversation_detail(self, phone: str, *, limit: int = 80) -> dict[str, Any] | None:
+    def conversation_detail(self, reference: str, *, limit: int = 80) -> dict[str, Any] | None:
         safe_limit = max(1, min(int(limit), 200))
         with Session(self.engine) as session:
-            conversation = self._find_conversation(session, phone)
+            conversation = self._find_conversation_reference(session, reference)
             if conversation is None:
                 return None
+            self._ensure_protocol(session, conversation)
             records = session.scalars(
                 select(MessageRecord)
                 .where(MessageRecord.conversation_id == conversation.id)
@@ -580,19 +646,53 @@ class Repository:
                     "direction": item.direction,
                     "kind": item.kind,
                     "text": item.text or "",
+                    "provider_message_id": item.provider_message_id,
                     "created_at": item.created_at,
                 }
                 for item in reversed(records)
             ]
+            audit_records = session.scalars(
+                select(AuditEventRecord)
+                .where(AuditEventRecord.subject.in_(phone_variants(conversation.phone)))
+                .order_by(AuditEventRecord.created_at.asc(), AuditEventRecord.id.asc())
+                .limit(200)
+            ).all()
+            audit = [
+                {
+                    "id": int(item.id),
+                    "event_type": item.event_type,
+                    "subject": item.subject,
+                    "detail": dict(item.detail or {}),
+                    "created_at": item.created_at,
+                }
+                for item in audit_records
+            ]
+            error_count = sum("error" in str(item["event_type"]).lower() for item in audit)
+            handoff_count = sum(
+                "handoff" in str(item["event_type"]).lower()
+                or bool(item["detail"].get("handoff"))
+                for item in audit
+            )
             latest = messages[-1] if messages else None
             return {
+                "protocol": conversation.protocol,
                 "phone": conversation.phone,
                 "chat_name": conversation.chat_name,
                 "status": conversation.status,
                 "paused_reason": conversation.paused_reason,
+                "created_at": conversation.created_at,
                 "updated_at": conversation.updated_at,
                 "last_message_id": latest["id"] if latest else None,
                 "messages": messages,
+                "audit": audit,
+                "diagnostics": {
+                    "message_count": len(messages),
+                    "inbound_count": sum(item["direction"] == "inbound" for item in messages),
+                    "outbound_count": sum(item["direction"] == "outbound" for item in messages),
+                    "audit_count": len(audit),
+                    "error_count": error_count,
+                    "handoff_count": handoff_count,
+                },
             }
 
     def set_conversation_status(self, phone: str, status: str, reason: str | None = None) -> None:
@@ -606,7 +706,9 @@ class Repository:
                     paused_reason=reason,
                 )
                 session.add(record)
+                self._ensure_protocol(session, record)
             else:
+                self._ensure_protocol(session, record)
                 record.status = status
                 record.paused_reason = reason
                 record.updated_at = utc_now()
@@ -711,7 +813,9 @@ class Repository:
             if conversation is None:
                 conversation = ConversationRecord(phone=normalized_phone, status="bot_active")
                 session.add(conversation)
-                session.flush()
+                self._ensure_protocol(session, conversation)
+            else:
+                self._ensure_protocol(session, conversation)
             record = MessageRecord(
                 conversation_id=conversation.id,
                 direction=direction,

@@ -156,6 +156,12 @@ _PAGE_TEMPLATE = """<!doctype html>
     .recovery-message.outbound { background: #f2f4f7; margin-left: 12%; }
     .recovery-message strong { display: block; font-size: 12px; margin-bottom: 3px; }
     .recovery-message small { color: var(--muted); display: block; font-size: 11px; margin-top: 4px; }
+    .trace-result { display: grid; gap: 14px; margin-top: 16px; }
+    .trace-result[hidden] { display: none; }
+    .trace-meta { color: var(--muted); font-size: 13px; }
+    .trace-summary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .trace-summary .summary-card strong { font-size: 21px; }
+    .trace-audit table { min-width: 760px; }
     .recovery-compose { display: grid; gap: 7px; }
     textarea { border: 1px solid #cfd5df; border-radius: 9px; color: var(--ink); font: inherit; min-height: 150px; padding: 10px 11px; resize: vertical; width: 100%; }
     .recovery-review { margin: 0; }
@@ -267,6 +273,31 @@ _PAGE_TEMPLATE = """<!doctype html>
         <div class="monitoring-card"><strong>Estado global do robô</strong><p id="bot-control-status">Carregando…</p></div>
         <div class="monitoring-card"><strong>Fontes desatualizadas</strong><p id="monitoring-stale-status">Verificando…</p></div>
         <div class="monitoring-card"><strong>Falhas nas últimas 24 horas</strong><p id="monitoring-error-status">Verificando…</p></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="conversation-lookup-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="conversation-lookup-title">Consultar conversa</h2>
+          <p class="muted">Abra o registro temporário pelo protocolo CWB ou pelo telefone para investigar uma falha.</p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input id="conversation-lookup" type="search" placeholder="CWB-00000001 ou 5541999999999" autocomplete="off" aria-label="Protocolo ou telefone da conversa">
+        <button id="conversation-lookup-submit" type="button">Consultar conversa</button>
+        <span id="conversation-lookup-status" class="status muted" role="status" aria-live="polite"></span>
+      </div>
+      <div id="conversation-lookup-result" class="trace-result" hidden>
+        <div id="conversation-lookup-meta" class="trace-meta"></div>
+        <div id="conversation-lookup-summary" class="summary-grid trace-summary" aria-label="Resumo técnico da conversa"></div>
+        <div id="conversation-lookup-history" class="recovery-history" aria-label="Histórico completo da conversa"></div>
+        <div class="table-wrap compact-table trace-audit">
+          <table>
+            <thead><tr><th>Data</th><th>Evento</th><th>Detalhes</th></tr></thead>
+            <tbody id="conversation-lookup-audit-body"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -598,6 +629,108 @@ _PAGE_TEMPLATE = """<!doctype html>
         if (permissions.owner_controls === false) {
           byId("admin-control-form").title = "Apenas o perfil proprietário pode alterar controles globais.";
           byId("control-submit").disabled = true;
+        }
+      }
+
+      function renderConversationLookup(detail) {
+        const result = byId("conversation-lookup-result");
+        result.hidden = false;
+        byId("conversation-lookup-meta").textContent = [
+          detail.protocol,
+          detail.phone,
+          detail.chat_name,
+          detail.status_label,
+          detail.updated_at ? `Atualizada ${formatDate(detail.updated_at)}` : "",
+        ].filter(Boolean).join(" · ");
+
+        const summary = byId("conversation-lookup-summary");
+        summary.replaceChildren();
+        [
+          ["message_count", "Mensagens"],
+          ["inbound_count", "Cliente"],
+          ["outbound_count", "Atendimento"],
+          ["audit_count", "Eventos"],
+          ["error_count", "Erros"],
+          ["handoff_count", "Handoffs"],
+        ].forEach(([key, label]) => {
+          const card = document.createElement("div");
+          card.className = "summary-card";
+          const title = document.createElement("span");
+          title.textContent = label;
+          const value = document.createElement("strong");
+          value.textContent = asText(detail.diagnostics?.[key], "0");
+          card.append(title, value);
+          summary.append(card);
+        });
+
+        const history = byId("conversation-lookup-history");
+        history.replaceChildren();
+        const messages = detail.messages || [];
+        if (!messages.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "Nenhuma mensagem registrada.";
+          history.append(empty);
+        } else {
+          messages.forEach((item) => {
+            const bubble = document.createElement("div");
+            bubble.className = `recovery-message ${item.direction === "inbound" ? "inbound" : "outbound"}`;
+            const author = document.createElement("strong");
+            author.textContent = item.direction === "inbound" ? "Cliente" : "Atendimento";
+            const content = document.createElement("span");
+            content.textContent = item.text || `[${item.kind || "mídia"} sem texto]`;
+            const date = document.createElement("small");
+            date.textContent = formatDate(item.created_at);
+            bubble.append(author, content, date);
+            history.append(bubble);
+          });
+        }
+
+        const auditBody = byId("conversation-lookup-audit-body");
+        auditBody.replaceChildren();
+        const audit = detail.audit || [];
+        if (!audit.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 3;
+          cell.className = "empty";
+          cell.textContent = "Nenhum evento técnico registrado.";
+          row.append(cell);
+          auditBody.append(row);
+        } else {
+          audit.forEach((item) => {
+            const row = document.createElement("tr");
+            appendCell(row, formatDate(item.created_at), "nowrap");
+            appendCell(row, item.event_type || "—");
+            const detailCell = appendCell(row, JSON.stringify(item.detail || {}), "audit-detail");
+            detailCell.title = JSON.stringify(item.detail || {});
+            auditBody.append(row);
+          });
+        }
+      }
+
+      async function lookupConversation() {
+        const reference = byId("conversation-lookup").value.trim();
+        const status = byId("conversation-lookup-status");
+        if (!reference) {
+          status.className = "status error";
+          status.textContent = "Informe o protocolo ou o telefone da conversa.";
+          return;
+        }
+        status.className = "status muted";
+        status.textContent = "Consultando conversa…";
+        byId("conversation-lookup-submit").disabled = true;
+        try {
+          const detail = await fetchJson(`/admin/api/conversations/${encodeURIComponent(reference)}`);
+          renderConversationLookup(detail);
+          status.className = "status success";
+          status.textContent = `Conversa ${detail.protocol || reference} carregada.`;
+        } catch (error) {
+          byId("conversation-lookup-result").hidden = true;
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          byId("conversation-lookup-submit").disabled = false;
         }
       }
 
@@ -1280,6 +1413,13 @@ _PAGE_TEMPLATE = """<!doctype html>
         }
       }
 
+      byId("conversation-lookup-submit").addEventListener("click", lookupConversation);
+      byId("conversation-lookup").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          lookupConversation();
+        }
+      });
       byId("refresh-catalog").addEventListener("click", loadCatalog);
       byId("export-csv").addEventListener("click", exportCatalogCsv);
       byId("export-pdf").addEventListener("click", exportCatalogPdf);

@@ -2,10 +2,44 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
+from app.adapters.zapi import normalize_received_callback
 from app.config import get_settings
 from app.runtime import build_runtime
 from app.storage.database import utc_now
+
+
+def _payload_phone(payload: dict[str, Any]) -> str | None:
+    batch_payloads = payload.get("_batch_payloads") if isinstance(payload, dict) else None
+    candidates = batch_payloads if isinstance(batch_payloads, list) else [payload]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            incoming = normalize_received_callback(candidate)
+        except Exception:
+            continue
+        if incoming.phone:
+            return incoming.phone
+    return None
+
+
+def record_worker_error(runtime: Any, job_id: int, payload: dict[str, Any], exc: Exception) -> None:
+    """Keep unexpected worker failures attached to the conversation trace."""
+    phone = _payload_phone(payload)
+    conversation = runtime.repository.get_conversation(phone) if phone else None
+    runtime.repository.audit(
+        "worker_error",
+        phone,
+        {
+            "job_id": int(job_id),
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:1000],
+            "protocol": conversation.protocol if conversation is not None else None,
+        },
+    )
+    runtime.repository.fail_job(job_id, f"{type(exc).__name__}: {exc}")
 
 
 async def run_worker() -> None:
@@ -61,7 +95,7 @@ async def run_worker() -> None:
                 else:
                     await runtime.processor.process_payload(payload)
             except Exception as exc:
-                runtime.repository.fail_job(job_id, f"{type(exc).__name__}: {exc}")
+                record_worker_error(runtime, job_id, payload, exc)
             else:
                 runtime.repository.finish_job(job_id)
     finally:
