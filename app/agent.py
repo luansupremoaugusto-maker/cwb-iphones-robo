@@ -644,6 +644,7 @@ def _is_product_availability_request(
         "lacrado",
         "lacrados",
         "encomenda",
+        "semi",
         "seminovo",
         "seminovos",
         "usado",
@@ -1512,7 +1513,10 @@ def _has_sealed_reference(normalized: str) -> bool:
 
 
 def _has_seminovo_reference(normalized: str) -> bool:
-    return any(marker in normalized for marker in ("seminovo", "seminovos", "semi novo", "semi novos", "usado", "usados"))
+    return any(
+        marker in normalized
+        for marker in ("seminovo", "seminovos", "semi novo", "semi novos", "usado", "usados")
+    ) or bool(re.search(r"\bsemi\b", normalized))
 
 
 def _has_explicit_sealed_condition(normalized: str) -> bool:
