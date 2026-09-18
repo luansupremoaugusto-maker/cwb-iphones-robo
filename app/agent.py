@@ -1516,7 +1516,7 @@ def _has_seminovo_reference(normalized: str) -> bool:
     return any(
         marker in normalized
         for marker in ("seminovo", "seminovos", "semi novo", "semi novos", "usado", "usados")
-    ) or bool(re.search(r"\bsemi\b", normalized))
+    ) or bool(re.search(r"\bsemis?\b", normalized))
 
 
 def _has_explicit_sealed_condition(normalized: str) -> bool:
