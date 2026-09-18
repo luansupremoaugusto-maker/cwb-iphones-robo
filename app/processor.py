@@ -193,12 +193,15 @@ class MessageProcessor:
             )
 
         conversation = self.repository.get_conversation(phone)
+        protocol = conversation.protocol if conversation is not None else None
         control_state = self.repository.get_bot_control_state()
         if control_state["mode"] != "active":
             self.repository.audit(
                 "message_held",
                 phone,
                 {
+                    "protocol": protocol,
+                    "message_ids": stored_message_ids,
                     "control_mode": control_state["mode"],
                     "control_reason": control_state.get("reason"),
                     "batch_size": len(incoming_messages),
@@ -210,7 +213,12 @@ class MessageProcessor:
             self.repository.audit(
                 "message_held",
                 phone,
-                {"status": conversation.status, "batch_size": len(incoming_messages)},
+                {
+                    "protocol": protocol,
+                    "message_ids": stored_message_ids,
+                    "status": conversation.status,
+                    "batch_size": len(incoming_messages),
+                },
             )
             return
 
@@ -235,6 +243,17 @@ class MessageProcessor:
                         working_text,
                     )
         except (OpenAIMediaError, ZapiError) as exc:
+            self.repository.audit(
+                "media_error",
+                phone,
+                {
+                    "protocol": protocol,
+                    "message_ids": stored_message_ids,
+                    "batch_size": len(incoming_messages),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:500],
+                },
+            )
             await self._send_customer(
                 last,
                 "Não consegui processar essa mídia agora. Vou encaminhar sua mensagem para um atendente.",
@@ -265,6 +284,17 @@ class MessageProcessor:
                 image_description=combined_image_description,
             )
         except Exception as exc:
+            self.repository.audit(
+                "agent_error",
+                phone,
+                {
+                    "protocol": protocol,
+                    "message_ids": stored_message_ids,
+                    "batch_size": len(incoming_messages),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:500],
+                },
+            )
             decision = AgentDecision(
                 reply="Vou encaminhar sua mensagem para um atendente confirmar essa informação.",
                 handoff=True,
@@ -277,11 +307,16 @@ class MessageProcessor:
             "agent_response",
             phone,
             {
+                "protocol": protocol,
+                "message_ids": stored_message_ids,
+                "history_message_count": len(previous_history),
                 "handoff": decision.handoff,
                 "confidence": decision.confidence,
                 "reason": decision.handoff_reason,
                 "batch_size": len(incoming_messages),
                 "image_count": len(decision.image_urls),
+                "product_references": list(decision.product_references),
+                "reply_length": len(decision.reply),
             },
         )
         if decision.handoff:

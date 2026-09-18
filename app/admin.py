@@ -506,6 +506,7 @@ def admin_dashboard_payload(
 def admin_conversations_payload(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
+            "protocol": record.get("protocol"),
             "phone": record.get("phone"),
             "chat_name": record.get("chat_name"),
             "status": record.get("status"),
@@ -521,6 +522,46 @@ def admin_conversations_payload(records: list[dict[str, Any]]) -> list[dict[str,
         }
         for record in records
     ]
+
+
+def admin_conversation_detail_payload(detail: dict[str, Any], generated_at: str) -> dict[str, Any]:
+    """Serialize one protected conversation trace for the admin panel."""
+    return {
+        "generated_at": generated_at,
+        "protocol": detail.get("protocol"),
+        "phone": detail.get("phone"),
+        "chat_name": detail.get("chat_name"),
+        "status": detail.get("status"),
+        "status_label": CONVERSATION_STATUS_LABELS.get(
+            str(detail.get("status") or ""), str(detail.get("status") or "")
+        ),
+        "paused_reason": detail.get("paused_reason"),
+        "created_at": _iso_datetime(detail.get("created_at")),
+        "updated_at": _iso_datetime(detail.get("updated_at")),
+        "last_message_id": detail.get("last_message_id"),
+        "messages": [
+            {
+                "id": int(item.get("id") or 0),
+                "direction": item.get("direction"),
+                "kind": item.get("kind"),
+                "text": item.get("text") or "",
+                "provider_message_id": item.get("provider_message_id"),
+                "created_at": _iso_datetime(item.get("created_at")),
+            }
+            for item in detail.get("messages", [])
+        ],
+        "audit": [
+            {
+                "id": int(item.get("id") or 0),
+                "event_type": item.get("event_type") or "",
+                "subject": item.get("subject"),
+                "detail": dict(item.get("detail") or {}),
+                "created_at": _iso_datetime(item.get("created_at")),
+            }
+            for item in detail.get("audit", [])
+        ],
+        "diagnostics": dict(detail.get("diagnostics") or {}),
+    }
 
 
 def admin_recovery_payload(

@@ -103,6 +103,12 @@ fila de atendimento humano com a última mensagem registrada e uma auditoria
 recente de comandos e eventos. O catálogo pode ser filtrado por categoria,
 capacidade, cor, condição, disponibilidade, faixa de preço e fotos.
 
+Cada conversa recebe um protocolo temporário no formato `CWB-00000001`. Em
+**Consultar conversa**, informe esse protocolo ou o telefone para abrir a
+timeline completa, os contadores de mensagens/erros/handoffs e os eventos
+técnicos registrados pelo agente, pela mídia e pelo worker. A consulta é somente
+administrativa e fica protegida pela autenticação do painel.
+
 A área de comandos permite assumir, retomar ou fechar uma conversa específica
 e liberar todas as conversas em atendimento humano para o robô. O painel mostra
 uma prévia do impacto, exige justificativa e confirmação no navegador, e audita

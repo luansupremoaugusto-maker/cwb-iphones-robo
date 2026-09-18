@@ -109,6 +109,57 @@ def _route_page(route: Route, html: str) -> None:
             ),
         )
         return
+    if path.startswith("/admin/api/conversations/"):
+        route.fulfill(
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "protocol": "CWB-00000007",
+                    "phone": "551196543210",
+                    "chat_name": "Maria",
+                    "status": "bot_active",
+                    "status_label": "Robô ativo",
+                    "paused_reason": None,
+                    "created_at": "2026-09-15T11:59:00+00:00",
+                    "updated_at": "2026-09-15T12:00:00+00:00",
+                    "last_message_id": 8,
+                    "messages": [
+                        {
+                            "id": 7,
+                            "direction": "inbound",
+                            "kind": "text",
+                            "text": "Tem iPhone 15?",
+                            "created_at": "2026-09-15T12:00:00+00:00",
+                        },
+                        {
+                            "id": 8,
+                            "direction": "outbound",
+                            "kind": "text",
+                            "text": "Temos sim.",
+                            "created_at": "2026-09-15T12:00:01+00:00",
+                        },
+                    ],
+                    "audit": [
+                        {
+                            "id": 1,
+                            "event_type": "agent_response",
+                            "subject": "551196543210",
+                            "detail": {"confidence": "high"},
+                            "created_at": "2026-09-15T12:00:01+00:00",
+                        }
+                    ],
+                    "diagnostics": {
+                        "message_count": 2,
+                        "inbound_count": 1,
+                        "outbound_count": 1,
+                        "audit_count": 1,
+                        "error_count": 0,
+                        "handoff_count": 0,
+                    },
+                }
+            ),
+        )
+        return
 
     responses = {
         "/admin/api/dashboard": {
@@ -313,5 +364,28 @@ def test_recovery_search_accepts_brazilian_mobile_ninth_digit_alias_in_a_real_br
                 page.locator("#recovery-search").fill("5511996543210")
 
             assert page.locator('#recovery-queue-body button[data-recovery-action="prepare"]').count() == 1
+        finally:
+            browser.close()
+
+
+def test_conversation_lookup_opens_timeline_by_protocol_in_a_real_browser():
+    html = render_admin_page("csrf-token")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _open_admin_page(page, html)
+
+            page.locator("#conversation-lookup").fill("CWB-00000007")
+            with page.expect_request(
+                lambda request: request.url.endswith("/admin/api/conversations/CWB-00000007")
+            ):
+                page.locator("#conversation-lookup-submit").click()
+
+            page.locator("#conversation-lookup-result").wait_for(state="visible")
+            assert "CWB-00000007" in page.locator("#conversation-lookup-meta").inner_text()
+            assert "Tem iPhone 15?" in page.locator("#conversation-lookup-history").inner_text()
+            assert "agent_response" in page.locator("#conversation-lookup-audit-body").inner_text()
         finally:
             browser.close()
