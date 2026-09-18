@@ -663,6 +663,7 @@ def _is_product_availability_request(
             "quero ver",
             "quero comprar",
             "procuro",
+            "procurando",
             "preciso",
             "necessito",
         )

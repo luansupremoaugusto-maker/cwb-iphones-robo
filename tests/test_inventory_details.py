@@ -246,6 +246,77 @@ async def test_iphones_for_sale_question_returns_complete_used_and_sealed_list(t
 
 
 @pytest.mark.asyncio
+async def test_literal_iphone_15_request_lists_used_and_sealed_stock(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class SealedCatalog:
+        def __init__(self):
+            self.items = [
+                InventoryItem(
+                    external_id="sheet:iphone-15-128",
+                    name="iPhone 15",
+                    category="Celular",
+                    capacity="128 GB",
+                    price_brl=4400,
+                    source="google_sheets",
+                    condition="novo lacrado",
+                    search_text="iphone 15 128 gb novo lacrado",
+                )
+            ]
+
+        async def ensure_fresh(self):
+            return None
+
+        async def search(self, query: str, limit: int = 5):
+            return self.items[:limit]
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedCatalog(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-15-128-black",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            price_brl=2830,
+            quantity=1,
+            availability="Disponível para venda",
+            condition="SEMINOVO",
+            battery_health=88,
+            search_text="iphone 15 128 gb preto celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Ent estou procurando um iPhone 15",
+        history=[
+            {"role": "user", "content": "Opa bom dia tudo bem"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Seminovos disponíveis para pronta entrega:" in decision.reply
+    assert "Novos lacrados por encomenda:" in decision.reply
+    assert "R$ 2.830,00" in decision.reply
+    assert "R$ 4.400,00" in decision.reply
+    assert set(decision.product_references) == {
+        "used:iphone-15-128-black",
+        "sheet:iphone-15-128",
+    }
+
+
+@pytest.mark.asyncio
 async def test_photo_request_does_not_use_previous_complete_list_to_choose_model(tmp_path):
     settings = Settings(mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
