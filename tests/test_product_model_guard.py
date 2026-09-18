@@ -2001,6 +2001,43 @@ async def test_or_joined_iphone_15_and_15_pro_request_returns_all_matching_stock
     assert "iPhone 15" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_iphone_15_plus_or_normal_request_keeps_base_model_in_stock(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-15-plus-or-normal.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-128-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2920,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 15 preto 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "eu gostaria de saber se voces tem disponivel algum modelo de iphone 15 plus ou normal"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-128-seminovo"]
+    assert "iPhone 15" in decision.reply
+    assert "não localizei" not in _normalize(decision.reply)
+
+
 def _watch_seminovo() -> InventoryItem:
     return InventoryItem(
         external_id="watch-se2-seminovo",
