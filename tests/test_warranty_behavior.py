@@ -83,3 +83,23 @@ async def test_generic_warranty_question_returns_both_approved_rules(tmp_path):
     assert "1 ano" in decision.reply
     assert "Apple" in decision.reply
 
+
+@pytest.mark.asyncio
+async def test_colloquial_semis_warranty_followup_returns_only_used_device_policy(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Seminovos disponíveis para pronta entrega: iPhone 16 256GB seminovo. "
+                "Novos lacrados por encomenda: iPhone 16 128GB novo lacrado."
+            ),
+        }
+    ]
+
+    decision = await agent.respond("Os semis têm garantia?", history=history)
+
+    assert decision.reply == "Produtos seminovos têm garantia de 90 dias."
+    assert "90 dias" in decision.reply
+    assert "1 ano" not in decision.reply
+    assert "Apple" not in decision.reply
