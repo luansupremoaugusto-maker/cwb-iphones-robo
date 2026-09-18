@@ -97,6 +97,59 @@ def build_agent(tmp_path):
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+def build_missing_new_iphone_14_agent(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [_seminovo_item("iphone-14-roxo", "iPhone 14", "128 GB", 1940)]
+    agent.cache.sealed_cache.items = []
+    agent.cache.last_refresh = time.time()
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_missing_new_model_reports_absence_and_offers_seminovo_alternative(tmp_path):
+    agent = build_missing_new_iphone_14_agent(tmp_path)
+
+    decision = await agent.respond("quanto está o 14 novo de vcs?")
+
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "nao localizei esse modelo novo/lacrado" in normalized
+    assert "nem na lista de lacrados por encomenda" in normalized
+    assert "nem entre os lacrados disponiveis no estoque" in normalized
+    assert "iPhone 14" in decision.reply
+    assert "SEMINOVO" in decision.reply
+    assert "R$ 1.940,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_new_condition_followup_excludes_seminovo_when_customer_rejects_it(tmp_path):
+    agent = build_missing_new_iphone_14_agent(tmp_path)
+    history = []
+    decisions = []
+
+    for message in ("quanto está o 14 novo de vcs?", "novo vcs tem?", "novo", "sem ser seminovo"):
+        prior_history = list(history)
+        history.extend(
+            [
+                {"role": "user", "content": message},
+            ]
+        )
+        decision = await agent.respond(message, history=prior_history)
+        history.append({"role": "assistant", "content": decision.reply})
+        decisions.append(decision)
+
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "nao localizei esse modelo novo/lacrado" in normalized
+    assert "nem na lista de lacrados por encomenda" in normalized
+    assert "nem entre os lacrados disponiveis no estoque" in normalized
+    assert "SEMINOVO" in decision.reply
+    assert all(item.handoff is False for item in decisions)
+    assert all(item.product_references == [] for item in decisions)
+
+
 @pytest.mark.asyncio
 async def test_missing_lacrado_followup_offers_catalog_alternatives_without_handoff(tmp_path):
     agent = build_agent(tmp_path)

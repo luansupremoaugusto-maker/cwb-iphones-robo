@@ -641,6 +641,8 @@ def _is_product_availability_request(
         "precos",
         "novo",
         "nova",
+        "novos",
+        "novas",
         "lacrado",
         "lacrados",
         "encomenda",
@@ -1509,10 +1511,32 @@ def _is_catalog_buyer_details_question(
 
 
 def _has_sealed_reference(normalized: str) -> bool:
-    return any(marker in normalized for marker in ("lacrado", "encomenda"))
+    return (
+        _has_new_condition_reference(normalized)
+        or "encomenda" in normalized
+        or _is_seminovo_exclusion(normalized)
+    )
+
+
+def _is_seminovo_exclusion(normalized: str) -> bool:
+    seminovo_term = r"(?:seminov[oa]s?|semi\s+nov[oa]s?|usad[oa]s?)"
+    return bool(
+        re.search(
+            rf"\b(?:sem\s+(?:ser\s+)?|nao\s+(?:(?:quero|aceito|procuro|busco|sendo|ser)\s+)?)"
+            rf"{seminovo_term}\b",
+            normalized,
+        )
+    )
+
+
+def _has_new_condition_reference(normalized: str) -> bool:
+    without_semi_novo = re.sub(r"\bsemi\s+nov[oa]s?\b", " ", normalized)
+    return bool(re.search(r"\b(?:lacrad\w*|nov[oa]s?)\b", without_semi_novo))
 
 
 def _has_seminovo_reference(normalized: str) -> bool:
+    if _is_seminovo_exclusion(normalized):
+        return False
     return any(
         marker in normalized
         for marker in ("seminovo", "seminovos", "semi novo", "semi novos", "usado", "usados")
@@ -1521,7 +1545,7 @@ def _has_seminovo_reference(normalized: str) -> bool:
 
 def _has_explicit_sealed_condition(normalized: str) -> bool:
     """Recognize a direct sealed condition, excluding fulfillment wording."""
-    return bool(re.search(r"\blacrados?\b", normalized))
+    return _has_new_condition_reference(normalized) or _is_seminovo_exclusion(normalized)
 
 
 def _is_neutral_encomenda_availability(normalized: str) -> bool:
@@ -3371,8 +3395,9 @@ class AgentService:
         query: str,
         *,
         requested_budget: float | None = None,
+        condition_query: str | None = None,
     ) -> AgentDecision | None:
-        normalized_query = _normalize(query)
+        normalized_query = _normalize(condition_query if condition_query is not None else query)
         if not _has_explicit_sealed_condition(normalized_query):
             return None
 
@@ -3454,7 +3479,8 @@ class AgentService:
         if not any(alternatives.values()):
             return AgentDecision(
                 reply=(
-                    "N\u00e3o localizei esse modelo novo lacrado na tabela de lacrados. "
+                    "N\u00e3o localizei esse modelo novo/lacrado nem na lista de lacrados por encomenda "
+                    "nem entre os lacrados dispon\u00edveis no estoque. "
                     "Tamb\u00e9m n\u00e3o encontrei outra op\u00e7\u00e3o cadastrada para sugerir agora. "
                     "Se quiser, me diga outro modelo ou capacidade."
                 ),
@@ -3463,7 +3489,8 @@ class AgentService:
 
         return AgentDecision(
             reply=(
-                "N\u00e3o localizei esse modelo novo lacrado na tabela de lacrados. "
+                "N\u00e3o localizei esse modelo novo/lacrado nem na lista de lacrados por encomenda "
+                "nem entre os lacrados dispon\u00edveis no estoque. "
                 "Para voc\u00ea escolher outra op\u00e7\u00e3o, seguem alternativas cadastradas:\n\n"
                 + _format_available_products(alternatives)
             ),
@@ -3609,11 +3636,23 @@ class AgentService:
 
         requested_budget = _extract_budget_limit(query)
         requested_quantity = _requested_device_quantity(query)
+        condition_query = "\n".join(
+            [
+                text,
+                *[
+                    entry.get("content", "")
+                    for entry in (history or [])
+                    if entry.get("role") == "user" and entry.get("content", "").strip()
+                ],
+            ]
+        ).strip()
         try:
             candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
         except Exception:
             alternative = await self._try_unavailable_lacrado_alternative(
-                query, requested_budget=requested_budget
+                query,
+                requested_budget=requested_budget,
+                condition_query=condition_query,
             )
             if alternative is not None:
                 return alternative
@@ -3652,17 +3691,26 @@ class AgentService:
                 in requested_capacities
             ]
 
-        normalized_query = _normalize(query)
+        normalized_query = _normalize(condition_query)
         requested_conditions: set[str] = set()
         has_explicit_sealed_condition = _has_explicit_sealed_condition(normalized_query)
         if has_explicit_sealed_condition:
             requested_conditions.add("lacrado")
         if _has_seminovo_reference(normalized_query):
             requested_conditions.add("seminovo")
+        condition_was_requested = bool(requested_conditions)
+        if condition_was_requested:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if ("lacrado" if _is_sealed_item(item) else "seminovo") in requested_conditions
+            ]
 
         if not public_candidates:
             alternative = await self._try_unavailable_lacrado_alternative(
-                query, requested_budget=requested_budget
+                query,
+                requested_budget=requested_budget,
+                condition_query=condition_query,
             )
             if alternative is not None:
                 return alternative
@@ -3730,7 +3778,9 @@ class AgentService:
             best_score = max(score for score, _item in scored)
             if best_score <= 0:
                 alternative = await self._try_unavailable_lacrado_alternative(
-                    query, requested_budget=requested_budget
+                    query,
+                    requested_budget=requested_budget,
+                    condition_query=condition_query,
                 )
                 if alternative is not None:
                     return alternative
@@ -3772,8 +3822,6 @@ class AgentService:
                     return []
                 best = max(score for score, _item in positive)
                 return [item for score, item in positive if score == best]
-
-            condition_was_requested = has_explicit_sealed_condition or _has_seminovo_reference(normalized_query)
 
             def include_ready_sealed_units(
                 selected_items: list[Any],
