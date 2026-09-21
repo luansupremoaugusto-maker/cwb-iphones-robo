@@ -1156,6 +1156,37 @@ async def test_repair_followup_after_trade_in_context_remains_technical_assistan
 
 
 @pytest.mark.asyncio
+async def test_payment_method_only_entry_followup_does_not_send_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Eu comprei um iPhone 12 de 128GB, estou pensando em trocar por outro e ele tem 76% de bateria.",
+        },
+        {
+            "role": "assistant",
+            "content": "Não consigo confirmar esse detalhe físico pelas fotos; vou encaminhar para um atendente.",
+        },
+    ]
+    text = "Como entrada, posso pagar no PIX?"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(

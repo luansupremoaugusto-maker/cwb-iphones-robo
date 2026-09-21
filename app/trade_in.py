@@ -933,6 +933,11 @@ def is_trade_in_context_request(
         _GENERIC_TRADE_IN_FOLLOWUP_RE.search(normalized)
         and not _NEGATION_RE.search(normalized)
         and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not (
+            _PAYMENT_METHOD_RE.search(normalized)
+            and not re.search(r"\btroca(?:r)?\s+(?:por|para|pra|pro)\b", normalized)
+            and not _has_device_offer(normalized)
+        )
         and is_trade_in_request(recent_user_context)
         and not _NON_APPLE_RE.search(f"{recent_user_context} {normalized}")
     ):
