@@ -135,6 +135,13 @@ _PARTS_RE = re.compile(
     r"carca\u00e7a|carcaca|microfone|alto\s+falante|chip|flex|placa|componente[s]?)\b",
     re.IGNORECASE,
 )
+_DEVICE_COMPONENT_REPAIR_RE = re.compile(
+    r"\b(?:troca\w*|substitu\w*|consert\w*|repar\w*|manuten\w*|arrum\w*)\s+"
+    r"(?:a|o|uma|um|de|do|da)?\s*"
+    r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
+    r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
+    re.IGNORECASE,
+)
 _BUYBACK_VERB_RE = re.compile(
     r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
@@ -251,6 +258,11 @@ _CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE = re.compile(
     r"\b(?:peg\w*|aceit\w*|receb\w*|fic\w*|dar\w*|pass\w*)\b"
     r".{0,45}\b(?:ele|ela|isso|esse|essa)\b"
     r".{0,45}\b(?:volta|diferenc\w*|troco|entrada|pagamento)\b",
+    re.IGNORECASE,
+)
+_GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
+    r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro)|na\s+troca|"
+    r"parte\s+do\s+pagamento|como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
 
@@ -399,6 +411,14 @@ def _has_personal_device_reference(text: str) -> bool:
             text,
             flags=re.IGNORECASE,
         )
+        or re.search(
+            r"\b(?:eu\s+)?comprei\s+(?:(?:um|uma|o|a)\s+)?"
+            r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
+            r"aparelho|smartphone|telefone)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        and _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
     )
 
 
@@ -720,13 +740,7 @@ def is_trade_in_request(text: str | None) -> bool:
     if is_parts_buyback_request(normalized):
         return False
 
-    if re.search(
-        r"\b(?:troca\w*|substitu\w*|consert\w*|repar\w*|manuten\w*|arrum\w*)\s+"
-        r"(?:a|o|uma|um|de|do|da)?\s*"
-        r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
-        r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
-        normalized,
-    ) and not (
+    if _DEVICE_COMPONENT_REPAIR_RE.search(normalized) and not (
         _has_implicit_device_upgrade_offer(normalized)
         or _has_complete_owned_device_buyback_offer(normalized)
     ):
@@ -915,6 +929,20 @@ def is_trade_in_context_request(
         for entry in history[-8:]
         if entry.get("role") == "user" and entry.get("content")
     )
+    if (
+        _GENERIC_TRADE_IN_FOLLOWUP_RE.search(normalized)
+        and not _NEGATION_RE.search(normalized)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not (
+            _PAYMENT_METHOD_RE.search(normalized)
+            and not re.search(r"\btroca(?:r)?\s+(?:por|para|pra|pro)\b", normalized)
+            and not _has_device_offer(normalized)
+        )
+        and is_trade_in_request(recent_user_context)
+        and not _NON_APPLE_RE.search(f"{recent_user_context} {normalized}")
+    ):
+        return True
+
     size_exchange_context = f"{recent_user_context} {normalized}".strip()
     if (
         _OWNED_NUMBERED_IPHONE_RE.search(size_exchange_context)
