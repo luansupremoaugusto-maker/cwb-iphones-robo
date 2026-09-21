@@ -253,6 +253,11 @@ _CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE = re.compile(
     r".{0,45}\b(?:volta|diferenc\w*|troco|entrada|pagamento)\b",
     re.IGNORECASE,
 )
+_GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
+    r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro)|na\s+troca|"
+    r"parte\s+do\s+pagamento|como\s+entrada|de\s+entrada)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
@@ -394,6 +399,13 @@ def _has_personal_device_reference(text: str) -> bool:
         )
         or re.search(
             r"\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
+            r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
+            r"aparelho|smartphone|telefone)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"\b(?:eu\s+)?comprei\s+(?:(?:um|uma|o|a)\s+)?"
             r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
             r"aparelho|smartphone|telefone)\b",
             text,
@@ -915,6 +927,13 @@ def is_trade_in_context_request(
         for entry in history[-8:]
         if entry.get("role") == "user" and entry.get("content")
     )
+    if (
+        _GENERIC_TRADE_IN_FOLLOWUP_RE.search(normalized)
+        and is_trade_in_request(recent_user_context)
+        and not _NON_APPLE_RE.search(f"{recent_user_context} {normalized}")
+    ):
+        return True
+
     size_exchange_context = f"{recent_user_context} {normalized}".strip()
     if (
         _OWNED_NUMBERED_IPHONE_RE.search(size_exchange_context)

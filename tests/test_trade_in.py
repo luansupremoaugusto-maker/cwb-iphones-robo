@@ -1006,6 +1006,72 @@ async def test_detailed_owned_iphone_profile_without_exchange_words_sends_evalua
 
 
 @pytest.mark.asyncio
+async def test_store_purchased_iphone_12_with_trade_intent_and_battery_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Boa tarde tudo bem? Eu comprei um iPhone 12 de 128gb com vcs e estava pensando em trocar por outro, "
+        "ele está fom 76% de bateria, coloquei uma película de privadade (contém riscos mas é na película) "
+        "tenho o carregador original da Apple e outro que vocês me deram e duas capinhas, fora uma película "
+        "reserva e a caixa de vocês na época que comprei."
+    )
+
+    decision = await service.respond(
+        text,
+        image_description="O cliente enviou fotos do iPhone 12 que comprou na loja.",
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_iphone_12_trade_budget_followup_after_photo_handoff_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    device_message = (
+        "Boa tarde tudo bem? Eu comprei um iPhone 12 de 128gb com vcs e estava pensando em trocar por outro, "
+        "ele está fom 76% de bateria, coloquei uma película de privadade (contém riscos mas é na película) "
+        "tenho o carregador original da Apple e outro que vocês me deram e duas capinhas, fora uma película "
+        "reserva e a caixa de vocês na época que comprei."
+    )
+    history = [
+        {"role": "user", "content": device_message},
+        {
+            "role": "assistant",
+            "content": (
+                "Não consigo confirmar esse detalhe físico somente pelas fotos. "
+                "Vou encaminhar sua pergunta para um atendente verificar o estado do aparelho."
+            ),
+        },
+    ]
+
+    decision = await service.respond(
+        "Poderia me passar qual seria o orçamento se eu fosse trocar por alguns modelos?",
+        history=history,
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
