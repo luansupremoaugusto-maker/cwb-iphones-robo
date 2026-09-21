@@ -1072,6 +1072,90 @@ async def test_iphone_12_trade_budget_followup_after_photo_handoff_sends_evaluat
 
 
 @pytest.mark.asyncio
+async def test_owned_iphone_profile_does_not_turn_new_model_price_question_into_trade_in(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Eu comprei um iPhone 12 de 128GB com 76% de bateria. Quanto custa um iPhone 17 Pro?"
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_negated_trade_in_followup_does_not_send_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Eu comprei um iPhone 12 de 128GB, estou pensando em trocar por outro e ele tem 76% de bateria.",
+        },
+        {
+            "role": "assistant",
+            "content": "Não consigo confirmar esse detalhe físico pelas fotos; vou encaminhar para um atendente.",
+        },
+    ]
+    text = "Não vou trocar por outro agora."
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_repair_followup_after_trade_in_context_remains_technical_assistance(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Eu comprei um iPhone 12 de 128GB, estou pensando em trocar por outro e ele tem 76% de bateria.",
+        },
+        {
+            "role": "assistant",
+            "content": "Não consigo confirmar esse detalhe físico pelas fotos; vou encaminhar para um atendente.",
+        },
+    ]
+    text = "Na troca da bateria do meu iPhone 12, qual é o prazo?"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.reply != TRADE_IN_FORM
+    assert "assistência técnica" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
