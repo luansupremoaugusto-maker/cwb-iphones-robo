@@ -121,6 +121,63 @@ async def test_current_day_question_reports_closed_on_weekend(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_colloquial_attendem_hoje_question_reports_closed_on_saturday(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 9, 19, 9, 58, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Atendem hoje?",
+        history=[
+            {"role": "user", "content": "Bom dia"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                    "mas entraremos em contato assim que possível."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sábado, 19/09/2026" in decision.reply
+    assert "hoje a loja está fechada" in decision.reply.lower()
+    assert "atendemos hoje das 09:00 às 18:00" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_time_only_followup_after_closed_hours_question_does_not_schedule_today(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 9, 19, 9, 58, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Bom dia"},
+        {
+            "role": "assistant",
+            "content": (
+                "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                "mas entraremos em contato assim que possível."
+            ),
+        },
+        {"role": "user", "content": "Atendem hoje?"},
+    ]
+    closed_reply = await agent.respond("Atendem hoje?", history=history[:2])
+    history.append({"role": "assistant", "content": closed_reply.reply})
+
+    decision = await agent.respond("As 15h", history=history)
+
+    assert "hoje a loja está fechada" in closed_reply.reply.lower()
+    assert decision.handoff is False
+    assert "sábado, 19/09/2026" in decision.reply
+    assert "dia de atendimento" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("text", ["Está aberto a loja?", "A loja está aberta?"])
 async def test_unqualified_store_open_question_uses_current_store_date(tmp_path, monkeypatch, text):
     current = datetime(2026, 9, 14, 14, 31, tzinfo=ZoneInfo("America/Sao_Paulo"))

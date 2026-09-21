@@ -984,12 +984,11 @@ def _is_current_date_request(text: str) -> bool:
 def _is_today_store_status_request(text: str) -> bool:
     normalized = re.sub(r"\bhj\b", "hoje", _normalize(text))
     has_status_marker = bool(
-        re.search(r"\b(?:abert\w*|fechad\w*)\b", normalized)
+        re.search(r"\b(?:abert\w*|fechad\w*|atend\w*)\b", normalized)
     ) or any(
         marker in normalized
         for marker in (
             "funcionamento",
-            "atendimento",
             "horario",
             "horas",
             "abre",
@@ -1235,6 +1234,7 @@ def _appointment_context(text: str, history: list[dict[str, str]] | None) -> str
         entry.get("content", "").strip()
         for entry in (history or [])
         if entry.get("role") == "user" and entry.get("content", "").strip()
+        and not _is_today_store_status_request(entry.get("content", ""))
     ]
     return "\n".join([*previous_user_text[-4:], text.strip()]).strip()
 
