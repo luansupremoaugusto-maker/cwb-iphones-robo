@@ -2374,6 +2374,7 @@ def _product_context_query(
     )
 
     parts: list[str] = []
+    product_answer_index: int | None = None
     if not image_anchor:
         for index, role, content in reversed(entries):
             if index >= anchor_index and role == "assistant" and is_specific_product_answer(content):
@@ -2382,6 +2383,7 @@ def _product_context_query(
                     " ",
                     content,
                 ).strip()
+                context_content = _strip_unavailable_catalog_claims(context_content)
                 context_content = "\n".join(
                     re.sub(r"\s+", " ", line).strip()
                     for line in context_content.splitlines()
@@ -2391,9 +2393,36 @@ def _product_context_query(
                     context_content = _strip_catalog_history_constraints(context_content)
                 if context_content and context_content not in parts:
                     parts.append(context_content)
+                    product_answer_index = index
                 break
+    if product_answer_index is not None:
+        anchor_content = next(
+            (
+                content
+                for index, role, content in entries
+                if index == anchor_index and role == "user"
+            ),
+            "",
+        )
+        anchor_models = _requested_iphone_model_keys(anchor_content)
+        preserve_anchor = bool(
+            anchor_content
+            and _has_product_reference(_normalize(anchor_content))
+            and len(anchor_models) <= 1
+        )
+        pre_answer_user_start = anchor_index if preserve_anchor else anchor_index + 1
+        parts.extend(
+            content
+            for index, role, content in entries
+            if pre_answer_user_start <= index < product_answer_index
+            and role == "user"
+            and content not in parts
+        )
+    user_context_start = (
+        product_answer_index + 1 if product_answer_index is not None else anchor_index
+    )
     for index, role, content in entries:
-        if index >= anchor_index and role == "user" and content not in parts:
+        if index >= user_context_start and role == "user" and content not in parts:
             parts.append(content)
     parts.append(current)
     return "\n".join(parts[-6:]).strip()
@@ -2486,6 +2515,29 @@ def _battery_detail_context_query(text: str, history: list[dict[str, str]] | Non
     if model_reference:
         parts.append(model_reference)
     return "\n".join(part for part in parts if part).strip()
+
+
+def _strip_unavailable_catalog_claims(value: str) -> str:
+    """Keep unavailable alternatives from becoming targets after a positive listing."""
+    pattern = re.compile(
+        r"\b(?:n[aã]o\s+(?:temos?|encontr\w*|localiz\w*|h[aá]|"
+        r"exist\w*|disponibiliz\w*)|indispon[ií]vel)\b"
+        r"[^.!?\r\n]*(?:[.!?]|(?=\r?\n)|$)",
+        flags=re.IGNORECASE,
+    )
+
+    def remove_if_following_listing(match: re.Match[str]) -> str:
+        prefix = _normalize(value[: match.start()])
+        has_positive_listing = _has_product_reference(prefix) and bool(
+            re.search(
+                r"r\$|\b(?:bateria|bat|\d+\s*(?:gb|tb)|disponivel|"
+                r"disponibilidade|encontrei|temos|tenho)\b",
+                prefix,
+            )
+        )
+        return " " if has_positive_listing else match.group(0)
+
+    return pattern.sub(remove_if_following_listing, value)
 
 
 def _is_standalone_photo_followup(

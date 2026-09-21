@@ -874,6 +874,68 @@ async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_iphone_14_photo_followup_survives_intervening_warranty_questions(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-14-warranty-photo.json",
+        sealed_cache=None,
+    )
+    purple_url = "https://photos.example/iphone-14-roxo-128-1940.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="10310968",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO",
+            colors="ROXO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1940.0,
+            battery_health=85,
+            source="mercado_phone",
+            search_text="iphone 14 roxo 128 gb celular seminovo",
+            photo_urls=[purple_url],
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vc tem foto dele?",
+        history=[
+            {"role": "user", "content": "Está em média quantos o iPhone 13 e 14?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Opa! No momento, encontrei disponível apenas:\n"
+                    "iPhone 14 seminovo 128GB roxo — R$ 1.940,00\n"
+                    "Saúde da bateria: 85%. Não encontrei iPhone 13 disponível no catálogo agora."
+                ),
+            },
+            {"role": "user", "content": "Tem garantia Apple?"},
+            {"role": "user", "content": "Ou garantia msm"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Produtos seminovos têm garantia de 90 dias. "
+                    "Produtos novos e lacrados têm garantia de 1 ano pela Apple."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [purple_url], decision.reply
+    assert decision.product_references == ["10310968"]
+    assert "não localizei" not in decision.reply.lower()
+    assert "iphone 13" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_color_photo_followup_recovers_when_history_condition_drifts(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
