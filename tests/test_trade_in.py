@@ -1320,6 +1320,49 @@ async def test_repassar_complete_iphone_with_battery_photo_sends_evaluation_form
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("separate_messages", [True, False])
+async def test_owned_iphone_trade_down_to_smaller_model_sends_evaluation_form(
+    tmp_path, separate_messages
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    if separate_messages:
+        history = [
+            {"role": "user", "content": "Olá"},
+            {"role": "user", "content": "Gostaria de saber uma informação"},
+            {"role": "user", "content": "Tenho um 16 pro max"},
+            {"role": "user", "content": "Novo praticamente"},
+            {"role": "user", "content": "Gostaria de troca em um menor"},
+        ]
+        text = "Faz isso?"
+    else:
+        history = None
+        text = (
+            "Olá\nGostaria de saber uma informação\nTenho um 16 pro max\n"
+            "Novo praticamente\nGostaria de troca em um menor\nFaz isso?"
+        )
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+def test_smaller_model_catalog_question_without_owned_device_stays_out_of_trade_in():
+    assert is_trade_in_request("Gostaria de trocar por um modelo menor") is False
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_exchange_for_newer_model_returns_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):

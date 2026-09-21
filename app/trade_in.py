@@ -208,6 +208,11 @@ _IMPLICIT_GENERIC_UPGRADE_RE = re.compile(
     r"\btrocar\s+por\s+(?:um|uma|outro|outra)?\s*(?:modelo\s+)?mais\s+nov\w*\b",
     re.IGNORECASE,
 )
+_IMPLICIT_SIZE_DOWN_EXCHANGE_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,35}"
+    r"\btroca(?:r)?\b.{0,35}\bmenor(?:es)?\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_MODEL_EXCHANGE_RE = re.compile(
     r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b.{0,80}"
     r"\btroca(?:r)?\s+(?:o|a|um|uma)?\s*(?:meu|minha)?\s*"
@@ -275,6 +280,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
                     explicit_model_upgrade
                     or _IMPLICIT_OWNED_EXCHANGE_TARGET_RE.search(text)
                     or _IMPLICIT_GENERIC_UPGRADE_RE.search(text)
+                    or _IMPLICIT_SIZE_DOWN_EXCHANGE_RE.search(text)
                     or _IMPLICIT_MODEL_EXCHANGE_RE.search(text)
                     or explicit_device_entry
                 )
@@ -883,6 +889,20 @@ def is_trade_in_context_request(
 
     if is_photo_offer_confirmation(text, history):
         return False
+    recent_user_context = " ".join(
+        _normalize(entry.get("content", ""))
+        for entry in history[-8:]
+        if entry.get("role") == "user" and entry.get("content")
+    )
+    size_exchange_context = f"{recent_user_context} {normalized}".strip()
+    if (
+        _OWNED_NUMBERED_IPHONE_RE.search(size_exchange_context)
+        and _IMPLICIT_SIZE_DOWN_EXCHANGE_RE.search(size_exchange_context)
+        and not _NEGATION_RE.search(size_exchange_context)
+        and not _NON_APPLE_RE.search(size_exchange_context)
+    ):
+        return True
+
     recent_assistant_messages = [
         _normalize(entry.get("content", ""))
         for entry in reversed(history[-8:])
