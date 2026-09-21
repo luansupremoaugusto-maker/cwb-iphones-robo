@@ -315,6 +315,125 @@ async def test_bare_model_sell_question_returns_only_requested_iphone(tmp_path):
     assert "lista completa" not in decision.reply.lower()
 
 
+def _iphone15_price_followup_agent(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-15-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            colors="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3500,
+            battery_health=89,
+            photo_urls=["https://photos.example/iphone-15-preto-128.jpg"],
+            search_text="iphone 15 preto 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-rosa-seminovo",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="ROSA",
+            colors="ROSA",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3600,
+            battery_health=90,
+            search_text="iphone 15 rosa 128 gb celular seminovo",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+    agent.cache.sealed_cache.items.append(
+        _sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4400)
+    )
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_bare_model_reply_to_product_interest_lists_available_iphone_details(tmp_path):
+    agent = _iphone15_price_followup_agent(tmp_path)
+
+    decision = await agent.respond(
+        "15",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Bom dia, tudo bem? Teria interesse em algum produto específico?",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert set(decision.product_references) == {
+        "iphone-15-seminovo",
+        "iphone-15-rosa-seminovo",
+    }
+    assert "iPhone 15" in decision.reply
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "3.500,00" in decision.reply
+    assert "3.600,00" in decision.reply
+    assert "89%" in decision.reply
+    assert "90%" in decision.reply
+    assert "NOVO LACRADO" not in decision.reply.upper()
+    assert "4.400,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_iphone15_price_followup_after_photos_keeps_seminovo_context(tmp_path):
+    agent = _iphone15_price_followup_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Qual valor",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Bom dia, tudo bem? Teria interesse em algum produto específico?",
+            },
+            {"role": "user", "content": "15"},
+            {
+                "role": "assistant",
+                "content": "Claro! Seguem as fotos do IPHONE 15 128GB.",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-15-seminovo",
+        "iphone-15-rosa-seminovo",
+    }
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "3.500,00" in decision.reply
+    assert "3.600,00" in decision.reply
+    assert "NOVO LACRADO" not in decision.reply.upper()
+    assert "4.400,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_iphone15_explicit_photo_and_sealed_requests_keep_their_conditions(tmp_path):
+    agent = _iphone15_price_followup_agent(tmp_path)
+
+    photo_decision = await agent.respond("Pode me mandar foto do iPhone 15 seminovo?")
+    sealed_decision = await agent.respond("Qual valor do iPhone 15 novo lacrado?")
+
+    assert photo_decision.image_urls == ["https://photos.example/iphone-15-preto-128.jpg"]
+    assert "iphone-15-seminovo" in photo_decision.product_references
+    assert "iphone-15-lacrado" not in photo_decision.product_references
+    assert sealed_decision.product_references == ["iphone-15-lacrado"]
+    assert "NOVO LACRADO" in sealed_decision.reply.upper()
+    assert "4.400,00" in sealed_decision.reply
+    assert "SEMINOVO" not in sealed_decision.reply.upper()
+
+
 @pytest.mark.asyncio
 async def test_iphone_range_from_13_up_lists_every_available_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
