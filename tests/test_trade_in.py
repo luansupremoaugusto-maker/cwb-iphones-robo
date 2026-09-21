@@ -50,6 +50,46 @@ async def test_owned_iphone_buyback_purchase_context_sends_evaluation_form(tmp_p
     assert decision.reply == TRADE_IN_FORM
 
 
+@pytest.mark.asyncio
+async def test_shop_offer_for_detailed_iphone_profile_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Olá tudo bem? Quanto você paga em um iPhone 14, 128gb 80% bateria"
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+    decision = await service.respond(text)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Quanto custa um iPhone 14, 128GB, com 80% de bateria?",
+        "Quanto custa trocar a bateria do meu iPhone 14?",
+    ],
+)
+def test_catalog_and_repair_questions_are_not_shop_device_offers(text):
+    assert is_trade_in_request(text) is False
+
+
 @pytest.mark.parametrize(
     "text",
     [

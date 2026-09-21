@@ -141,8 +141,8 @@ _BUYBACK_VERB_RE = re.compile(
     re.IGNORECASE,
 )
 _PRICE_BUYBACK_RE = re.compile(
-    r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voces|vcs|a\s+loja)\s+"
-    r"(?:estao\s+)?(?:pagando|pagam)\s+(?:pelo|por)\b"
+    r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voce|voces|vcs|a\s+loja)\s+"
+    r"(?:estao\s+)?(?:pagando|paga|pagam)\s+(?:em|pelo|por)\b"
     r"|\b(?:preco|valor)\s+(?:que\s+)?(?:voces|vcs|a\s+loja)\s+"
     r"(?:estao\s+)?(?:pagando|pagam)\s+(?:em|pelo|por)\b",
     re.IGNORECASE,
