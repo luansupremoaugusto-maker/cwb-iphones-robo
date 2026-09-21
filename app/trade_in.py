@@ -181,6 +181,12 @@ _BARE_MODEL_EXCHANGE_OFFER_RE = re.compile(
     r"entrada|na\s+troca|para\s+troca|troca)\b",
     re.IGNORECASE,
 )
+_DEVICE_AS_ENTRY_RE = re.compile(
+    r"\b(?:aceita(?:m)?|peg(?:a|am|amos)|receb(?:e|em|emos))\s+"
+    r"(?:(?:o|a)\s+)?(?:meu|minha)\s+"
+    r"(?:(?:iphone|celular|aparelho|telefone|smartphone)\s+)?na\s+volta\b",
+    re.IGNORECASE,
+)
 _OWNED_NUMBERED_IPHONE_RE = re.compile(
     r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
     r"|\b(?:meu|minha)\s+)"
@@ -417,8 +423,21 @@ def _has_complete_owned_device_profile(text: str) -> bool:
     )
 
 
+def _has_detailed_device_entry_offer(text: str) -> bool:
+    """Recognize an owned iPhone offered "na volta" after the target is named."""
+    return bool(
+        _DEVICE_AS_ENTRY_RE.search(text)
+        and (_APPLE_PRODUCT_RE.search(text) or _BARE_IPHONE_MODEL_RE.search(text))
+        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+    )
+
+
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
+    if _has_detailed_device_entry_offer(text):
+        return True
+
     # In informal Portuguese, "tem interesse em comprar um iPhone" commonly
     # omits "vocês" and means that the customer is asking whether the store
     # wants to buy the described device. Keep the first-person buyer phrasing
@@ -580,6 +599,8 @@ def _has_complete_owned_device_buyback_offer(text: str) -> bool:
 
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
+    if _has_detailed_device_entry_offer(text):
+        return True
     if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
         return True
     if _BARE_MODEL_EXCHANGE_RE.search(text) and _COMPLETE_DEVICE_DETAIL_RE.search(text):
