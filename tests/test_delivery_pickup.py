@@ -142,6 +142,92 @@ async def test_delivery_and_pickup_question_after_product_context_uses_faq(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_pickup_day_and_time_question_after_product_history_uses_store_hours(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-17-256-sealed",
+            name="iPhone 17",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            condition="NOVO LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5600,
+            search_text="iphone 17 preto 256gb celular novo lacrado",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+    history = [
+        {"role": "user", "content": "Quais opções de iPhone 17 vocês têm?"},
+        {
+            "role": "assistant",
+            "content": "O iPhone 17 256GB novo lacrado está disponível por R$ 5.600,00.",
+        },
+        {"role": "user", "content": "O pagamento é feito na retirada?"},
+        {"role": "assistant", "content": "O pagamento é feito na hora da retirada."},
+        {"role": "user", "content": "Perfeito"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sobre a garantia: seminovos têm 90 dias; aparelhos novos lacrados "
+                "têm 1 ano pela Apple."
+            ),
+        },
+    ]
+    pickup_question = "Pra retirar segunda depois das 17:30 tem como?"
+
+    decision = await agent.respond(
+        pickup_question,
+        history=history,
+    )
+
+    reply = decision.reply.lower()
+    assert decision.handoff is False
+    assert "retirada na loja com horário marcado" in reply
+    assert "segunda a sexta" in reply
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "17:30" in decision.reply
+    assert "até o fechamento, às 18:00" in reply
+    assert "confirmação de um atendente" in reply
+    assert "iphone 17" not in reply
+    assert "5.600" not in decision.reply
+
+    followup = await agent.respond(
+        "Perfeito, agenda pra mim por gentileza",
+        history=[
+            *history,
+            {"role": "user", "content": pickup_question},
+            {"role": "assistant", "content": decision.reply},
+        ],
+    )
+
+    assert followup.handoff is True
+    assert "confirmar" in followup.reply.lower()
+    assert "Avenida Nossa Senhora da Luz, 1341" in followup.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Pra retirar sábado depois das 17:30 tem como?", "No sábado, a loja fica fechada"),
+        (
+            "Pra retirar segunda depois das 18:30 tem como?",
+            "18:30 fica no limite ou após o fechamento",
+        ),
+    ],
+)
+async def test_pickup_schedule_respects_store_closing_hours(tmp_path, text, expected):
+    decision = await build_agent(tmp_path).respond(text)
+
+    assert decision.handoff is False
+    assert expected.lower() in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_mixed_product_condition_and_pickup_question_still_handoffs(tmp_path):
     agent = build_agent(tmp_path)
 

@@ -877,6 +877,20 @@ def _is_delivery_or_pickup_request(text: str) -> bool:
     return has_delivery or has_pickup
 
 
+def _is_pickup_schedule_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or _has_sealed_reference(normalized):
+        return False
+    has_pickup = bool(
+        re.search(r"\b(?:retirad\w*|retir\w*|busc\w*|peg\w*)\b", normalized)
+    )
+    return (
+        has_pickup
+        and _has_visit_date_reference(text)
+        and _has_visit_time_reference(text)
+    )
+
+
 def _is_delivery_fee_request(
     text: str,
     history: list[dict[str, str]] | None = None,
@@ -965,6 +979,86 @@ def _delivery_or_pickup_reply(
             or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da retirada."
         )
     return "\n\n".join(reply for reply in replies if reply)
+
+
+def _extract_time_reference(text: str) -> tuple[int, str] | None:
+    normalized = _normalize(text)
+    patterns = (
+        r"\b(?P<hour>[01]?\d|2[0-3])\s*:\s*(?P<minute>[0-5]\d)\b",
+        r"\b(?P<hour>[01]?\d|2[0-3])\s*h\s*(?P<minute>[0-5]\d)?\b",
+        r"\b(?P<hour>[01]?\d|2[0-3])\s+horas?\b",
+        r"\bas\s*(?P<hour>[01]?\d|2[0-3])\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if not match:
+            continue
+        hour = int(match.group("hour"))
+        minute = int(match.groupdict().get("minute") or 0)
+        return hour * 60 + minute, f"{hour:02d}:{minute:02d}"
+    return None
+
+
+def _pickup_schedule_reply(faq: FAQStore, text: str) -> str:
+    normalized = _normalize(text)
+    day_names = {
+        "segunda": ("segunda-feira", "Na"),
+        "terca": ("terça-feira", "Na"),
+        "quarta": ("quarta-feira", "Na"),
+        "quinta": ("quinta-feira", "Na"),
+        "sexta": ("sexta-feira", "Na"),
+        "sabado": ("sábado", "No"),
+        "domingo": ("domingo", "No"),
+    }
+    day_match = re.search(
+        r"\b(segunda(?:-feira)?|terca(?:-feira)?|quarta(?:-feira)?|"
+        r"quinta(?:-feira)?|sexta(?:-feira)?|sabado|domingo)\b",
+        normalized,
+    )
+    day_key = day_match.group(1).split("-")[0] if day_match else None
+    day_label, day_preposition = day_names.get(day_key, ("dia informado", "No"))
+    pickup = "Fazemos retirada na loja com horário marcado."
+    hours = faq.get("hours") or (
+        "Atendemos de segunda a sexta, das 09:00 às 18:00. "
+        "Aos sábados, domingos e feriados, a loja fica fechada."
+    )
+
+    if day_key in {"sabado", "domingo"}:
+        detail = f"{day_preposition} {day_label}, a loja fica fechada para atendimento e retirada."
+    else:
+        time_reference = _extract_time_reference(text)
+        if time_reference is None:
+            detail = (
+                "A retirada precisa ocorrer dentro do expediente e ter o horário confirmado "
+                "por um atendente."
+            )
+        else:
+            minutes, time_label = time_reference
+            after_time = bool(re.search(r"\b(?:depois|apos)\b.{0,16}\b\d", normalized))
+            if minutes < 9 * 60:
+                detail = (
+                    f"{day_preposition} {day_label}, {time_label} é antes da abertura às 09:00; "
+                    "um atendente pode confirmar outro horário."
+                )
+            elif minutes >= 18 * 60:
+                detail = (
+                    f"{day_preposition} {day_label}, o expediente termina às 18:00, então "
+                    f"{time_label} fica no limite ou após o fechamento e precisa ser confirmado "
+                    "por um atendente."
+                )
+            elif after_time:
+                detail = (
+                    f"{day_preposition} {day_label}, depois das {time_label} a retirada só pode "
+                    "ser solicitada até o fechamento, às 18:00, e depende da confirmação de "
+                    "um atendente."
+                )
+            else:
+                detail = (
+                    f"{day_preposition} {day_label}, às {time_label} fica dentro do expediente, "
+                    "mas a retirada precisa de confirmação de um atendente."
+                )
+
+    return f"{pickup} {hours} {detail}"
 
 
 def _is_current_date_request(text: str) -> bool:
@@ -1059,6 +1153,10 @@ def _is_visit_request(text: str) -> bool:
         "marcar visita",
         "agendar",
         "agendamento",
+        "agenda pra mim",
+        "agenda para mim",
+        "marque pra mim",
+        "marque para mim",
         "reservar um horario",
         "deixar um horario marcado",
         "visitar a loja",
@@ -3154,8 +3252,14 @@ class AgentService:
     ) -> AgentDecision | None:
         delivery_fee_request = _is_delivery_fee_request(text, history)
         delivery_followup = _is_delivery_followup_request(text, history)
+        pickup_schedule_request = _is_pickup_schedule_request(text)
         if (
-            not (_is_delivery_or_pickup_request(text) or delivery_followup or delivery_fee_request)
+            not (
+                _is_delivery_or_pickup_request(text)
+                or delivery_followup
+                or delivery_fee_request
+                or pickup_schedule_request
+            )
             or _is_explicit_human_request(text)
             or _is_physical_store_request(text)
         ):
@@ -3165,6 +3269,11 @@ class AgentService:
                 reply=DELIVERY_FEE_HANDOFF_REPLY,
                 handoff=True,
                 handoff_reason=DELIVERY_FEE_HANDOFF_REASON,
+                confidence="high",
+            )
+        if pickup_schedule_request:
+            return AgentDecision(
+                reply=_pickup_schedule_reply(self.faq, text),
                 confidence="high",
             )
         reply = _delivery_or_pickup_reply(self.faq, text, force_delivery=delivery_followup)
