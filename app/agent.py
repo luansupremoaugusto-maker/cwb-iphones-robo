@@ -2497,6 +2497,99 @@ def _is_bare_model_availability_request(text: str) -> bool:
     )
 
 
+_BARE_MODEL_SELECTION_REPLY_RE = re.compile(
+    r"^(?:iphone\s*)?(?P<number>\d{1,2})"
+    r"(?:\s*(?P<e>e)|\s+(?P<variant>pro\s+max|pro|max|plus|mini|air))?[?!.,]*$",
+    re.IGNORECASE,
+)
+
+
+def _bare_model_selection_reply(text: str) -> str | None:
+    normalized = _normalize(text).strip()
+    match = _BARE_MODEL_SELECTION_REPLY_RE.fullmatch(normalized)
+    if not match:
+        return None
+    model = f"iPhone {match.group('number')}"
+    if match.group("e"):
+        return f"{model}e"
+    variant = " ".join((match.group("variant") or "").split())
+    return f"{model} {variant}".strip()
+
+
+def _is_product_interest_prompt(text: str) -> bool:
+    normalized = _normalize(text)
+    asks_interest = bool(
+        re.search(r"\binteresse\b", normalized)
+        and re.search(r"\b(?:modelo|produto|iphone|aparelho)\b", normalized)
+    )
+    asks_model = bool(
+        re.search(r"\bqual\s+(?:modelo|produto|iphone|aparelho)\b", normalized)
+        and re.search(r"\b(?:procura|procurando|busca|interessa)\b", normalized)
+    )
+    asks_specific = bool(
+        re.search(r"\balgum\s+(?:modelo|produto|iphone|aparelho)\s+especifico\b", normalized)
+    )
+    return asks_interest or asks_model or asks_specific
+
+
+def _product_interest_default_condition(text: str) -> str | None:
+    normalized = _normalize(text)
+    has_seminovo = _has_seminovo_reference(normalized)
+    has_sealed = _has_explicit_sealed_condition(normalized)
+    if has_seminovo and has_sealed:
+        return None
+    if has_sealed:
+        return "lacrado"
+    return "seminovo"
+
+
+def _product_interest_model_context(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> tuple[str, str | None] | None:
+    """Resolve a bare model selection and its immediate generic price follow-up."""
+    model = _bare_model_selection_reply(text)
+    if model:
+        if not history or history[-1].get("role") != "assistant":
+            return None
+        prompt = history[-1].get("content", "")
+        if not _is_product_interest_prompt(prompt):
+            return None
+        return model, _product_interest_default_condition(prompt)
+
+    normalized = _normalize(text)
+    if _has_product_reference(normalized) or not re.search(
+        r"\b(?:valor(?:es)?|precos?|quanto|custa)\b", normalized
+    ):
+        return None
+
+    latest_user_index = next(
+        (
+            index
+            for index in range(len(history or []) - 1, -1, -1)
+            if history[index].get("role") == "user"
+        ),
+        None,
+    )
+    if latest_user_index is None:
+        return None
+    model = _bare_model_selection_reply(history[latest_user_index].get("content", ""))
+    if not model:
+        return None
+
+    previous_assistant = next(
+        (
+            history[index].get("content", "")
+            for index in range(latest_user_index - 1, -1, -1)
+            if history[index].get("role") == "assistant"
+        ),
+        "",
+    )
+    if not _is_product_interest_prompt(previous_assistant):
+        return None
+    return model, _product_interest_default_condition(previous_assistant)
+
+
 def _battery_detail_context_query(text: str, history: list[dict[str, str]] | None) -> str | None:
     normalized = _normalize(text)
     model_reference = _extract_bare_catalog_model_reference(text)
@@ -3757,6 +3850,27 @@ class AgentService:
         if _is_photo_context_followup(text, history) and not capacity_availability_followup:
             return None
         current_query = _current_catalog_context(text, image_description)
+        product_interest_context = _product_interest_model_context(text, history)
+        selected_model = product_interest_context[0] if product_interest_context else None
+        default_condition = product_interest_context[1] if product_interest_context else None
+        selection_context_used = bool(
+            selected_model and not _has_product_reference(_normalize(current_query))
+        )
+        if selection_context_used:
+            normalized_text = _normalize(text)
+            selected_conditions: list[str] = []
+            if _has_seminovo_reference(normalized_text):
+                selected_conditions.append("seminovo")
+            if _has_explicit_sealed_condition(normalized_text):
+                selected_conditions.append("lacrado")
+            if not selected_conditions and default_condition:
+                selected_conditions.append(default_condition)
+            selection_query = " ".join([selected_model, *selected_conditions])
+            current_query = (
+                selection_query
+                if _bare_model_selection_reply(text)
+                else "\n".join((selection_query, current_query)).strip()
+            )
         if (
             (
                 _is_bare_model_availability_request(current_query)
@@ -3797,16 +3911,19 @@ class AgentService:
 
         requested_budget = _extract_budget_limit(query)
         requested_quantity = _requested_device_quantity(query)
-        condition_query = "\n".join(
-            [
-                text,
-                *[
-                    entry.get("content", "")
-                    for entry in (history or [])
-                    if entry.get("role") == "user" and entry.get("content", "").strip()
-                ],
-            ]
-        ).strip()
+        if selection_context_used:
+            condition_query = current_query
+        else:
+            condition_query = "\n".join(
+                [
+                    text,
+                    *[
+                        entry.get("content", "")
+                        for entry in (history or [])
+                        if entry.get("role") == "user" and entry.get("content", "").strip()
+                    ],
+                ]
+            ).strip()
         try:
             candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
         except Exception:
