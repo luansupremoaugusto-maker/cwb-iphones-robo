@@ -102,6 +102,13 @@ def test_parts_buyback_detector_keeps_part_as_the_buyback_target(text):
     assert is_parts_buyback_request(text) is True
 
 
+def test_battery_named_as_the_return_item_stays_a_parts_buyback_request():
+    text = "Vocês aceitam a bateria do meu iPhone na volta? Ela está com 81% de saúde."
+
+    assert is_parts_buyback_request(text) is True
+    assert is_trade_in_request(text) is False
+
+
 def test_parts_buyback_detector_ignores_part_details_in_upgrade_request():
     text = (
         "Olá, tudo bem? 😊 Gostaria de consultar a possibilidade de fazer um upgrade para o "
@@ -657,6 +664,32 @@ def test_progressive_parts_buyback_question_stays_out_of_evaluation_form():
 
     assert is_parts_buyback_request(text) is True
     assert is_trade_in_request(text) is False
+
+
+@pytest.mark.asyncio
+async def test_iphone_16_pro_max_offer_na_volta_with_battery_health_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Olá boa noite tudo bem? Vcs teriam o 16 pro Max 512gb? E aceitam o meu na volta? "
+        "Ele está com 81% de bateria atualmente"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_parts_buyback_request(text) is False
+    assert is_trade_in_request(text) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
 
 
 @pytest.mark.asyncio
