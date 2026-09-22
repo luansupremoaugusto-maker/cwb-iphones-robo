@@ -64,6 +64,12 @@ jobs:
           fi
           git checkout --detach "$DEPLOY_SHA"
 
+          if grep -q '^OPENAI_MODEL=' .env.local; then
+            sed -i 's/^OPENAI_MODEL=.*/OPENAI_MODEL=gpt-6-luna/' .env.local
+          else
+            printf '\nOPENAI_MODEL=gpt-6-luna\n' >> .env.local
+          fi
+
           docker compose --env-file .env.local config --quiet
           git fetch origin main
           latest_main_sha="$(git rev-parse origin/main)"
@@ -73,5 +79,10 @@ jobs:
           fi
           docker compose --env-file .env.local up -d --build
           docker compose --env-file .env.local ps
+          for service in app worker; do
+            effective_model="$(docker compose --env-file .env.local exec -T "$service" python -c 'from app.config import Settings; print(Settings().openai_model)')"
+            test "$effective_model" = "gpt-6-luna"
+            printf 'OpenAI model (%s): %s\n' "$service" "$effective_model"
+          done
           curl -fsS https://bot.cwbiphones.cloud/ready
           REMOTE

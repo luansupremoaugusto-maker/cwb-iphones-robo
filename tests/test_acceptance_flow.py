@@ -63,5 +63,5 @@ async def test_audio_and_image_use_openai_only_for_transcription_or_description(
     assert "modelo incerto" in description
     assert transcription.await_args.kwargs["model"] == "gpt-transcribe"
     vision_args = vision.await_args.kwargs
-    assert vision_args["model"] == "gpt-5.6-luna"
+    assert vision_args["model"] == "gpt-6-luna"
     assert vision_args["input"][0]["content"][1]["type"] == "input_image"
