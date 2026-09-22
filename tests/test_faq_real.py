@@ -24,4 +24,4 @@ def test_agent_uses_store_and_assistant_names_from_faq():
 
     assert agent.name == "Atendimento cwb.iphones"
     assert "Steve" in agent.instructions
-    assert agent.model == "gpt-5.6-luna"
+    assert agent.model == "gpt-6-luna"
