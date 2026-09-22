@@ -67,6 +67,13 @@ _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_IPHONE_MODEL_RANGE_PATTERN = re.compile(
+    r"(?<!\w)(?:iphones?\s*)?(?P<start>1[0-9])\s+(?:a|ate)\s*"
+    r"(?:iphones?\s*)?(?P<end>1[0-9])\b"
+    r"(?!\s+(?:pro\s+max|pro|max|plus|mini|air|e)\b)",
+    flags=re.IGNORECASE,
+)
+
 _PRICE_THOUSANDS_SUFFIX_RE = re.compile(r"^[.,]\d{3}(?:[.,]\d{2})?\b")
 
 
@@ -190,6 +197,13 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         number = int(model_or_normal.group("number"))
         variant = " ".join(model_or_normal.group("variant").split()).lower()
         return ((number, variant), (number, ""))
+
+    model_range = _IPHONE_MODEL_RANGE_PATTERN.search(normalized)
+    if model_range:
+        start = int(model_range.group("start"))
+        end = int(model_range.group("end"))
+        if start <= end:
+            return tuple((number, "") for number in range(start, end + 1))
 
     shared_variant = _SHARED_MODEL_VARIANT_PATTERN.search(normalized)
     if shared_variant:

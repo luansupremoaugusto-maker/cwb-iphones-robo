@@ -2450,7 +2450,7 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
 
 
 _BARE_MODEL_CATALOG_FOLLOWUP_RE = re.compile(
-    r"^e\s+(?:o|a|um|uma)?\s*(?:iphone\s*)?\d{1,2}"
+    r"^e\s+(?:o|a|um|uma|no|na|do|da|dos|das)?\s*(?:iphone\s*)?\d{1,2}"
     r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air))?\s*[?!.,]*$",
     re.IGNORECASE,
 )

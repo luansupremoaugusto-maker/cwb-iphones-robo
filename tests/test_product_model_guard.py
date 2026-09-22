@@ -1793,6 +1793,77 @@ async def test_batched_availability_query_keeps_all_three_requested_models(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_literal_iphone_14_to_15_conversation_keeps_both_models_and_15_conditions(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-14-256-roxo",
+            name="iPhone 14",
+            category="Celular",
+            capacity="256GB",
+            color="ROXO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2080,
+            battery_health=85,
+            source="mercado_phone",
+            search_text="iphone 14 roxo 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-128-azul",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2820,
+            battery_health=93,
+            source="mercado_phone",
+            search_text="iphone 15 azul 128gb celular seminovo",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+    agent.cache.sealed_cache.items.append(
+        _sealed_item("iphone-15-lacrado", "iPhone 15", "128 GB", 4400)
+    )
+
+    first_text = "Olá gostaria de valores do iPhone 14 a 15"
+    first = await agent.respond(first_text)
+
+    assert first.handoff is False
+    assert set(first.product_references) == {
+        "iphone-14-256-roxo",
+        "iphone-15-128-azul",
+        "iphone-15-lacrado",
+    }
+    assert "IPHONE 14" in first.reply.upper()
+    assert "IPHONE 15" in first.reply.upper()
+    assert "2.820,00" in first.reply
+    assert "4.400,00" in first.reply
+
+    second = await agent.respond(
+        "E no iPhone 15",
+        history=[
+            {"role": "user", "content": first_text},
+            {"role": "assistant", "content": first.reply},
+        ],
+    )
+
+    assert second.handoff is False
+    assert set(second.product_references) == {
+        "iphone-15-128-azul",
+        "iphone-15-lacrado",
+    }
+    assert "SEMINOVO" in second.reply.upper()
+    assert "NOVO LACRADO" in second.reply.upper()
+    assert "2.820,00" in second.reply
+    assert "4.400,00" in second.reply
+
+
+@pytest.mark.asyncio
 async def test_batched_product_cards_keep_all_requested_models_and_capacities(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
