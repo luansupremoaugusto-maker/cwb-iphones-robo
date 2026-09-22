@@ -3711,6 +3711,46 @@ def _build_17_pro_price_followup_agent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_combined_availability_pix_and_installment_answers_every_question(tmp_path):
+    agent = build_agent(tmp_path)
+    item = _sealed_item("17-pro-256-blue", "iPhone 17 Pro", "256 GB", 7300)
+    item.color = "AZUL-INTENSO"
+    item.search_text = "iphone 17 pro azul intenso 256 gb novo lacrado"
+    agent.cache.sealed_cache.items.insert(0, item)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="inventory-cable",
+            name="Cabo USB",
+            category="Acessório",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=50,
+            source="mercado_phone",
+            search_text="cabo usb",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    text = (
+        "Oii, tudo bem? 17 pro 256 no azul, ainda tem? R$ 7.300,00 é o valor no pix né? "
+        "Se for em 10x, quanto fica?"
+    )
+    decision = await agent.respond(text)
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["17-pro-256-blue"]
+    assert "IPHONE 17 PRO" in decision.reply.upper()
+    assert "AZUL-INTENSO" in decision.reply.upper()
+    assert "no pix" in reply
+    assert "R$ 7.300,00" in decision.reply
+    assert "10x de" in decision.reply
+    assert "1x de" in decision.reply
+    assert "18x de" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_pix_discount_followup_answers_payment_policy_instead_of_repeating_catalog(tmp_path):
     agent = _build_17_pro_price_followup_agent(tmp_path)
 
