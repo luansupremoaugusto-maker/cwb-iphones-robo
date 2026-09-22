@@ -2015,6 +2015,13 @@ def _is_full_installment_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def _is_specific_installment_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return _requested_installments(text) is not None and bool(
+        re.search(r"\b(?:quanto|valor|parcela|parcelado|parcelamento|fica)\b", normalized)
+    )
+
+
 def _parse_brl_amount(raw_value: str) -> float | None:
     value = re.sub(r"[^0-9,.]", "", raw_value or "")
     if not value:
@@ -3049,6 +3056,14 @@ class AgentService:
                     confidence="high",
                 )
             )
+
+        combined_catalog_installment_decision = await self._try_combined_catalog_installment(
+            text,
+            history,
+            image_description=image_description,
+        )
+        if combined_catalog_installment_decision is not None:
+            return protect_customer_decision(combined_catalog_installment_decision)
 
         payment_link_decision = await self._try_payment_link(text, history)
         if payment_link_decision is not None:
@@ -4651,6 +4666,46 @@ class AgentService:
                 confidence="low",
             )
         return None
+
+    async def _try_combined_catalog_installment(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+        *,
+        image_description: str | None = None,
+    ) -> AgentDecision | None:
+        if _extract_entry_amount(text) is not None:
+            return None
+        if _is_payment_link_request(text) or _is_boleto_installment_request(text):
+            return None
+        if not _is_product_availability_request(text, history=history):
+            return None
+        if not (_is_full_installment_request(text) or _is_specific_installment_request(text)):
+            return None
+
+        availability = await self._try_product_availability(
+            text,
+            history=history,
+            image_description=image_description,
+        )
+        if availability is None:
+            return None
+
+        installment = await self._try_specific_installment(text, history)
+        if installment is None:
+            installment = await self._try_full_installment_table(text, history)
+        if installment is None:
+            return availability
+
+        sections = [availability.reply]
+        if re.search(r"\bpix\b", _normalize(text)):
+            sections.append("Sim 😊 No PIX, o valor é o mesmo preço à vista informado acima.")
+        sections.append(installment.reply)
+        return AgentDecision(
+            reply="\n\n".join(sections),
+            product_references=availability.product_references,
+            confidence="high",
+        )
 
     async def _try_specific_installment(
         self,
