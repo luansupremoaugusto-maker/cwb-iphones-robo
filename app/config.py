@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-6-luna"
-    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
+    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
     openai_transcription_model: str = "gpt-transcribe"
 
     mercado_phone_base_url: str = "https://platform.mercadophone.tech"
