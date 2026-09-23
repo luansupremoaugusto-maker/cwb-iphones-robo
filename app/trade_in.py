@@ -172,6 +172,32 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"|\b(?:em|com)\s+\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
+_STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE = re.compile(
+    r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}"
+    + _BUYBACK_VERB_RE.pattern
+    + r".{0,20}\b(?:o|um|meu)?\s*(?:iphone\s*)?(?:[6-9]|1[0-7])\b"
+    r"(?!\s*(?:anos?|gb|tb)\b)",
+    re.IGNORECASE,
+)
+_BATTERY_PERCENT_AFTER_BATTERY_RE = re.compile(
+    r"\bbateria\b.{0,35}\b(?:esta|ta|com|em)?\s*\d{1,3}\s*%(?!\d)",
+    re.IGNORECASE,
+)
+
+
+def _has_abbreviated_iphone_buyback_profile(text: str) -> bool:
+    """Recognize a bare iPhone generation backed by ownership and battery detail."""
+    normalized = _normalize(text)
+    return bool(
+        _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE.search(normalized)
+        and re.search(r"\b(?:comprei|tenho|possuo|meu|minha)\b", normalized)
+        and _BATTERY_PERCENT_AFTER_BATTERY_RE.search(normalized)
+        and not _NON_APPLE_RE.search(normalized)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _NEGATION_RE.search(normalized)
+    )
+
+
 _BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
@@ -619,6 +645,8 @@ def _has_complete_owned_device_buyback_offer(text: str) -> bool:
 
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
+    if _has_abbreviated_iphone_buyback_profile(text):
+        return True
     if _has_detailed_device_entry_offer(text):
         return True
     if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
@@ -737,6 +765,8 @@ def is_trade_in_request(text: str | None) -> bool:
         return False
     if is_catalog_purchase_advice_request(normalized):
         return False
+    if _has_abbreviated_iphone_buyback_profile(normalized):
+        return True
     if is_parts_buyback_request(normalized):
         return False
 
@@ -929,6 +959,8 @@ def is_trade_in_context_request(
         for entry in history[-8:]
         if entry.get("role") == "user" and entry.get("content")
     )
+    if _has_abbreviated_iphone_buyback_profile(recent_user_context):
+        return True
     if (
         _GENERIC_TRADE_IN_FOLLOWUP_RE.search(normalized)
         and not _NEGATION_RE.search(normalized)

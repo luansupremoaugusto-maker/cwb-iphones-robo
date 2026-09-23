@@ -11,6 +11,7 @@ from app.faq import FAQStore
 from app.runtime import build_runtime
 from app.schemas import InventoryItem
 from app.trade_in import (
+    PARTS_BUYBACK_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
     is_completed_trade_in_form,
@@ -21,6 +22,72 @@ from app.trade_in import (
     trade_in_em_andamento,
 )
 from app.adapters.mercado_phone import InventoryCache
+
+
+@pytest.mark.asyncio
+async def test_bare_iphone_13_buyback_with_battery_health_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Vcs pegam o 13?? Comprei com vc.\n"
+        "A bateria dele está 79%.\n"
+        "Por quanto mais ou menos vcs pegam?"
+    )
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Oiee"},
+            {
+                "role": "assistant",
+                "content": "CWB.IPHONES agradece seu contato. Como podemos ajudar?",
+            },
+        ],
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_bare_iphone_13_buyback_history_keeps_condition_followup_in_evaluation(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Oiee"},
+        {"role": "assistant", "content": "Oiee! Como posso te ajudar?"},
+        {"role": "user", "content": "Vcs pegam o 13?? Comprei com vc"},
+        {"role": "user", "content": "A bateria dele está 79%"},
+        {"role": "user", "content": "Por quanto mais ou menos vcs pegam"},
+        {"role": "assistant", "content": PARTS_BUYBACK_REPLY},
+    ]
+
+    decision = await service.respond(
+        "Está em bom estado não tem nada quebrado",
+        history=history,
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+def test_genuine_battery_buyback_stays_in_parts_flow():
+    text = "Vocês compram bateria de iPhone 13?"
+
+    assert is_parts_buyback_request(text) is True
+    assert is_trade_in_request(text) is False
 
 
 def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
