@@ -479,9 +479,29 @@ def _has_detailed_device_entry_offer(text: str) -> bool:
     )
 
 
+def _has_owned_iphone_business_offer(text: str) -> bool:
+    """Recognize a numbered iPhone offered informally "pra negócio"."""
+    owned_device = _OWNED_NUMBERED_IPHONE_RE.search(text)
+    if not owned_device:
+        return False
+
+    model = _BARE_IPHONE_MODEL_RE.search(text, owned_device.start())
+    if not model or model.start() - owned_device.start() > 20:
+        return False
+
+    deal_context = re.search(
+        r"\b(?:para|pra)\s+(?:o\s+)?negocio\b"
+        r"|\b(?:pega|pegam|aceita|aceitam)\s+(?:no|em)\s+negocio\b",
+        text[model.end() : model.end() + 140],
+    )
+    return bool(deal_context and not _NON_APPLE_RE.search(text))
+
+
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
     if _has_detailed_device_entry_offer(text):
+        return True
+    if _has_owned_iphone_business_offer(text):
         return True
 
     # In informal Portuguese, "tem interesse em comprar um iPhone" commonly
@@ -646,6 +666,8 @@ def _has_complete_owned_device_buyback_offer(text: str) -> bool:
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
     if _has_abbreviated_iphone_buyback_profile(text):
+        return True
+    if _has_owned_iphone_business_offer(text):
         return True
     if _has_detailed_device_entry_offer(text):
         return True
