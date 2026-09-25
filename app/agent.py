@@ -672,8 +672,15 @@ def _is_product_availability_request(
         )
     )
     has_purchase_interest = bool(
-        re.search(r"\b(?:me\s+)?interessei\s+(?:no|na|em)\b", normalized)
-        and not re.search(r"\bn[aã]o\s+me\s+interessei\b", normalized)
+        re.search(
+            r"\b(?:(?:me\s+)?interessei\s+(?:no|na|em)|"
+            r"tenho\s+(?:o\s+)?interesse\s+(?:no|na|em))\b",
+            normalized,
+        )
+        and not re.search(
+            r"\bnao\s+(?:me\s+interessei|tenho\s+(?:o\s+)?interesse)\b",
+            normalized,
+        )
     )
     has_broad_filter = any(
         marker in normalized
