@@ -926,6 +926,28 @@ async def test_batched_exchange_battery_detail_returns_evaluation_form(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_multiple_iphone_exchange_offer_with_battery_details_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Então queria trocar um iphone 14 85% de bateria 128 gb e um 16 pro max "
+        "93% bateria e 256 gb por um 17 pro, pode ser usado também não precisa ser novo lacrado"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
