@@ -147,6 +147,42 @@ async def test_available_list_includes_ready_sealed_mercado_stock_separately(tmp
 
 
 @pytest.mark.asyncio
+async def test_specific_availability_orders_requested_capacities_numerically(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    capacities = ["1 TB", "64 GB", "512 GB", "128 GB", "256 GB"]
+    cache.items = [
+        InventoryItem(
+            external_id=f"mp:iphone-17-pro-max-{capacity.lower().replace(' ', '')}",
+            name=f"iPhone 17 Pro Max {capacity.replace(' ', '')}",
+            category="Celular",
+            capacity=capacity,
+            color="PRETO",
+            price_brl=7000.0,
+            quantity=1,
+            availability="Disponível para venda",
+            condition="SEMINOVO",
+            search_text=f"iphone 17 pro max {capacity} preto celular seminovo",
+        )
+        for capacity in capacities
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "O iPhone 17 Pro Max está disponível nas capacidades 1 TB, 64 GB, "
+        "512 GB, 128 GB e 256 GB?"
+    )
+    expected = ["64 GB", "128 GB", "256 GB", "512 GB", "1 TB"]
+    positions = [decision.reply.index(f"— {capacity} —") for capacity in expected]
+    expected_references = [
+        f"mp:iphone-17-pro-max-{capacity.lower().replace(' ', '')}" for capacity in expected
+    ]
+
+    assert decision.handoff is False
+    assert decision.product_references == expected_references
+    assert positions == sorted(positions)
+
+
+@pytest.mark.asyncio
 async def test_sealed_cell_phone_list_returns_only_iphones_from_both_sources(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = FakeSealedCache()

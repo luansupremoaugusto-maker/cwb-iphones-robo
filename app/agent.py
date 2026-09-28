@@ -28,6 +28,7 @@ from app.adapters.catalog_cache import (
 )
 from app.adapters.mercado_phone import InventoryCache
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS
+from app.capacity import sort_capacity_variants
 from app.config import Settings
 from app.faq import FAQStore
 from app.installments import (
@@ -759,6 +760,11 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     for match in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g|t)\b", normalized):
         number = match.group(1).replace(",", ".")
         unit = "tb" if match.group(2) in {"tb", "t"} else "gb"
+        # In Portuguese, "tb" commonly means "também". When it follows
+        # "iPhone" directly, a current model such as "iPhone 17 tb?" must
+        # not be interpreted as a 17 TB capacity filter.
+        if unit == "tb" and re.search(r"\biphones?\s*$", normalized[: match.start()]):
+            continue
         if number.endswith(".0"):
             number = number[:-2]
         # Accept the common customer shorthand for the iPhone 512 GB option.
@@ -2772,9 +2778,24 @@ def _format_battery(value: Any) -> str:
     return f"{shown}%"
 
 
+def _sort_product_availability_items(items: list[Any]) -> list[Any]:
+    """Keep availability sections intact and order each model's capacities ascending."""
+    seminovos = sort_capacity_variants(item for item in items if not _is_sealed_item(item))
+    pronta_entrega = sort_capacity_variants(
+        item
+        for item in items
+        if _is_sealed_item(item) and not _is_made_to_order_sealed_item(item)
+    )
+    por_encomenda = sort_capacity_variants(
+        item for item in items if _is_made_to_order_sealed_item(item)
+    )
+    return [*seminovos, *pronta_entrega, *por_encomenda]
+
+
 def _format_product_availability(items: list[Any]) -> str:
     if not items:
         return "No momento não localizei esse produto no catálogo."
+    items = _sort_product_availability_items(items)
 
     model_names = [
         str(getattr(item, "name", None) or "").strip()
@@ -4208,6 +4229,7 @@ class AgentService:
             else:
                 selected = select_requested_model_matches(scored)
 
+        selected = _sort_product_availability_items(selected)
         reply = _format_product_availability(selected)
         if requested_quantity is not None:
             reply += (

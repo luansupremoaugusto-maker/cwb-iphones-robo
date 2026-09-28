@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from app.admin import public_catalog_payload
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.adapters.mercado_phone import normalize_inventory_item
 from app.agent import AgentService, _extract_catalog_product_id
@@ -140,6 +141,46 @@ async def test_available_list_is_individual_grouped_and_includes_product_state(t
     assert "ROSA" not in decision.reply
     assert "laboratório" not in decision.reply.lower()
     assert "valores de" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_available_list_orders_capacities_numerically_for_bot_and_panel(tmp_path):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    capacities = ["1 TB", "64 GB", "512 GB", "128 GB", "256 GB"]
+    cache.items = [
+        InventoryItem(
+            external_id=f"mp:iphone-17-pro-max-{capacity.lower().replace(' ', '')}",
+            name=f"iPhone 17 Pro Max {capacity.replace(' ', '')}",
+            category="Celular",
+            capacity=capacity,
+            color="PRETO",
+            price_brl=7000.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text=f"iphone 17 pro max {capacity} preto seminovo",
+        )
+        for capacity in capacities
+    ]
+    cache.last_refresh = time.time()
+
+    result = await cache.list_available_products()
+    panel_payload = public_catalog_payload(result, None, None, "2026-09-28T00:00:00")
+    expected = ["64 GB", "128 GB", "256 GB", "512 GB", "1 TB"]
+
+    assert [item["capacidade"] for item in panel_payload["seminovos"]] == expected
+
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    decision = await agent.respond("O que tem disponível?")
+    positions = [decision.reply.index(f" - {capacity} -") for capacity in expected]
+
+    assert positions == sorted(positions)
 
 
 @pytest.mark.asyncio
