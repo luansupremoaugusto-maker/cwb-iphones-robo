@@ -7,6 +7,7 @@ from typing import Any
 
 from app.adapters.mercado_phone import InventoryCache, score_item
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS, extract_file_urls, list_product_files
+from app.capacity import capacity_free_name, capacity_sort_key
 from app.config import Settings
 from app.installments import (
     simulate_installment,
@@ -108,6 +109,16 @@ def _model_key(value: Any) -> tuple[int | str, str] | None:
         if _is_price_fragment(normalized, match):
             return False
         suffix = normalized[match.end() :]
+        model_number = match.group("number")
+        if (
+            match.group(0).lower().startswith("iphone")
+            and model_number is not None
+            and 11 <= int(model_number) <= 20
+            and re.match(r"\s*tb\b", suffix)
+        ):
+            # "iPhone 17 tb?" means the iPhone 17 "também?" in customer
+            # messages; it is not a 17 TB storage specification.
+            return True
         return not re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)(?!\w)", suffix)
 
     usable_matches = [match for match in matches if is_usable(match)]
@@ -872,12 +883,13 @@ class StoreCatalogCache(InventoryCache):
             if not sealed and not _is_available_item(item):
                 continue
             name = str(getattr(item, "name", "") or "").strip()
+            capacity = _display_capacity(item)
             colors = _split_colors(item)
             price = getattr(item, "price_brl", None)
             entries.append(
                 {
                     "nome": name,
-                    "capacidade": _display_capacity(item),
+                    "capacidade": capacity,
                     "condicao": _display_condition(item, sealed=sealed),
                     "quantidade": None if sealed else _as_public_quantity(getattr(item, "quantity", None)),
                     "precos_brl": [round(float(price), 2)] if price is not None else [],
@@ -890,10 +902,10 @@ class StoreCatalogCache(InventoryCache):
         return sorted(
             entries,
             key=lambda entry: (
-                str(entry.get("nome") or "").lower(),
-                str(entry.get("capacidade") or ""),
-                str(entry.get("cor") or ""),
-                str(entry.get("condicao") or ""),
+                capacity_free_name(entry.get("nome")),
+                capacity_sort_key(entry.get("capacidade")),
+                str(entry.get("cor") or "").lower(),
+                str(entry.get("condicao") or "").lower(),
             ),
         )
 
