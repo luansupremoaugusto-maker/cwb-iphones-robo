@@ -236,6 +236,12 @@ _IMPLICIT_EXCHANGE_TARGET_RE = re.compile(
     r"\btrocar\s+por\s+(?:um|uma)?\s*(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+_DETAILED_IPHONE_EXCHANGE_OFFER_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria de|pretendo)\b.{0,25}\btrocar\b"
+    r"(?P<offered_devices>.{1,180}?)"
+    r"\b(?:por|pra|para)\s+(?:um|uma)?\s*(?:iphone\s*)?\d{1,2}\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_OWNED_EXCHANGE_TARGET_RE = re.compile(
     r"\b(?:penso\s+em|estou\s+pensando\s+em)\b.{0,25}"
     r"\btrocar\s+(?:por|para|pra|pro)\s+(?:um|uma|outro|outra)?\s*"
@@ -295,6 +301,16 @@ _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
     owned_device = _OWNED_NUMBERED_IPHONE_RE.search(text)
+    # Batched messages may list offered iPhone details between "trocar" and the target.
+    detailed_exchange = _DETAILED_IPHONE_EXCHANGE_OFFER_RE.search(text)
+    detailed_device_exchange_offer = False
+    if detailed_exchange:
+        offered_devices = detailed_exchange.group("offered_devices")
+        detailed_device_exchange_offer = bool(
+            _APPLE_PRODUCT_RE.search(offered_devices)
+            and re.search(r"\b\d{2,4}\s*(?:gb|tb)\b", offered_devices)
+            and _COMPLETE_DEVICE_DETAIL_RE.search(offered_devices)
+        )
     explicit_model_upgrade = (
         _IMPLICIT_UPGRADE_TARGET_RE.search(text)
         and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
@@ -318,6 +334,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
     return bool(
         (
             batched_price_upgrade
+            or detailed_device_exchange_offer
             or (
                 owned_device
                 and (
