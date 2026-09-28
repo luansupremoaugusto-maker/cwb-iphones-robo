@@ -496,6 +496,70 @@ async def test_story_interest_in_iphone_16_pro_max_uses_catalog_not_trade_in_for
     assert "R$ 5.200,00" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_possibility_to_buy_iphone_16_pro_max_returns_catalog_options(tmp_path):
+    settings = Settings(
+        openai_api_key=None,
+        google_sheets_enabled=False,
+        faq_path=str(tmp_path / "faq.yaml"),
+    )
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-16-pro-max-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            battery_health=100,
+            search_text="iphone 16 pro max 256 gb titanio preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="used:iphone-16-pro-max-512",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="512 GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5750,
+            battery_health=100,
+            search_text="iphone 16 pro max 512 gb titanio natural celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "Estou vendo na possibilidade de comprar um iPhone 16 Pro Max"
+    history = [
+        {"role": "user", "content": "Boa noite!"},
+        {"role": "assistant", "content": "Como podemos ajudar?"},
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "used:iphone-16-pro-max-256",
+        "used:iphone-16-pro-max-512",
+    }
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert "iPhone 16 Pro Max" in decision.reply
+    assert "256 GB" in decision.reply
+    assert "512 GB" in decision.reply
+
+
 @pytest.mark.parametrize(
     "text",
     [
