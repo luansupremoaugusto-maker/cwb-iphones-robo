@@ -552,7 +552,7 @@ def _has_device_offer(text: str) -> bool:
     # so the model number is not routed as a catalog lookup.
     if re.search(
         r"\b(?:tenho|possuo|estou|estou com|to com)\b"
-        r".{0,60}\b(?:para|pra)?\s*vend(?:er|endo|o|a)\b",
+        r".{0,60}\b(?:para|pra)?\s*vend(?:er|endo|a)\b",
         text,
         flags=re.IGNORECASE,
     ) and _has_device_reference(text):

@@ -665,6 +665,7 @@ def _is_product_availability_request(
             "queria ver",
             "quero ver",
             "quero comprar",
+            "possibilidade de comprar",
             "procuro",
             "procurando",
             "preciso",
@@ -4104,6 +4105,11 @@ class AgentService:
                         and (bool(requested_conditions) or len(requested_capacities) == 1)
                     )
                     or multiple_model_request_without_capacity
+                    or (
+                        len(requested_models) == 1
+                        and not requested_capacities
+                        and "possibilidade de comprar" in _normalize(text)
+                    )
                 )
                 and requested_quantity is None
                 and _requested_battery_health(query) is None
