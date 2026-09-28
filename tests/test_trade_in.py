@@ -1648,6 +1648,74 @@ async def test_owned_iphone_for_sale_returns_evaluation_form(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_bare_iphone_model_used_as_entry_after_catalog_reply_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-rosa-128",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1730,
+            battery_health=100,
+            source="mercado_phone",
+            search_text="iphone 13 128 gb rosa celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Oi, queria saber quanto que tá o iPhone 13"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                "mas entraremos em contato assim que possível."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Oii! Temos iPhone 13 seminovo 128GB: Estelar por R$ 1.700 "
+                "(bateria 84%) e Rosa por R$ 1.730 (bateria 100%)."
+            ),
+        },
+    ]
+    text = "Se eu der o 11 de entrada fica quanto?"
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+    cash_entry = "Se eu der R$ 1.100 de entrada fica quanto?"
+    assert is_trade_in_context_request(cash_entry, history) is False
+    cash_decision = await service.respond(cash_entry, history=history)
+    assert cash_decision.handoff is False
+    assert "Entrada à vista: R$ 1.100,00" in cash_decision.reply
+
+
+@pytest.mark.asyncio
 async def test_repassar_complete_iphone_with_battery_photo_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):

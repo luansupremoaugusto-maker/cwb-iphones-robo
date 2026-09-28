@@ -286,6 +286,11 @@ _CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE = re.compile(
     r".{0,45}\b(?:volta|diferenc\w*|troco|entrada|pagamento)\b",
     re.IGNORECASE,
 )
+_BARE_MODEL_ENTRY_FOLLOWUP_RE = re.compile(
+    r"\b(?:dar|der|dou|daria|entregar|passar|usar)\s+o\s+\d{1,2}\s+"
+    r"(?:de|como)\s+entrada\b",
+    re.IGNORECASE,
+)
 _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro)|na\s+troca|"
     r"parte\s+do\s+pagamento|como\s+entrada|de\s+entrada)\b",
@@ -976,6 +981,20 @@ def is_trade_in_context_request(
 
     if is_photo_offer_confirmation(text, history):
         return False
+
+    # In a catalog conversation, "dar o 11 de entrada" means the numbered
+    # iPhone model, while a bare amount such as "dar 11 de entrada" is money.
+    # Require the definite article and recent Apple-product context so cash
+    # entry calculations keep their existing route.
+    if _BARE_MODEL_ENTRY_FOLLOWUP_RE.search(normalized):
+        recent_context = " ".join(
+            _normalize(entry.get("content", ""))
+            for entry in history[-8:]
+            if entry.get("content")
+        )
+        if _APPLE_PRODUCT_RE.search(recent_context):
+            return True
+
     recent_user_context = " ".join(
         _normalize(entry.get("content", ""))
         for entry in history[-8:]
