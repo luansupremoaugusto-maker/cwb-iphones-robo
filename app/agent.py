@@ -1002,6 +1002,8 @@ def _is_delivery_followup_request(
     normalized = _normalize(text)
     if not normalized or not _has_delivery_context(history):
         return False
+    if _is_available_list_request(text):
+        return False
     if re.search(
         r"\b(?:foto|fotos|imagem|imagens|valor|preco|precos|link|dados|"
         r"informacao|informacoes|detalhes)\b",
