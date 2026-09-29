@@ -2449,7 +2449,11 @@ def _product_context_query(
     anchors = [
         index
         for index, role, content in entries
-        if role == "user" and _has_product_reference(_normalize(content))
+        if role == "user"
+        and (
+            _has_product_reference(_normalize(content))
+            or _extract_bare_catalog_model_reference(content)
+        )
     ]
     anchor_index = anchors[-1] if anchors else 0
 

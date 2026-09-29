@@ -874,6 +874,109 @@ async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_blue_iphone_15_photo_followup_uses_latest_model_after_iphone_14_photo_history(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-15-after-14-photo.json",
+        sealed_cache=None,
+    )
+    iphone_14_photo = "https://photos.example/iphone-14-meia-noite-256.jpg"
+    iphone_15_blue_photo = "https://photos.example/iphone-15-azul-128.jpg"
+    iphone_15_green_photo = "https://photos.example/iphone-15-verde-256.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-256",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="256GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2080.0,
+            battery_health=85,
+            source="mercado_phone",
+            search_text="iphone 14 meia noite 256 gb celular seminovo",
+            photo_urls=[iphone_14_photo],
+        ),
+        InventoryItem(
+            external_id="iphone-15-blue-128",
+            name="IPHONE 15",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2820.0,
+            battery_health=86,
+            source="mercado_phone",
+            search_text="iphone 15 azul 128 gb celular seminovo",
+            photo_urls=[iphone_15_blue_photo],
+        ),
+        InventoryItem(
+            external_id="iphone-15-green-256",
+            name="IPHONE 15",
+            category="Celular",
+            capacity="256GB",
+            color="VERDE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2890.0,
+            battery_health=87,
+            source="mercado_phone",
+            search_text="iphone 15 verde 256 gb celular seminovo",
+            photo_urls=[iphone_15_green_photo],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "O azul tem fotos",
+        history=[
+            {"role": "user", "content": "Qual valor dos iPhone 14"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 14 disponíveis:\n"
+                    "• IPHONE 14 — MEIA NOITE — 256GB — SEMINOVO — R$ 2.080,00 | Bat: 85%"
+                ),
+            },
+            {"role": "user", "content": "Tem fotos"},
+            {
+                "role": "assistant",
+                "content": "Claro! Seguem as fotos do IPHONE 14 256GB.",
+            },
+            {"role": "user", "content": "Parcela em quantas vezes ?"},
+            {
+                "role": "assistant",
+                "content": "Parcelamento do IPHONE 14 256GB. Preço à vista: R$ 2.080,00",
+            },
+            {"role": "user", "content": "O 15 tem algum"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 15 disponíveis:\n"
+                    "• IPHONE 15 — AZUL — 128GB — SEMINOVO — R$ 2.820,00 | Bat: 86%\n"
+                    "• IPHONE 15 — VERDE — 256GB — SEMINOVO — R$ 2.890,00 | Bat: 87%"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [iphone_15_blue_photo], decision.reply
+    assert decision.product_references == ["iphone-15-blue-128"]
+    assert iphone_14_photo not in decision.image_urls
+    assert iphone_15_green_photo not in decision.image_urls
+    assert "IPHONE 15 128GB" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_iphone_14_photo_followup_survives_intervening_warranty_questions(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
