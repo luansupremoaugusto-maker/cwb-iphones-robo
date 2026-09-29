@@ -60,6 +60,11 @@ _SHARED_MODEL_SUFFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_SHARED_PRO_MAX_CONJUNCTION_PATTERN = re.compile(
+    r"(?<!\w)(?P<number>1[0-9])\s+pro\s+(?:e|ou|or)\s+(?:(?:o|a)\s+)?pro\s+max\b",
+    flags=re.IGNORECASE,
+)
+
 _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN = re.compile(
     r"\b(?:iphone\s*)?(?P<number>1[0-9])\s+"
     r"(?P<variant>pro\s+max|pro|max|plus|mini|air)\s+"
@@ -198,10 +203,21 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     if any(marker in normalized for marker in ("ipad", "macbook", "airpods", "apple watch")):
         return ()
 
+    normalized = _SHARED_PRO_MAX_CONJUNCTION_PATTERN.sub(
+        lambda match: (
+            f"{match.group('number')} pro e {match.group('number')} pro max"
+        ),
+        normalized,
+    )
+
     shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(normalized)
     if shared_suffix:
         number = int(shared_suffix.group("number"))
-        return ((number, "pro"), (number, "pro max"))
+        normalized = (
+            normalized[: shared_suffix.start()]
+            + f"{number} pro e {number} pro max"
+            + normalized[shared_suffix.end() :]
+        )
 
     model_or_normal = _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN.search(normalized)
     if model_or_normal:
@@ -229,6 +245,18 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         .replace("\r", "\n")
         .replace("\n", " __linebreak__ ")
     )
+    line_aware_normalized = _SHARED_PRO_MAX_CONJUNCTION_PATTERN.sub(
+        lambda match: f"{match.group('number')} pro e {match.group('number')} pro max",
+        line_aware_normalized,
+    )
+    shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(line_aware_normalized)
+    if shared_suffix:
+        number = int(shared_suffix.group("number"))
+        line_aware_normalized = (
+            line_aware_normalized[: shared_suffix.start()]
+            + f"{number} pro e {number} pro max"
+            + line_aware_normalized[shared_suffix.end() :]
+        )
     target = _requested_iphone_model_key(value)
     if target is None and not re.search(r"\biphones?\b", normalized):
         return ()
@@ -287,7 +315,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             continue
         separator = line_aware_normalized[previous.end() : match.start()]
         if not re.fullmatch(
-            r"\s*(?:(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das))?\s*(?:iphone\s*)?|[/,;]|__linebreak__)\s*",
+            r"\s*(?:(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das|no|na))?\s*(?:iphone\s*)?|[/,;]|__linebreak__)\s*",
             separator,
         ):
             continue
@@ -297,7 +325,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         previous = match
 
     inherited_variant = re.match(
-        r"\s*(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das))?\s*(?:iphone\s*)?"
+        r"\s*(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das|no|na))?\s*(?:iphone\s*)?"
         r"(?P<variant>pro\s+max|pro)\b",
         line_aware_normalized[previous.end() :],
         flags=re.IGNORECASE,
