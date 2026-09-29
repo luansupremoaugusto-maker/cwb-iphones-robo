@@ -4382,6 +4382,39 @@ class AgentService:
 
         selected = _sort_product_availability_items(selected)
         reply = _format_product_availability(selected)
+        bare_model_price_request = (
+            not re.search(r"\biphones?\b", _normalize(query))
+            and bool(
+                re.search(r"\b(?:orcamento|valor(?:es)?|preco(?:s)?)\b", _normalize(query))
+            )
+        )
+        if (
+            len(requested_models) > 1
+            and selected
+            and not requested_capacities
+            and not condition_was_requested
+            and bare_model_price_request
+        ):
+            selected_models = {
+                _model_key(getattr(item, "name", "")) for item in selected
+            }
+            unavailable_models = [
+                model for model in requested_models if model not in selected_models
+            ]
+            if unavailable_models:
+                unavailable_labels = []
+                for number, variant in unavailable_models:
+                    if not variant:
+                        unavailable_labels.append(f"iPhone {number} (modelo base)")
+                    elif variant == "e":
+                        unavailable_labels.append(f"iPhone {number}e")
+                    else:
+                        unavailable_labels.append(f"iPhone {number} {variant.title()}")
+                reply += (
+                    "\n\nNão localizei opção disponível para "
+                    + " e ".join(unavailable_labels)
+                    + "."
+                )
         if requested_quantity is not None:
             reply += (
                 f"\n\nComo você precisa de {requested_quantity} aparelhos, "
