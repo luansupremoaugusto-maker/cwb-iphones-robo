@@ -10,6 +10,8 @@ _STORAGE_CAPACITY_RE = re.compile(
     r"\b(?P<size>\d+(?:[.,]\d+)?)\s*(?P<unit>TB|GB|G)\b",
     flags=re.IGNORECASE,
 )
+_IPHONE_E_MODEL_RE = re.compile(r"^iphone\s*(?P<model>\d+)\s*e$")
+_IPHONE_BASE_MODEL_RE = re.compile(r"^iphone\s*(?P<model>\d+)$")
 
 
 def capacity_sort_key(value: Any) -> tuple[int, float]:
@@ -32,8 +34,36 @@ def capacity_free_name(value: Any) -> str:
     return re.sub(r"\s+", " ", name).strip().lower()
 
 
+def product_model_sort_key(value: Any) -> tuple[str, int, str]:
+    """Place an iPhone E edition before its matching base generation."""
+    model_name = capacity_free_name(value)
+    e_match = _IPHONE_E_MODEL_RE.fullmatch(model_name)
+    if e_match is not None:
+        return (f"iphone {e_match.group('model')}", 0, model_name)
+
+    base_match = _IPHONE_BASE_MODEL_RE.fullmatch(model_name)
+    if base_match is not None:
+        return (f"iphone {base_match.group('model')}", 1, model_name)
+    return (model_name, 0, model_name)
+
+
+def _move_e_iphone_models_before_base(model_order: list[str]) -> list[str]:
+    ordered = list(model_order)
+    for model_name in model_order:
+        match = _IPHONE_E_MODEL_RE.fullmatch(model_name)
+        if match is None:
+            continue
+        base_name = f"iphone {match.group('model')}"
+        if model_name not in ordered or base_name not in ordered:
+            continue
+        if ordered.index(model_name) > ordered.index(base_name):
+            ordered.remove(model_name)
+            ordered.insert(ordered.index(base_name), model_name)
+    return ordered
+
+
 def sort_capacity_variants(items: Iterable[Any]) -> list[Any]:
-    """Sort capacities within each model while retaining the models' input order."""
+    """Sort capacities within models; place E editions before matching base models."""
     groups: dict[str, list[Any]] = defaultdict(list)
     group_order: list[str] = []
     for item in items:
@@ -44,7 +74,7 @@ def sort_capacity_variants(items: Iterable[Any]) -> list[Any]:
         groups[model_key].append(item)
 
     ordered: list[Any] = []
-    for model_key in group_order:
+    for model_key in _move_e_iphone_models_before_base(group_order):
         group = groups[model_key]
 
         def item_key(item: Any) -> tuple[tuple[int, float], str, str]:

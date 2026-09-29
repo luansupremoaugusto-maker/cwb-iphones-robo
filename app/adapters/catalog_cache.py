@@ -7,7 +7,7 @@ from typing import Any
 
 from app.adapters.mercado_phone import InventoryCache, score_item
 from app.adapters.mercado_phone_files import MAX_PRODUCT_PHOTOS, extract_file_urls, list_product_files
-from app.capacity import capacity_free_name, capacity_sort_key
+from app.capacity import capacity_free_name, capacity_sort_key, product_model_sort_key
 from app.config import Settings
 from app.installments import (
     simulate_installment,
@@ -930,7 +930,7 @@ class StoreCatalogCache(InventoryCache):
         return sorted(
             entries,
             key=lambda entry: (
-                capacity_free_name(entry.get("nome")),
+                product_model_sort_key(entry.get("nome")),
                 capacity_sort_key(entry.get("capacidade")),
                 str(entry.get("cor") or "").lower(),
                 str(entry.get("condicao") or "").lower(),
