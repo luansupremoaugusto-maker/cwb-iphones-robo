@@ -703,3 +703,31 @@ async def test_capinha_price_question_does_not_reuse_source_history(tmp_path):
     assert decision.handoff is False
     assert "R$ 10,00" in decision.reply
     assert "Fonte Tipo-C 20W original" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_phone_only_and_separate_charger_question_uses_recent_seminovo_context(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Poderiam me falar os valores das parcelas?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Bom dia! O iPhone 14 Pro 256GB roxo profundo seminovo está disponível, "
+                "com saúde da bateria de 96%. À vista: R$ 3.010,00."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "E vem somente o celular certo o carregador a parte vcs tem tbm",
+        history=history,
+    )
+
+    reply = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "aparelhos seminovos acompanham cabo e fonte novos" in reply
+    assert "homologados pela anatel" in reply
+    assert "apenas o cabo original" not in reply
+    assert "nao localizei uma opcao" not in reply

@@ -3866,3 +3866,74 @@ async def test_price_increase_followup_does_not_turn_delivery_deadline_into_budg
     assert "os precos podem ser alterados sem aviso previo" in reply
     assert "ate r$ 1,00" not in reply
     assert "nao localizei aparelhos" not in reply
+
+
+@pytest.mark.asyncio
+async def test_multi_model_interest_keeps_capacity_on_the_last_requested_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-three-model-interest.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-128",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="128GB",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4190,
+            battery_health=90,
+            search_text="iphone 16 pro 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5280,
+            battery_health=93,
+            search_text="iphone 16 pro max 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-256",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4130,
+            battery_health=90,
+            search_text="iphone 15 pro max 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "Olá tudo bem, tenho interesse no iPhone 16 pro e pro Max e no 15 pro Max de 256gb"
+
+    decision = await agent.respond(text)
+
+    assert _requested_iphone_model_keys(text) == (
+        (16, "pro"),
+        (16, "pro max"),
+        (15, "pro max"),
+    )
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-128",
+        "iphone-16-pro-max-256",
+        "iphone-15-pro-max-256",
+    }
+    assert "iPhone 16 Pro" in decision.reply
+    assert "iPhone 16 Pro Max" in decision.reply
+    assert "iPhone 15 Pro Max" in decision.reply

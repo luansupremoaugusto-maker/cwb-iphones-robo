@@ -757,12 +757,19 @@ def _is_accessory_inclusion_question(text: str) -> bool:
     normalized = _normalize(text)
     if not re.search(r"\b(?:fontes?|carregador(?:es)?|cabo|acessorio|acessorios)\b", normalized):
         return False
-    return bool(
+    asks_if_phone_is_sold_alone = bool(
+        re.search(
+            r"\bvem\s+(?:somente|so)\s+(?:(?:o|a)\s+)?(?:celular|aparelho|iphone)\b",
+            normalized,
+        )
+    )
+    asks_what_is_included = bool(
         re.search(
             r"(?:\bvem\s+(?:com|junto|inclus\w*|na\s+caixa)\b|\bacompanha\w*\b|\binclui\w*\b)",
             normalized,
         )
     )
+    return asks_if_phone_is_sold_alone or asks_what_is_included
 
 
 def _requested_capacity_keys(text: str) -> tuple[str, ...]:
@@ -794,6 +801,36 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
 def _requested_capacity_key(text: str) -> str | None:
     keys = _requested_capacity_keys(text)
     return keys[0] if keys else None
+
+
+def _trailing_model_capacity_scope(
+    text: str,
+    requested_models: tuple[tuple[int | str, str], ...],
+) -> tuple[tuple[int | str, str], str] | None:
+    """Scope a trailing capacity to the last model when a request lists alternatives."""
+    if len(requested_models) <= 1:
+        return None
+
+    normalized = _normalize(text)
+    capacity_match = re.search(
+        r"(?P<capacity>\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t))\s*$",
+        normalized,
+    )
+    if capacity_match is None:
+        return None
+    capacities = _requested_capacity_keys(capacity_match.group("capacity"))
+    if len(capacities) != 1:
+        return None
+
+    model_number, variant = requested_models[-1]
+    model_label = " ".join(part for part in (str(model_number), variant) if part)
+    before_capacity = normalized[: capacity_match.start()]
+    if not re.search(
+        rf"\b{re.escape(model_label)}\s*(?:(?:de|do|da|dos|das)\s*)?$",
+        before_capacity,
+    ):
+        return None
+    return requested_models[-1], capacities[0]
 
 
 def _has_requested_catalog_color(text: str, items: list[Any]) -> bool:
@@ -3288,7 +3325,7 @@ class AgentService:
         if installment_rate_decision is not None:
             return protect_customer_decision(installment_rate_decision)
 
-        accessory_inclusion_decision = self._try_accessory_inclusion_information(text)
+        accessory_inclusion_decision = self._try_accessory_inclusion_information(text, history)
         if accessory_inclusion_decision is not None:
             return protect_customer_decision(accessory_inclusion_decision)
 
@@ -3614,11 +3651,28 @@ class AgentService:
             confidence="high",
         )
 
-    def _try_accessory_inclusion_information(self, text: str) -> AgentDecision | None:
+    def _try_accessory_inclusion_information(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> AgentDecision | None:
         if not _is_accessory_inclusion_question(text):
             return None
 
         normalized = _normalize(text)
+        if not _has_sealed_reference(normalized) and not _has_seminovo_reference(normalized):
+            for entry in reversed(history or []):
+                if entry.get("role") != "assistant":
+                    continue
+                context = _normalize(entry.get("content", ""))
+                if not _has_product_reference(context) or not re.search(r"\br\$\s*\d", context):
+                    continue
+                has_sealed_condition = _has_sealed_reference(context)
+                has_seminovo_condition = _has_seminovo_reference(context)
+                if has_sealed_condition != has_seminovo_condition:
+                    normalized = context
+                    break
+
         if _has_sealed_reference(normalized) and not _has_seminovo_reference(normalized):
             reply = self.faq.get("lacrados")
         elif _has_seminovo_reference(normalized) and not _has_sealed_reference(normalized):
@@ -4061,7 +4115,25 @@ class AgentService:
         requested_capacities = _requested_capacity_keys(text) or _requested_capacity_keys(query)
         requested_families = _catalog_families(query)
         requested_models = _requested_iphone_model_keys(query)
-        if requested_capacities:
+        scoped_capacity = _trailing_model_capacity_scope(
+            text,
+            _requested_iphone_model_keys(text),
+        )
+        if scoped_capacity is None and not _requested_capacity_keys(text):
+            scoped_capacity = _trailing_model_capacity_scope(
+                query,
+                requested_models,
+            )
+        if scoped_capacity is not None:
+            scoped_model, scoped_capacity_key = scoped_capacity
+            public_candidates = [
+                item
+                for item in public_candidates
+                if _model_key(getattr(item, "name", "")) != scoped_model
+                or _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
+                == scoped_capacity_key
+            ]
+        elif requested_capacities:
             public_candidates = [
                 item
                 for item in public_candidates
@@ -4182,6 +4254,7 @@ class AgentService:
                         and (bool(requested_conditions) or len(requested_capacities) == 1)
                     )
                     or multiple_model_request_without_capacity
+                    or scoped_capacity is not None
                     or (
                         len(requested_models) == 1
                         and not requested_capacities
