@@ -1083,6 +1083,122 @@ async def test_all_iphone_17_line_request_returns_every_generation_17_option(tmp
 
 
 @pytest.mark.asyncio
+async def test_pronta_entrega_question_after_greeting_lists_only_ready_iphones(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16-ready-seminovo",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3590,
+            battery_health=91,
+            search_text="iphone 16 128 gb preto celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-max-ready-sealed",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="NOVO LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7900,
+            search_text="iphone 17 pro max 256 gb preto celular novo lacrado",
+        ),
+        InventoryItem(
+            external_id="macbook-ready",
+            name="MacBook Air",
+            category="Notebook",
+            capacity="256 GB",
+            source="mercado_phone",
+            condition="NOVO LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7000,
+            search_text="macbook air 256 gb novo lacrado",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(
+        "Que iPhones tu tem a pronta entrega?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Luisa, sua satisfação é nossa prioridade! Ao pensar em atualizar seu "
+                    "dispositivo, lembre-se de nossa loja, onde teremos o prazer de ajudá-lo "
+                    "a encontrar o próximo modelo ideal. Contamos com condições especiais "
+                    "para você. Até logo!"
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Luisa, seis meses se passaram desde que adquiriu seu dispositivo Apple! "
+                    "Estamos aqui para garantir que ele continue funcionando perfeitamente. "
+                    "E lembre-se, como cliente fiel, você tem acesso a ofertas exclusivas para "
+                    "troca ou upgrade!"
+                ),
+            },
+            {"role": "user", "content": "Oiii"},
+            {
+                "role": "assistant",
+                "content": "Cwb. iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {"role": "user", "content": "tudo bem?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "lista completa de produtos disponíveis" in decision.reply.lower()
+    assert "iPhone 16" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "MacBook Air" not in decision.reply
+    assert "iPhone 13 Pro" not in decision.reply
+    assert "Novos lacrados por encomenda" not in decision.reply
+    assert "Enviamos para Curitiba" not in decision.reply
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_specific_pronta_entrega_request_excludes_sheet_only_options(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-17-pro-max-ready",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="NOVO LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7900,
+            search_text="iphone 17 pro max 256 gb preto celular novo lacrado",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond("Tem o iPhone 17 Pro Max a pronta entrega?")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-17-pro-max-ready"]
+    assert "R$ 7.900,00" in decision.reply
+    assert "R$ 7.000,00" not in decision.reply
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()

@@ -402,6 +402,15 @@ def _extract_catalog_product_id(text: str) -> str | None:
     return code_match.group(1) if code_match else None
 
 
+def _has_pronta_entrega_reference(text: str) -> bool:
+    return bool(re.search(r"\bpronta\s+entrega\b", _normalize(text)))
+
+
+def _is_pronta_entrega_only_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return _has_pronta_entrega_reference(text) and not re.search(r"\bencomenda\b", normalized)
+
+
 def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -490,7 +499,6 @@ def _is_generic_iphone_list_request(text: str) -> bool:
                 "por volta de",
                 "comprar",
                 "retirar",
-                "entrega",
                 "aparelho",
                 "unidade",
                 "quantos",
@@ -498,6 +506,7 @@ def _is_generic_iphone_list_request(text: str) -> bool:
                 "necessito de",
             )
         )
+        or ("entrega" in normalized and not _has_pronta_entrega_reference(text))
     ):
         return False
     return all_line_request or bool(
@@ -613,13 +622,12 @@ def _is_product_availability_request(
             "reserva",
             "endereco",
             "horario",
-            "entrega",
             "pagamento",
             "nota fiscal",
             "quantas vezes",
             "em quantas",
         )
-    ):
+    ) or ("entrega" in normalized and not _has_pronta_entrega_reference(text)):
         return False
     if catalog_followup:
         return True
@@ -933,6 +941,10 @@ def _has_catalog_condition_signal(text: str) -> bool:
 def _is_delivery_or_pickup_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or _has_sealed_reference(normalized):
+        return False
+    if _has_pronta_entrega_reference(text) and (
+        _is_available_list_request(text) or _is_product_availability_request(text)
+    ):
         return False
     has_delivery = bool(re.search(r"\b(?:entrega|entregam|entregas)\b", normalized))
     has_pickup = bool(
@@ -3610,6 +3622,8 @@ class AgentService:
                 "lacrados_pronta_entrega": lacrados_pronta_entrega,
                 "lacrados": lacrados,
             }
+        if _is_pronta_entrega_only_request(text):
+            result = {**result, "lacrados": []}
         if variant_list_request:
             normalized = _normalize(text)
 
@@ -4087,6 +4101,7 @@ class AgentService:
 
         requested_budget = _extract_budget_limit(query)
         requested_quantity = _requested_device_quantity(query)
+        pronta_entrega_only = _is_pronta_entrega_only_request(text)
         if selection_context_used:
             condition_query = current_query
         else:
@@ -4123,6 +4138,12 @@ class AgentService:
             and (getattr(item, "source", None) != "mercado_phone" or _is_available_item(item))
         ]
         public_candidates = [item for item in public_candidates if _matches_requested_model(query, item)]
+        if pronta_entrega_only:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if getattr(item, "source", None) == "mercado_phone"
+            ]
         if requested_budget is not None:
             within_budget: list[Any] = []
             for item in public_candidates:
@@ -4179,22 +4200,31 @@ class AgentService:
             ]
 
         if not public_candidates:
-            alternative = await self._try_unavailable_lacrado_alternative(
-                query,
-                requested_budget=requested_budget,
-                condition_query=condition_query,
-            )
-            if alternative is not None:
-                return alternative
-            if requested_budget is None:
-                alternative = await self._try_unavailable_seminew_alternative(query)
+            if not pronta_entrega_only:
+                alternative = await self._try_unavailable_lacrado_alternative(
+                    query,
+                    requested_budget=requested_budget,
+                    condition_query=condition_query,
+                )
                 if alternative is not None:
                     return alternative
+                if requested_budget is None:
+                    alternative = await self._try_unavailable_seminew_alternative(query)
+                    if alternative is not None:
+                        return alternative
             capacity_text = (
                 f" {', '.join(value.upper() for value in requested_capacities)}"
                 if requested_capacities
                 else ""
             )
+            if pronta_entrega_only:
+                return AgentDecision(
+                    reply=(
+                        "Não localizei esse modelo a pronta entrega no estoque no momento. "
+                        "Se quiser, posso consultar opções por encomenda ou outros modelos."
+                    ),
+                    confidence="medium",
+                )
             if requested_budget is not None:
                 return AgentDecision(
                     reply=(
@@ -4249,17 +4279,26 @@ class AgentService:
             scored = [(_catalog_score(query, item), item) for item in public_candidates]
             best_score = max(score for score, _item in scored)
             if best_score <= 0:
-                alternative = await self._try_unavailable_lacrado_alternative(
-                    query,
-                    requested_budget=requested_budget,
-                    condition_query=condition_query,
-                )
-                if alternative is not None:
-                    return alternative
-                if requested_budget is None:
-                    alternative = await self._try_unavailable_seminew_alternative(query)
+                if not pronta_entrega_only:
+                    alternative = await self._try_unavailable_lacrado_alternative(
+                        query,
+                        requested_budget=requested_budget,
+                        condition_query=condition_query,
+                    )
                     if alternative is not None:
                         return alternative
+                    if requested_budget is None:
+                        alternative = await self._try_unavailable_seminew_alternative(query)
+                        if alternative is not None:
+                            return alternative
+                if pronta_entrega_only:
+                    return AgentDecision(
+                        reply=(
+                            "Não localizei esse modelo a pronta entrega no estoque no momento. "
+                            "Se quiser, posso consultar opções por encomenda ou outros modelos."
+                        ),
+                        confidence="medium",
+                    )
                 return AgentDecision(
                     reply="No momento não localizei esse produto no catálogo. Pode me informar o modelo ou capacidade?",
                     confidence="medium",
