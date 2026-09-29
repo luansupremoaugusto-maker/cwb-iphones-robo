@@ -2405,6 +2405,58 @@ async def test_two_standalone_pro_models_with_capacity_are_both_matched(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_iphone_16_pro_capacity_and_iphone_17_tambem_returns_both_models(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-16-pro-256-and-17.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-256",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4560,
+            battery_health=90,
+            search_text="iphone 16 pro titanio deserto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-17-256",
+            name="iPhone 17",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            battery_health=96,
+            search_text="iphone 17 preto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    text = "Gostaria de ver os modelos disponíveis de iPhone 16 pro 256 gb e 17 também"
+    assert _requested_iphone_model_keys(text) == ((16, "pro"), (17, ""))
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"iphone-16-pro-256", "iphone-17-256"}
+    assert "iPhone 16 Pro" in decision.reply
+    assert "iPhone 17" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_capacity_followup_ignores_previous_negative_catalog_answer(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
