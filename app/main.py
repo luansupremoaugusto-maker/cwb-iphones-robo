@@ -1008,7 +1008,23 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             return {"accepted": True, "ignored": True, "callback": callback_type}
 
         incoming = normalize_received_callback(payload)
-        if not incoming.phone or incoming.from_me or incoming.is_group or incoming.is_newsletter or incoming.is_status_reply:
+        if incoming.is_group:
+            if current.settings.zapi_group_diagnostics_enabled and not incoming.from_me:
+                current.repository.audit(
+                    "zapi_group_webhook_diagnostic",
+                    None,
+                    {
+                        "type": str(payload.get("type") or payload.get("event") or "")[:60],
+                        "message_id": incoming.message_id,
+                        "group_id": str(payload.get("phone") or "")[:180],
+                        "chat_name": str(payload.get("chatName") or "")[:120],
+                        "message_kind": incoming.kind,
+                        "text_chars": len(incoming.text or ""),
+                    },
+                )
+            return {"accepted": True, "ignored": True}
+
+        if not incoming.phone or incoming.from_me or incoming.is_newsletter or incoming.is_status_reply:
             current.repository.audit("ignored_event", incoming.phone or None, {"reason": "provider_control_event"})
             return {"accepted": True, "ignored": True}
 

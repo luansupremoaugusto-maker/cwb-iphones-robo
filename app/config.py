@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     zapi_client_token: str | None = None
     zapi_webhook_secret: str = "change-this-webhook-secret"
     zapi_expected_instance_id: str | None = None
+    zapi_group_diagnostics_enabled: bool = False
 
     admin_phones: str = ""
     admin_username: str | None = None
