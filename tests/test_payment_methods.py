@@ -135,6 +135,19 @@ async def test_debit_fee_question_confirms_no_fee(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_payment_methods_answer_explains_variable_credit_card_machine_fee(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Quais são as formas de pagamento?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "juros da maquina" in reply
+    assert "valor passado no cartao" in reply
+    assert "quantidade de parcelas" in reply
+
+
+@pytest.mark.asyncio
 async def test_credit_only_installment_question_confirms_credit_is_the_only_installment_method(tmp_path):
     agent = build_agent(tmp_path)
 

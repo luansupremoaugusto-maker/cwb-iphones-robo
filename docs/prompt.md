@@ -51,6 +51,10 @@ Regras operacionais:
 - Quando o cliente perguntar como fica o parcelamento, quanto fica parcelado,
   quantas vezes fica ou pedir uma simulação, enviar a tabela de 1x a 18x da
   máquina física.
+- Quando perguntar se o parcelamento no cartão de crédito é sem juros, responder
+  que há juros da taxa da máquina e que o acréscimo varia conforme o valor passado
+  no cartão e a quantidade de parcelas. Não informar percentuais nem pedir modelo
+  ou capacidade só para responder; ofereça uma simulação como próximo passo.
 - Se o cliente mencionar link de pagamento, cartão online, pagamento à distância
   ou pela internet, informar que a modalidade não é mais aceita e não fazer
   simulação pelo link.

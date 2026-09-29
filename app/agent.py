@@ -208,6 +208,11 @@ REGRAS OBRIGATÓRIAS:
   Não pergunte em quantas vezes o cliente quer parcelar. Se a pergunta mencionar
   link de pagamento ou cartão online, informe que essa modalidade não é mais aceita
   e não faça simulação ou cálculo de parcelas pelo link.
+- Se o cliente perguntar se o parcelamento no cartão de crédito tem juros ou se é
+  sem juros, responda diretamente que há a taxa de juros da máquina e que o acréscimo
+  varia conforme o valor passado no cartão e a quantidade de parcelas. Não informe
+  percentuais nem peça modelo/capacidade só para responder isso; ofereça uma
+  simulação como próximo passo se houver produto e preço confirmados.
 - Se o cliente informar uma entrada à vista ou um sinal e quiser parcelar o
   restante, subtraia a entrada do preço total e use somente o saldo restante
   como base do cálculo. Use sempre simulate_all_installments_with_entry para
@@ -1825,14 +1830,16 @@ PAYMENT_LINK_REPLY = (
 PAYMENT_METHODS_REPLY = (
     "Sim 😊 Aceitamos PIX, dinheiro, cartão de débito e cartão de crédito. "
     "PIX, dinheiro e cartão de débito têm pagamento integral à vista, sem taxas. "
-    "O cartão de crédito pode ser parcelado em até 18 vezes na máquina física."
+    "O cartão de crédito pode ser parcelado em até 18 vezes na máquina física, com juros da máquina "
+    "variáveis conforme o valor passado no cartão e a quantidade de parcelas."
 )
 
 
 PAYMENT_ONLY_CREDIT_REPLY = (
     "Sim. A única forma de parcelamento é no cartão de crédito, em até 18 vezes "
     "na máquina física. PIX, dinheiro e cartão de débito são pagamentos à vista, "
-    "sem taxas; não parcelamos no boleto ou no PIX."
+    "sem taxas; no crédito parcelado há juros da máquina, variáveis conforme o valor "
+    "passado no cartão e a quantidade de parcelas. Não parcelamos no boleto ou no PIX."
 )
 
 
@@ -2054,6 +2061,13 @@ def _is_installment_rate_question(text: str) -> bool:
         marker in normalized
         for marker in ("taxa", "taxas", "juros", "tarifa")
     )
+
+
+def _is_no_interest_installment_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not re.search(r"\bsem\s+juros?\b", normalized):
+        return False
+    return not re.search(r"\b(?:pix|dinheiro|debito)\b", normalized)
 
 
 def _is_full_installment_request(text: str) -> bool:
@@ -3435,7 +3449,9 @@ class AgentService:
         if not _is_installment_rate_question(text):
             return None
         return AgentDecision(
-            reply=format_installment_rates(),
+            reply=format_installment_rates(
+                ask_for_model=not _is_no_interest_installment_question(text)
+            ),
             confidence="high",
         )
 
