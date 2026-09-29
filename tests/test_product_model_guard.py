@@ -539,6 +539,151 @@ async def test_batched_base_model_query_keeps_all_options_for_each_requested_mod
 
 
 @pytest.mark.asyncio
+async def test_bare_model_budget_request_keeps_only_iphone_14_and_15(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "bare-iphone-14-15-budget.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-base-128",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2400,
+            source="mercado_phone",
+            search_text="iphone 14 azul 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-128",
+            name="iPhone 14 Pro",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3010,
+            source="mercado_phone",
+            search_text="iphone 14 pro preto 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-base-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2820,
+            source="mercado_phone",
+            search_text="iphone 15 azul 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-128",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="128 GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3530,
+            source="mercado_phone",
+            search_text="iphone 15 pro titanio preto 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("gostaria de saber o orçamento do 15 e do 14")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-14-base-128",
+        "iphone-15-base-128",
+    }
+    assert "IPHONE 14" in decision.reply.upper()
+    assert "IPHONE 15" in decision.reply.upper()
+    assert "2.400,00" in decision.reply
+    assert "2.820,00" in decision.reply
+    assert "IPHONE 14 PRO" not in decision.reply.upper()
+    assert "IPHONE 15 PRO" not in decision.reply.upper()
+    assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_bare_model_budget_request_reports_unavailable_base_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "bare-iphone-14-15-budget-missing-base.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-256",
+            name="iPhone 14 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3010,
+            source="mercado_phone",
+            search_text="iphone 14 pro roxo profundo 256 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-128",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3080,
+            source="mercado_phone",
+            search_text="iphone 14 pro max preto espacial 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-base-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2820,
+            source="mercado_phone",
+            search_text="iphone 15 azul 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("gostaria de saber o orçamento do 15 e do 14")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-base-128"]
+    assert "IPHONE 15" in decision.reply.upper()
+    assert "2.820,00" in decision.reply
+    assert "Não localizei opção disponível para iPhone 14 (modelo base)" in decision.reply
+    assert "IPHONE 14 PRO" not in decision.reply.upper()
+    assert "IPHONE 14 PRO MAX" not in decision.reply.upper()
+    assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_batched_bare_iphone_13_or_14_availability_returns_all_requested_models(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
