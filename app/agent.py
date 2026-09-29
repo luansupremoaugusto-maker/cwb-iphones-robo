@@ -640,6 +640,8 @@ def _is_product_availability_request(
         "valores",
         "preco",
         "precos",
+        "cotar",
+        "cotacao",
         "novo",
         "nova",
         "novos",
@@ -684,12 +686,21 @@ def _is_product_availability_request(
             normalized,
         )
     )
+    has_catalog_model_correction = bool(
+        re.search(r"\b(?:na\s+verdade\s+)?(?:eu\s+)?queria\s+(?:o|a|um|uma)\b", normalized)
+        and _has_recent_catalog_product_context(history)
+    )
     has_broad_filter = any(
         marker in normalized
         for marker in ("faixa de", "ate ", "orcamento", "em torno de", "cerca de", "por volta de")
     )
     return bool(
-        (has_purchase_intent or has_purchase_interest or has_broad_filter)
+        (
+            has_purchase_intent
+            or has_purchase_interest
+            or has_catalog_model_correction
+            or has_broad_filter
+        )
         and (
             _catalog_families(normalized)
             or _has_product_reference(normalized)
@@ -2499,6 +2510,50 @@ def _is_bare_model_catalog_followup(
     )
 
 
+def _is_catalog_model_confirmation(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a short model confirmation after the bot asks which model."""
+    normalized = _normalize(text)
+    match = re.fullmatch(
+        r"(?:iphone\s*)?(?P<number>\d{1,2})"
+        r"(?:\s+(?P<variant>pro\s+max|pro|max|plus|mini|air|e))?\s+mesmo[.!?]*",
+        normalized,
+    )
+    if not match or not history:
+        return False
+
+    latest_assistant = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history)
+            if entry.get("role") == "assistant" and entry.get("content", "").strip()
+        ),
+        "",
+    )
+    if not re.search(r"\b(?:quis dizer|outro modelo|qual modelo)\b", latest_assistant):
+        return False
+
+    latest_user = next(
+        (
+            entry.get("content", "")
+            for entry in reversed(history)
+            if entry.get("role") == "user" and entry.get("content", "").strip()
+        ),
+        "",
+    )
+    if not _has_product_reference(_normalize(latest_user)):
+        return False
+
+    generation = int(match.group("number"))
+    requested_models = _requested_iphone_model_keys(latest_user)
+    if match.group("variant"):
+        variant = _normalize(match.group("variant"))
+        return (generation, variant) in requested_models
+    return any(model[0] == generation for model in requested_models)
+
+
 def _is_bare_model_availability_request(text: str) -> bool:
     """Recognize a shorthand model only when the customer asks about sale/stock."""
     normalized = _normalize(text)
@@ -2846,7 +2901,7 @@ def _format_product_availability(items: list[Any]) -> str:
         ("📦 Novos lacrados por encomenda:", [item for item in items if _is_made_to_order_sealed_item(item)]),
     )
     populated_groups = [group for _heading, group in groups if group]
-    if len(populated_groups) > 1:
+    if len(populated_groups) > 1 or groups[-1][1]:
         formatted_lines = [header]
         for heading, group in groups:
             if not group:
@@ -3937,6 +3992,7 @@ class AgentService:
             and (
                 _is_catalog_followup(current_query)
                 or _is_catalog_availability_confirmation(current_query, history)
+                or _is_catalog_model_confirmation(current_query, history)
                 or capacity_availability_followup
             )
         ):

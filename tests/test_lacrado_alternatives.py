@@ -105,6 +105,37 @@ def build_missing_new_iphone_14_agent(tmp_path):
     return agent
 
 
+def build_iphone_18_pro_max_agent(tmp_path, *, include_ready_stock=True):
+    agent = build_agent(tmp_path)
+    agent.cache.items = (
+        [
+            _ready_sealed_item(
+                "ready-18-pro-max-256",
+                "iPhone 18 Pro Max",
+                "256 GB",
+                10000,
+                "BORDO",
+            ),
+            _ready_sealed_item(
+                "ready-18-pro-max-512",
+                "iPhone 18 Pro Max",
+                "512 GB",
+                11000,
+                "GLACIAL",
+            ),
+        ]
+        if include_ready_stock
+        else []
+    )
+    agent.cache.sealed_cache.items = [
+        _sealed_item("sheet-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 10100),
+        _sealed_item("sheet-18-pro-max-512", "iPhone 18 Pro Max", "512 GB", 11100),
+        _sealed_item("sheet-18-pro-max-1tb", "iPhone 18 Pro Max", "1 TB", 14700),
+    ]
+    agent.cache.last_refresh = time.time()
+    return agent
+
+
 @pytest.mark.asyncio
 async def test_missing_new_model_reports_absence_and_offers_seminovo_alternative(tmp_path):
     agent = build_missing_new_iphone_14_agent(tmp_path)
@@ -120,6 +151,82 @@ async def test_missing_new_model_reports_absence_and_offers_seminovo_alternative
     assert "iPhone 14" in decision.reply
     assert "SEMINOVO" in decision.reply
     assert "R$ 1.940,00" in decision.reply
+
+
+@pytest.mark.parametrize(
+    ("message", "history"),
+    [
+        ("Gostaria de cotar o iPhone 18 Pro Max", []),
+        (
+            "Na verdade queria o 18 Pro Max",
+            [
+                {
+                    "role": "user",
+                    "content": "Vou ver pra comprar o iPhone 17 Pro Max ou o iPad Pro",
+                },
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Para o iPhone 17 Pro Max, temos 256 GB por R$ 8.100. "
+                        "O iPad Pro não aparece entre os modelos disponíveis. "
+                        "Quer que eu veja uma capacidade ou cor específica?"
+                    ),
+                },
+            ],
+        ),
+        (
+            "18 mesmo",
+            [
+                {"role": "user", "content": "Gostaria de cotar o iPhone 18 Pro Max"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Não encontrei o iPhone 18 Pro Max cadastrado para cotação. "
+                        "Você quis dizer outro modelo, como o iPhone 17 Pro Max?"
+                    ),
+                },
+            ],
+        ),
+    ],
+)
+async def test_iphone_18_pro_max_quote_includes_ready_stock_before_order_options(
+    tmp_path,
+    message,
+    history,
+):
+    agent = build_iphone_18_pro_max_agent(tmp_path)
+
+    decision = await agent.respond(message, history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "ready-18-pro-max-256",
+        "ready-18-pro-max-512",
+        "sheet-18-pro-max-256",
+        "sheet-18-pro-max-512",
+        "sheet-18-pro-max-1tb",
+    }
+    ready_heading = "Lacrados disponíveis para pronta entrega:"
+    order_heading = "Novos lacrados por encomenda:"
+    assert ready_heading in decision.reply
+    assert order_heading in decision.reply
+    assert decision.reply.index(ready_heading) < decision.reply.index(order_heading)
+
+
+@pytest.mark.asyncio
+async def test_iphone_18_pro_max_quote_does_not_claim_ready_stock_when_none_exists(tmp_path):
+    agent = build_iphone_18_pro_max_agent(tmp_path, include_ready_stock=False)
+
+    decision = await agent.respond("Gostaria de cotar o iPhone 18 Pro Max")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "sheet-18-pro-max-256",
+        "sheet-18-pro-max-512",
+        "sheet-18-pro-max-1tb",
+    }
+    assert "Lacrados disponíveis para pronta entrega:" not in decision.reply
+    assert "Novos lacrados por encomenda:" in decision.reply
 
 
 @pytest.mark.asyncio
