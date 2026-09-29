@@ -279,6 +279,30 @@ async def test_sealed_shipping_followup_requires_advance_payment(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_used_iphone_list_request_beats_shipping_followup_history(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Consegue me enviar a lista de iphone usados?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, "
+                    "enviamos por Sedex. O pagamento deve ser antecipado antes do despacho."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Seminovos disponíveis para venda:" in decision.reply
+    assert "iPhone 13 Pro Max" in decision.reply
+    assert "R$ 3.160,00" in decision.reply
+    assert "Taxa e prazo devem ser cotados" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_delivery_fee_for_address_handoffs_instead_of_installment_rate_table(tmp_path):
     agent = build_agent(tmp_path)
 
