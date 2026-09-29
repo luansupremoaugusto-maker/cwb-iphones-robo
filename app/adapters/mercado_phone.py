@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import tempfile
 import time
@@ -16,6 +17,7 @@ from app.schemas import InventoryItem
 
 
 INVENTORY_CACHE_VERSION = 2
+logger = logging.getLogger(__name__)
 
 
 class MercadoPhoneError(RuntimeError):
@@ -455,9 +457,39 @@ class InventoryCache:
         return item
 
     async def search(self, query: str, limit: int = 5) -> list[InventoryItem]:
-        inventory_items = await self.search_inventory(query, limit=limit)
-        sealed_items = await self.search_sealed(query, limit=limit)
-        enriched_sealed = [await self._enrich_sealed_item(item) for item in sealed_items]
+        inventory_available = True
+        try:
+            inventory_items = await self.search_inventory(query, limit=limit)
+        except Exception as exc:
+            inventory_items = []
+            inventory_available = False
+            logger.warning(
+                "Mercado Phone search failed; continuing with sealed prices if available (%s)",
+                type(exc).__name__,
+            )
+
+        try:
+            sealed_items = await self.search_sealed(query, limit=limit)
+        except Exception as exc:
+            sealed_items = []
+            logger.warning(
+                "Sealed price search failed; continuing with in-stock items if available (%s)",
+                type(exc).__name__,
+            )
+
+        enriched_sealed: list[InventoryItem] = []
+        if not inventory_available:
+            enriched_sealed = sealed_items
+        else:
+            for item in sealed_items:
+                try:
+                    enriched_sealed.append(await self._enrich_sealed_item(item))
+                except Exception as exc:
+                    enriched_sealed.append(item)
+                    logger.warning(
+                        "Mercado Phone enrichment failed; using the sealed price row (%s)",
+                        type(exc).__name__,
+                    )
         ranked: list[tuple[int, InventoryItem]] = [
             (score_item(query, item), item) for item in inventory_items
         ]

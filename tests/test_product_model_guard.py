@@ -3186,6 +3186,89 @@ async def test_bare_pro_max_request_includes_ready_stock_and_sealed_order_option
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "items", "expected_ids", "expected_prices"),
+    [
+        (
+            "E qual o preço do 17 pro Max?",
+            [
+                ("sheet:17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 8100),
+                ("sheet:17-pro-max-512", "iPhone 17 Pro Max", "512 GB", 9400),
+                ("sheet:17-pro-max-1tb", "iPhone 17 Pro Max", "1 TB", 10600),
+            ],
+            {
+                "sheet:17-pro-max-256",
+                "sheet:17-pro-max-512",
+                "sheet:17-pro-max-1tb",
+            },
+            ("8.100,00", "9.400,00", "10.600,00"),
+        ),
+        (
+            "E o iPhone 17 pro?",
+            [
+                ("sheet:17-pro-256", "iPhone 17 Pro", "256 GB", 7400),
+                ("sheet:17-pro-512", "iPhone 17 Pro", "512 GB", 8600),
+            ],
+            {"sheet:17-pro-256", "sheet:17-pro-512"},
+            ("7.400,00", "8.600,00"),
+        ),
+    ],
+)
+async def test_iphone_17_pro_prices_survive_mercado_phone_search_failure(
+    tmp_path,
+    text,
+    items,
+    expected_ids,
+    expected_prices,
+):
+    class UnavailableMercadoClient:
+        async def fetch_all_inventory(self):
+            raise RuntimeError("Mercado Phone temporarily unavailable")
+
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [_sealed_item(*item) for item in items]
+    cache = StoreCatalogCache(
+        UnavailableMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=sealed,
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Queria saber o preço do iPhone 17"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPhone 17 disponíveis: "
+                "iPhone 17 — 256 GB — NOVO LACRADO — R$ 5.600,00"
+            ),
+        },
+    ]
+    if text == "E o iPhone 17 pro?":
+        history.extend(
+            [
+                {"role": "user", "content": "E qual o preço do 17 pro Max?"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Não consegui confirmar o preço do iPhone 17 Pro Max agora. "
+                        "Você procura alguma capacidade específica?"
+                    ),
+                },
+            ]
+        )
+
+    decision = await agent.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == expected_ids
+    for price in expected_prices:
+        assert price in decision.reply
+    assert "capacidade específica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_shared_variant_question_returns_base_pro_and_pro_max(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
