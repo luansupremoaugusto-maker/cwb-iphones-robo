@@ -66,6 +66,30 @@ def build_rate_agent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_no_interest_installment_followup_explains_machine_fee(tmp_path):
+    agent = build_empty_agent(tmp_path)
+
+    first = await agent.respond("nao tem sem juros?")
+    followup = await agent.respond(
+        "quero saber se é possível parcelar sem juros.",
+        history=[
+            {"role": "user", "content": "nao tem sem juros?"},
+            {"role": "assistant", "content": first.reply},
+        ],
+    )
+
+    for decision in (first, followup):
+        reply = decision.reply.lower()
+        assert decision.handoff is False
+        assert "não há parcelamento sem juros" in reply
+        assert "juros da máquina" in reply
+        assert "valor passado no cartão" in reply
+        assert "quantidade de parcelas" in reply
+        assert "qual modelo" not in reply
+        assert "%" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_generic_rate_question_avoids_percentage_disclosure_and_asks_model(tmp_path):
     agent = build_empty_agent(tmp_path)
 

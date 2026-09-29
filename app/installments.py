@@ -26,12 +26,15 @@ FIXED_INSTALLMENT_RATES: dict[int, float] = {
 }
 
 
-def format_installment_rates() -> str:
-    return (
-        "O cart\u00e3o de cr\u00e9dito pode ser parcelado somente na m\u00e1quina f\u00edsica, "
-        "em at\u00e9 18 vezes. O valor depende do aparelho e da quantidade de parcelas.\n\n"
-        "Qual modelo e capacidade voc\u00ea gostaria de simular?"
+def format_installment_rates(*, ask_for_model: bool = True) -> str:
+    explanation = (
+        "N\u00e3o h\u00e1 parcelamento sem juros no cart\u00e3o de cr\u00e9dito na m\u00e1quina f\u00edsica: "
+        "h\u00e1 a taxa de juros da m\u00e1quina. O acr\u00e9scimo varia conforme o valor passado no cart\u00e3o "
+        "e a quantidade de parcelas.\n\n"
     )
+    if not ask_for_model:
+        return explanation.rstrip()
+    return f"{explanation}Qual modelo e capacidade voc\u00ea gostaria de simular?"
 
 
 def _simulate_for_price(item: Any, price: float, installments: int) -> dict[str, Any]:
