@@ -1528,9 +1528,10 @@ def _visit_date_for_named_weekday(
         "domingo": 6,
     }
     current = now or _store_now()
-    days_ahead = (weekday_numbers[weekday] - current.weekday()) % 7
     if "proxima semana" in normalized or "semana que vem" in normalized:
-        days_ahead += 7
+        days_ahead = 7 - current.weekday() + weekday_numbers[weekday]
+    else:
+        days_ahead = (weekday_numbers[weekday] - current.weekday()) % 7
     return current + timedelta(days=days_ahead)
 
 
@@ -4625,6 +4626,8 @@ class AgentService:
 
         if is_reservation:
             visit_day = _visit_date_for_named_weekday(text)
+            if visit_day is None and "amanha" in _normalize(text):
+                visit_day = _store_now() + timedelta(days=1)
             return AgentDecision(
                 reply=_reservation_reply(self.faq, visit_day=visit_day),
                 confidence="high",
