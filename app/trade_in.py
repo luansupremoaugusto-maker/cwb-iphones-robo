@@ -143,7 +143,7 @@ _DEVICE_COMPONENT_REPAIR_RE = re.compile(
     re.IGNORECASE,
 )
 _BUYBACK_VERB_RE = re.compile(
-    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando|aria|ariam)|pegm|aceit(?:a|am|amos)|"
+    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando|aria|ariam|em|uem)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
@@ -648,7 +648,7 @@ def _is_store_buyback_question(text: str) -> bool:
 
     store_subject = re.search(
         r"\b(?:voce|voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
-        r"(?:compram|compra|comprar|pegam|pegm|aceitam|recebem|avaliam)\b",
+        r"(?:compram|compra|comprar|pegam|pegm|pegem|peguem|aceitam|recebem|avaliam)\b",
         text,
         flags=re.IGNORECASE,
     )
@@ -660,7 +660,7 @@ def _is_store_buyback_question(text: str) -> bool:
         flags=re.IGNORECASE,
     )
     verb_first = re.search(
-        r"\b(?:compram|compra|pegam|pegm|pegaria|pegariam|aceitam|recebem|avaliam)\b.{0,45}\b"
+        r"\b(?:compram|compra|pegam|pegm|pegem|peguem|pegaria|pegariam|aceitam|recebem|avaliam)\b.{0,45}\b"
         r"(?:algum(?:a|s|as)?|produto(?:s)?|iphone|ipad|macbook|apple\s+watch|"
         r"airpods?|celular(?:es)?|aparelho(?:s)?|usad(?:o|a)s?|"
         r"seminov(?:o|a)s?)\b",
@@ -817,6 +817,7 @@ def is_trade_in_request(text: str | None) -> bool:
     if _DEVICE_COMPONENT_REPAIR_RE.search(normalized) and not (
         _has_implicit_device_upgrade_offer(normalized)
         or _has_complete_owned_device_buyback_offer(normalized)
+        or _has_complete_device_buyback_context(normalized)
     ):
         return False
     if _NEGATION_RE.search(normalized):
