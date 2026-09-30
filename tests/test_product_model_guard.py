@@ -3273,6 +3273,47 @@ async def test_single_pro_max_value_question_returns_all_available_units(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_bare_model_value_question_returns_every_matching_stock_unit(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-bare-model-value.json",
+    )
+    variants = [
+        ("iphone-16-pro-max-128", "iPhone 16 Pro Max", "128GB", "AZUL"),
+        ("iphone-16-pro-max-256-a", "iPhone 16 Pro Max 256GB", "256GB", "PRETO"),
+        ("iphone-16-pro-max-256-b", "iPhone 16 Pro Max 256GB", "256GB", "BRANCO"),
+        ("iphone-16-pro-max-512-a", "iPhone 16 Pro Max 512GB", "512GB", "NATURAL"),
+        ("iphone-16-pro-max-512-b", "iPhone 16 Pro Max 512GB", "512GB", "DESERTO"),
+        ("iphone-16-pro-max-1tb", "iPhone 16 Pro Max 1TB", "1TB", "PRETO"),
+    ]
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name=name,
+            category="Celular",
+            capacity=capacity,
+            color=color,
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5000 + index * 100,
+            search_text=f"{name} {color} celular seminovo",
+        )
+        for index, (external_id, name, capacity, color) in enumerate(variants)
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Gostaria de saber o valor do seu 16 promax")
+
+    assert set(decision.product_references) == {variant[0] for variant in variants}
+    assert decision.reply.count("R$") == 6
+
+
+@pytest.mark.asyncio
 async def test_color_followup_after_256_pro_max_value_question_lists_all_units(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

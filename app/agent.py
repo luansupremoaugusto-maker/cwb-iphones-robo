@@ -4312,7 +4312,7 @@ class AgentService:
                 (
                     (
                         len(requested_models) == 1
-                        and (bool(requested_conditions) or len(requested_capacities) == 1)
+                        and (bool(requested_conditions) or len(requested_capacities) <= 1)
                     )
                     or multiple_model_request_without_capacity
                     or scoped_capacity is not None
