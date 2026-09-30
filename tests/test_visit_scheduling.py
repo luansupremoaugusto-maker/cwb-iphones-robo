@@ -469,6 +469,33 @@ async def test_reservation_for_weekday_next_week_uses_that_calendar_week(
 
 
 @pytest.mark.asyncio
+async def test_reservation_only_for_tomorrow_uses_tomorrow_date(tmp_path, monkeypatch):
+    current = datetime(2026, 10, 2, 17, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Tem como reservar o aparelho para amanhã?")
+
+    assert decision.handoff is False
+    assert "sábado, 03/10/2026" in decision.reply.lower()
+    assert "fechada" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_reservation_only_for_next_week_uses_that_calendar_week(tmp_path, monkeypatch):
+    current = datetime(2026, 9, 30, 17, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Tem como reservar para segunda da próxima semana?")
+
+    assert decision.handoff is False
+    assert "segunda-feira, 05/10/2026" in decision.reply.lower()
+    assert "segunda-feira, 12/10/2026" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_new_product_question_overrides_stale_visit_prompt(tmp_path, monkeypatch):
     current = datetime(2026, 8, 10, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
     monkeypatch.setattr(agent_module, "_store_now", lambda: current)

@@ -1504,11 +1504,15 @@ def _tomorrow_store_reply(faq: FAQStore, *, include_physical_store: bool = True)
     )
 
 
-def _visit_date_for_named_weekday(
+def _visit_date_for_request(
     text: str,
     now: datetime | None = None,
 ) -> datetime | None:
     normalized = _normalize(text)
+    current = now or _store_now()
+    if "amanha" in normalized:
+        return current + timedelta(days=1)
+
     match = re.search(
         r"\b(segunda(?:[- ]feira)?|terca(?:[- ]feira)?|quarta(?:[- ]feira)?|"
         r"quinta(?:[- ]feira)?|sexta(?:[- ]feira)?|sabado|domingo)\b",
@@ -1527,7 +1531,6 @@ def _visit_date_for_named_weekday(
         "sabado": 5,
         "domingo": 6,
     }
-    current = now or _store_now()
     if "proxima semana" in normalized or "semana que vem" in normalized:
         days_ahead = 7 - current.weekday() + weekday_numbers[weekday]
     else:
@@ -1539,7 +1542,7 @@ def _visit_day_reply(visit_day: datetime) -> str:
     day_label = _today_label(visit_day)
     if _is_business_weekday(visit_day):
         return (
-            f"Entendi 😊 Sua visita pode ser na {day_label}, das 09:00 às 18:00, "
+            f"Entendi 😊 Podemos marcar sua visita para {day_label}, das 09:00 às 18:00, "
             "com horário marcado. Qual horário fica melhor para você?"
         )
     return (
@@ -4591,7 +4594,8 @@ class AgentService:
             return None
 
         if is_reservation and not is_visit and not pending_reservation:
-            reply = _reservation_reply(self.faq)
+            visit_day = _visit_date_for_request(text)
+            reply = _reservation_reply(self.faq, visit_day=visit_day)
             return AgentDecision(reply=reply, confidence="high")
 
         context = _appointment_context(text, history)
@@ -4625,9 +4629,7 @@ class AgentService:
             )
 
         if is_reservation:
-            visit_day = _visit_date_for_named_weekday(text)
-            if visit_day is None and "amanha" in _normalize(text):
-                visit_day = _store_now() + timedelta(days=1)
+            visit_day = _visit_date_for_request(text)
             return AgentDecision(
                 reply=_reservation_reply(self.faq, visit_day=visit_day),
                 confidence="high",
@@ -4637,7 +4639,7 @@ class AgentService:
             reply = _tomorrow_store_reply(self.faq)
             return AgentDecision(reply=reply, confidence="high")
 
-        visit_day = _visit_date_for_named_weekday(text)
+        visit_day = _visit_date_for_request(text)
         if visit_day is not None:
             return AgentDecision(reply=_visit_day_reply(visit_day), confidence="high")
 
