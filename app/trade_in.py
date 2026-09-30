@@ -143,7 +143,7 @@ _DEVICE_COMPONENT_REPAIR_RE = re.compile(
     re.IGNORECASE,
 )
 _BUYBACK_VERB_RE = re.compile(
-    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando)|pegm|aceit(?:a|am|amos)|"
+    r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando|aria|ariam)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
@@ -660,7 +660,7 @@ def _is_store_buyback_question(text: str) -> bool:
         flags=re.IGNORECASE,
     )
     verb_first = re.search(
-        r"\b(?:compram|compra|pegam|pegm|aceitam|recebem|avaliam)\b.{0,45}\b"
+        r"\b(?:compram|compra|pegam|pegm|pegaria|pegariam|aceitam|recebem|avaliam)\b.{0,45}\b"
         r"(?:algum(?:a|s|as)?|produto(?:s)?|iphone|ipad|macbook|apple\s+watch|"
         r"airpods?|celular(?:es)?|aparelho(?:s)?|usad(?:o|a)s?|"
         r"seminov(?:o|a)s?)\b",

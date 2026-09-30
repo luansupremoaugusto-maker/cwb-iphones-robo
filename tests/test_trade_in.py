@@ -146,6 +146,33 @@ async def test_shop_offer_for_detailed_iphone_profile_sends_evaluation_form(tmp_
     assert decision.product_references == []
 
 
+@pytest.mark.asyncio
+async def test_pegaria_detailed_iphone_offer_sends_evaluation_form_with_catalog_history(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "E por quanto vc pegaria um iPhone 14 Plus 128 com 80% de bateria e "
+        "a tela do fundo quebrada, tudo funcionando perfeitamente?"
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Temos o iPhone 17 Pro Max 256GB por R$ 8.500,00.",
+        }
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert is_trade_in_request(text) is True
+
+
 @pytest.mark.parametrize(
     "text",
     [
