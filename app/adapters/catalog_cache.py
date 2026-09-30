@@ -317,6 +317,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         separator = line_aware_normalized[previous.end() : match.start()]
         if not re.fullmatch(
             r"\s*(?:\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\s*)?"
+            r"(?:(?:(?:semi\s*)?nov[oa]s?|usad[oa]s?|lacrad[oa]s?)[?!.,;:]*\s*)?"
             r"(?:(?:ou|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das|no|na))?\s*(?:iphone\s*)?|[/,;]|__linebreak__)\s*",
             separator,
         ):

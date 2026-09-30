@@ -4374,3 +4374,43 @@ async def test_multi_model_interest_keeps_capacity_on_the_last_requested_model(t
     assert "iPhone 16 Pro" in decision.reply
     assert "iPhone 16 Pro Max" in decision.reply
     assert "iPhone 15 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_batched_used_iphone_request_keeps_available_pro_after_missing_model(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-batched-used-iphone.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-256",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4560,
+            battery_health=90,
+            search_text="iphone 16 pro titanio deserto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "Tem algum iPhone 17 usado? Ou 16 pro usado"
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-pro-256"]
+    assert "No momento, não localizei esse produto seminovo" not in decision.reply
+    assert "Sim" in decision.reply
+    assert "iPhone 16 Pro" in decision.reply
+    assert "256GB" in decision.reply
+    assert "R$ 4.560,00" in decision.reply
+    assert _requested_iphone_model_keys(text) == ((17, ""), (16, "pro"))
