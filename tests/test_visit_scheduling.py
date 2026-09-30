@@ -359,6 +359,82 @@ async def test_explicit_reservation_overrides_pending_visit_context(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_reservation_and_friday_visit_request_explains_policy_and_respects_day(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 9, 30, 17, 10, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Só sexta-feira consigo ir aí. Teria alguma forma de me garantir/reservar ele?",
+        history=[
+            {
+                "role": "user",
+                "content": "O valor integral do 16 Pro fica em R$ 4.560,00 mesmo, então?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 16 PRO disponíveis: "
+                    "IPHONE 16 PRO — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                    "R$ 4.560,00 | Bat: 90%"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "não trabalhamos com reserva" in decision.reply.lower()
+    assert "cancelam" in decision.reply.lower()
+    assert "deixamos de vender" in decision.reply.lower()
+    assert "não consigo garantir" in decision.reply.lower()
+    assert "sexta-feira, 02/10/2026" in decision.reply.lower()
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "qual horário" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_friday_visit_followup_does_not_repeat_invitation_for_today(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 9, 30, 17, 11, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Só consigo na sexta-feira!",
+        history=[
+            {
+                "role": "user",
+                "content": (
+                    "Só sexta-feira consigo ir aí. Teria alguma forma de me garantir/reservar ele?"
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim, temos loja física. Hoje é quarta-feira, 30/09/2026. "
+                    "Atendemos hoje das 09:00 às 18:00, com horário marcado. "
+                    "Posso marcar uma visita para hoje? Qual horário fica melhor para você?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "não trabalhamos com reserva" in decision.reply.lower()
+    assert "cancelam" in decision.reply.lower()
+    assert "sexta-feira, 02/10/2026" in decision.reply.lower()
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "qual horário" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_new_product_question_overrides_stale_visit_prompt(tmp_path, monkeypatch):
     current = datetime(2026, 8, 10, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
     monkeypatch.setattr(agent_module, "_store_now", lambda: current)
