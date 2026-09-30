@@ -1336,6 +1336,32 @@ def _has_today_visit_offer(history: list[dict[str, str]] | None) -> bool:
     )
 
 
+def _has_unanswered_reservation_request(history: list[dict[str, str]] | None) -> bool:
+    entries = history or []
+    last_user_index = next(
+        (index for index in range(len(entries) - 1, -1, -1) if entries[index].get("role") == "user"),
+        None,
+    )
+    if last_user_index is None or not _is_reservation_request(entries[last_user_index].get("content", "")):
+        return False
+
+    last_assistant = next(
+        (
+            entry
+            for entry in reversed(entries[last_user_index + 1 :])
+            if entry.get("role") == "assistant"
+        ),
+        None,
+    )
+    if last_assistant is None:
+        return False
+
+    answer = _normalize(last_assistant.get("content", ""))
+    if "nao trabalhamos com reserva" in answer:
+        return False
+    return _has_appointment_prompt([last_assistant]) or "visita para hoje" in answer
+
+
 def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) -> bool:
     """Use appointment history only when the current message looks like a reply to it."""
     if not _has_appointment_prompt(history):
@@ -1478,11 +1504,64 @@ def _tomorrow_store_reply(faq: FAQStore, *, include_physical_store: bool = True)
     )
 
 
-def _reservation_reply(faq: FAQStore) -> str:
-    reason = faq.get("reserva") or (
+def _visit_date_for_named_weekday(
+    text: str,
+    now: datetime | None = None,
+) -> datetime | None:
+    normalized = _normalize(text)
+    match = re.search(
+        r"\b(segunda(?:[- ]feira)?|terca(?:[- ]feira)?|quarta(?:[- ]feira)?|"
+        r"quinta(?:[- ]feira)?|sexta(?:[- ]feira)?|sabado|domingo)\b",
+        normalized,
+    )
+    if not match:
+        return None
+
+    weekday = match.group(1).split("-")[0].split(" ")[0]
+    weekday_numbers = {
+        "segunda": 0,
+        "terca": 1,
+        "quarta": 2,
+        "quinta": 3,
+        "sexta": 4,
+        "sabado": 5,
+        "domingo": 6,
+    }
+    current = now or _store_now()
+    days_ahead = (weekday_numbers[weekday] - current.weekday()) % 7
+    if "proxima semana" in normalized or "semana que vem" in normalized:
+        days_ahead += 7
+    return current + timedelta(days=days_ahead)
+
+
+def _visit_day_reply(visit_day: datetime) -> str:
+    day_label = _today_label(visit_day)
+    if _is_business_weekday(visit_day):
+        return (
+            f"Entendi 😊 Sua visita pode ser na {day_label}, das 09:00 às 18:00, "
+            "com horário marcado. Qual horário fica melhor para você?"
+        )
+    return (
+        f"A loja fica fechada no {day_label}. Podemos solicitar sua visita em um dia de "
+        "atendimento, com horário marcado. Qual dia e horário ficam melhores para você?"
+    )
+
+
+def _reservation_policy(faq: FAQStore) -> str:
+    return faq.get("reserva") or (
         "Não trabalhamos com reserva de aparelhos porque alguns clientes reservam "
         "e depois cancelam, e nesse período deixamos de vender o aparelho para outras pessoas."
     )
+
+
+def _reservation_reply(faq: FAQStore, visit_day: datetime | None = None) -> str:
+    reason = _reservation_policy(faq)
+    if visit_day is not None:
+        return (
+            f"{reason} Não consigo garantir que o aparelho continue disponível até a visita. "
+            f"{_visit_day_reply(visit_day)}"
+        )
+
     current = _store_now()
     if _is_business_weekday(current):
         return (
@@ -4504,12 +4583,13 @@ class AgentService:
         history: list[dict[str, str]] | None,
     ) -> AgentDecision | None:
         is_visit = _is_visit_request(text)
-        is_reservation = _is_reservation_request(text)
         is_followup = _is_appointment_followup(text, history)
+        pending_reservation = is_followup and _has_unanswered_reservation_request(history)
+        is_reservation = _is_reservation_request(text) or pending_reservation
         if not (is_visit or is_reservation or is_followup):
             return None
 
-        if is_reservation and not is_visit:
+        if is_reservation and not is_visit and not pending_reservation:
             reply = _reservation_reply(self.faq)
             return AgentDecision(reply=reply, confidence="high")
 
@@ -4525,21 +4605,38 @@ class AgentService:
             address = self.faq.get("address") or (
                 "Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060"
             )
+            reply = (
+                "Perfeito 😊 Vou registrar a solicitação da sua visita para o dia e horário "
+                "informados e encaminhar para um atendente confirmar. O atendimento é feito "
+                "com horário marcado. "
+                f"Endereço: {address}"
+            )
+            if is_reservation:
+                reply = (
+                    f"{_reservation_policy(self.faq)} Não consigo garantir que o aparelho "
+                    f"continue disponível até a visita. {reply}"
+                )
             return AgentDecision(
-                reply=(
-                    "Perfeito 😊 Vou registrar a solicitação da sua visita para o dia e horário "
-                    "informados e encaminhar para um atendente confirmar. O atendimento é feito "
-                    "com horário marcado. "
-                    f"Endereço: {address}"
-                ),
+                reply=reply,
                 handoff=True,
                 handoff_reason="Agendamento de visita solicitado; atendente deve confirmar o horário",
+                confidence="high",
+            )
+
+        if is_reservation:
+            visit_day = _visit_date_for_named_weekday(text)
+            return AgentDecision(
+                reply=_reservation_reply(self.faq, visit_day=visit_day),
                 confidence="high",
             )
 
         if "amanha" in _normalize(text):
             reply = _tomorrow_store_reply(self.faq)
             return AgentDecision(reply=reply, confidence="high")
+
+        visit_day = _visit_date_for_named_weekday(text)
+        if visit_day is not None:
+            return AgentDecision(reply=_visit_day_reply(visit_day), confidence="high")
 
         reply = _today_store_reply(self.faq)
         return AgentDecision(reply=reply, confidence="high")
