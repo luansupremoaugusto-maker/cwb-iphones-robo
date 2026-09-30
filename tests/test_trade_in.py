@@ -173,6 +173,30 @@ async def test_pegaria_detailed_iphone_offer_sends_evaluation_form_with_catalog_
     assert is_trade_in_request(text) is True
 
 
+@pytest.mark.asyncio
+async def test_pegem_detailed_iphone_offer_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Pegem por quanto iPhone 11 128gb\n"
+        "Nenhuma peça nunca trocada\n"
+        "Bateria original 72%\n"
+        "Ainda tenho a caixinha também\n"
+        "Sem risco e sem quebrados?"
+    )
+
+    decision = await service.respond(text)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert is_trade_in_request(text) is True
+
+
 @pytest.mark.parametrize(
     "text",
     [
