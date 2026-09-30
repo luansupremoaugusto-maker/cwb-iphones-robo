@@ -1989,7 +1989,7 @@ def _is_payment_methods_question(text: str) -> bool:
         return False
     has_method = bool(re.search(r"\b(?:pix|dinheiro|debito|credito|cartao|cartoes)\b", normalized))
     has_generic_payment_method_phrase = bool(
-        re.search(r"\b(?:forma[s]?|metodo[s]?)\s+de\s+pagamento\b", normalized)
+        re.search(r"\b(?:forma[s]?|metodo[s]?|modelo[s]?)\s+de\s+pagamento\b", normalized)
     )
     has_short_payment_question = bool(
         re.fullmatch(

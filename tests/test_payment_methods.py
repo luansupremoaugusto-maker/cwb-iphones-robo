@@ -108,6 +108,48 @@ async def test_generic_payment_method_question_about_exchange_does_not_list_prod
 
 
 @pytest.mark.asyncio
+async def test_payment_methods_question_after_sealed_catalog_reply_does_not_repeat_product_list():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "iPhone 17 Pro Max, 256GB — R$ 8.100,00. Os lacrados por encomenda "
+                "têm cores disponíveis conforme o modelo. Qual modelo te interessou?"
+            ),
+        }
+    ]
+
+    decision = await agent.respond(
+        "Vocês trabalham com quais modelos de pagamento?",
+        history=history,
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "pix" in reply
+    assert "dinheiro" in reply
+    assert "cartao de debito" in reply
+    assert "cartao de credito" in reply
+    assert "lista completa de produtos" not in reply
+    assert "iphone 13 pro max" not in reply
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_iphone_model_list_question_still_returns_products():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Quais modelos de iPhone vocês têm?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "lista completa de produtos" in reply
+    assert "iphone 13 pro max" in reply
+
+
+@pytest.mark.asyncio
 async def test_short_payment_how_it_works_question_does_not_handoff_as_device_doubt():
     agent = build_agent_with_cache(AvailableCatalog())
 
