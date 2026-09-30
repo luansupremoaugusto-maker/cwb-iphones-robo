@@ -2552,7 +2552,8 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
 
 _BARE_MODEL_CATALOG_FOLLOWUP_RE = re.compile(
     r"^e\s+(?:o|a|um|uma|no|na|do|da|dos|das)?\s*(?:iphone\s*)?\d{1,2}"
-    r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air))?\s*[?!.,]*$",
+    r"(?:\s+(?:pro\s+max|pro|max|plus|mini|air))?"
+    r"(?:[, ]+(?:meu\s+amigo|minha\s+amiga))?\s*[?!.,]*$",
     re.IGNORECASE,
 )
 _BARE_VARIANT_CATALOG_FOLLOWUP_RE = re.compile(
@@ -4200,6 +4201,16 @@ class AgentService:
             ]
 
         if not public_candidates:
+            if _is_bare_model_catalog_followup(text, history):
+                requested_label = _extract_bare_catalog_model_reference(text)
+                if requested_label:
+                    return AgentDecision(
+                        reply=(
+                            f"No momento, não localizei o {requested_label} disponível no estoque. "
+                            "Posso verificar outro modelo ou capacidade?"
+                        ),
+                        confidence="medium",
+                    )
             if not pronta_entrega_only:
                 alternative = await self._try_unavailable_lacrado_alternative(
                     query,

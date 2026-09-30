@@ -4414,3 +4414,81 @@ async def test_batched_used_iphone_request_keeps_available_pro_after_missing_mod
     assert "256GB" in decision.reply
     assert "R$ 4.560,00" in decision.reply
     assert _requested_iphone_model_keys(text) == ((17, ""), (16, "pro"))
+
+
+@pytest.mark.asyncio
+async def test_bare_iphone_followup_with_friendly_suffix_reports_model_unavailable(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-pro-followup.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-max-128",
+            name="IPHONE 14 PRO MAX",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO ESPACIAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3080,
+            battery_health=82,
+            search_text="iphone 14 pro max preto espacial 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Em meu amigo queria ver com vc se vc tem um iPhone 14 Pro Max "
+                "ou o 14 pro"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "user",
+            "content": (
+                "Em meu amigo queria ver com vc se vc tem um iPhone 14 Pro Max "
+                "ou o 14 pro"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 14 PRO MAX disponíveis:\n"
+                "• IPHONE 14 PRO MAX — PRETO ESPACIAL — 128GB — SEMINOVO — "
+                "R$ 3.080,00 | Bat: 82%"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 14 PRO MAX disponíveis:\n"
+                "• IPHONE 14 PRO MAX — PRETO ESPACIAL — 128GB — SEMINOVO — "
+                "R$ 3.080,00 | Bat: 82%"
+            ),
+        },
+    ]
+    text = "E o 14 pro meu amigo"
+
+    decision = await agent.respond(text, history=history)
+    reply = _normalize(decision.reply)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert reply == (
+        "no momento, nao localizei o iphone 14 pro disponivel no estoque. "
+        "posso verificar outro modelo ou capacidade?"
+    )
