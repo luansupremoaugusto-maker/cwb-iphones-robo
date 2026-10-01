@@ -221,7 +221,7 @@ _DEVICE_AS_ENTRY_RE = re.compile(
     re.IGNORECASE,
 )
 _OWNED_NUMBERED_IPHONE_RE = re.compile(
-    r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma)?\s*"
+    r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma|o|a)?\s*"
     r"|\b(?:meu|minha)\s+)"
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
@@ -302,6 +302,11 @@ _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     r"parte\s+do\s+pagamento|como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
+_SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
+    r"\b(?:ios|ipados|software|firmware|app|aplicativo|"
+    r"sistema(?:\s+operacional)?)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
@@ -361,6 +366,20 @@ _CATALOG_PURCHASE_ADVICE_RE = re.compile(
     r"(?:pega\w*|compr\w*|levar\w*|ficar\s+com)\b"
     r"|\b(?:pega\w*|compr\w*|levar\w*|ficar\s+com)\b.{0,35}\b"
     r"(?:compensa|vale\s+a\s+pena)\b)",
+    re.IGNORECASE,
+)
+_CATALOG_PRODUCT_PRICE_REQUEST_RE = re.compile(
+    r"\bquanto\s+(?:custa|ta|esta|fica|ficaria)\s+(?:(?:o|um|uma)\s+)?"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b"
+    r"|\bqual\s+(?:e\s+)?(?:o\s+)?(?:preco|valor)\s+"
+    r"(?:(?:do|da|de)\s+)?(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b"
+    r"|\b(?:preco|valor)\s+(?:do|da|de)\s+"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+    re.IGNORECASE,
+)
+_CATALOG_PRICE_DEVICE_ENTRY_CUE_RE = re.compile(
+    r"\b(?:dando|dou|dar|der|entregando|entregar|passando|passar|usando|usar)\s+"
+    r"(?:(?:o|a)\s+)?(?:meu|minha|ele|ela)\b",
     re.IGNORECASE,
 )
 _CATALOG_PRICE_RECALL_CONTEXT_RE = re.compile(
@@ -1020,6 +1039,26 @@ def is_trade_in_context_request(
     )
     if _has_abbreviated_iphone_buyback_profile(recent_user_context):
         return True
+    # In a catalog exchange, the customer may describe the upgrade as a
+    # question plus an owned model, with the newer target only in the reply.
+    if (
+        _OWNED_NUMBERED_IPHONE_RE.search(normalized)
+        and re.search(r"\bupgrade\b", normalized)
+        and not _SOFTWARE_UPGRADE_CONTEXT_RE.search(normalized)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(normalized)
+        and any(
+            _APPLE_PRODUCT_RE.search(assistant_content)
+            and re.search(r"\b(?:catalogo|disponivel|opcoes)\b", assistant_content)
+            for assistant_content in (
+                _normalize(entry.get("content", ""))
+                for entry in history[-8:]
+                if entry.get("role") == "assistant" and entry.get("content")
+            )
+        )
+    ):
+        return True
     if (
         _GENERIC_TRADE_IN_FOLLOWUP_RE.search(normalized)
         and not _NEGATION_RE.search(normalized)
@@ -1101,6 +1140,12 @@ def is_trade_in_context_request(
         r"(?:iphone\s*)?\d{1,2}\b",
         normalized,
     )
+    if (
+        owns_numbered_device
+        and _CATALOG_PRODUCT_PRICE_REQUEST_RE.search(normalized)
+        and not _CATALOG_PRICE_DEVICE_ENTRY_CUE_RE.search(normalized)
+    ):
+        return False
     asks_for_trade_in_value = re.search(
         r"\b(?:quanto|ficaria|diferenca|troco|valor|pagamento|entrada)\b",
         normalized,

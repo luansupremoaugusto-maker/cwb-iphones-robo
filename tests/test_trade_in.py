@@ -1150,6 +1150,232 @@ async def test_implicit_owned_iphone_upgrade_offer_sends_evaluation_form(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_catalog_upgrade_of_owned_iphone_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Esse teria?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim! Os três modelos da imagem aparecem disponíveis no catálogo, "
+                "todos seminovos e pretos: iPhone 16 128 GB (bateria 90%), "
+                "iPhone 16 256 GB (88%) e iPhone 16 Plus 128 GB (100%)."
+            ),
+        },
+    ]
+    text = "Como seria pra fazer um upgrade? Eu tenho o 13 pro Max"
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_iphone_catalog_buyer_question_does_not_start_trade_in(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-16-pro-max-256",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            battery_health=100,
+            search_text="iphone 16 pro max 256 gb titanio preto celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei iPhone 16 128 GB e iPhone 16 Pro Max 256 GB "
+                "disponíveis no catálogo."
+            ),
+        }
+    ]
+    text = "Tenho um iPhone 13 Pro Max. Quanto custa o iPhone 16 Pro Max?"
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.product_references == ["used:iphone-16-pro-max-256"]
+    assert "R$ 5.200,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_explicit_device_entry_overrides_catalog_price_question(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Encontrei iPhone 16 disponível no catálogo.",
+        }
+    ]
+    text = "Tenho um iPhone 13. Quanto ficaria o iPhone 16 dando ele?"
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_ios_upgrade_after_catalog_does_not_start_trade_in(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Encontrei iPhone 16 Pro Max disponível no catálogo.",
+        }
+    ]
+    text = "Como faço upgrade do iOS no meu iPhone 13 Pro Max?"
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_updating_owned_iphone_for_catalog_upgrade_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Encontrei iPhone 16 Pro Max disponível no catálogo.",
+        }
+    ]
+    text = "Quero atualizar meu aparelho e fazer um upgrade. Tenho o iPhone 13 Pro Max."
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_battery_repair_after_catalog_remains_technical_assistance(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Encontrei iPhone 16 Pro Max disponível no catálogo.",
+        }
+    ]
+    text = "Como seria pra fazer um upgrade? Tenho o 13 Pro Max e quero trocar a bateria."
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply != TRADE_IN_FORM
+    assert "assistência técnica" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_batched_16_pro_entry_offer_with_battery_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
