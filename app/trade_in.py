@@ -303,8 +303,8 @@ _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     re.IGNORECASE,
 )
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
-    r"\b(?:ios|ipados|software|sistema(?:\s+operacional)?|"
-    r"atualizar|atualizacao|versao)\b",
+    r"\b(?:ios|ipados|software|firmware|app|aplicativo|"
+    r"sistema(?:\s+operacional)?)\b",
     re.IGNORECASE,
 )
 
@@ -375,6 +375,11 @@ _CATALOG_PRODUCT_PRICE_REQUEST_RE = re.compile(
     r"(?:(?:do|da|de)\s+)?(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b"
     r"|\b(?:preco|valor)\s+(?:do|da|de)\s+"
     r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+    re.IGNORECASE,
+)
+_CATALOG_PRICE_DEVICE_ENTRY_CUE_RE = re.compile(
+    r"\b(?:dando|dou|dar|der|entregando|entregar|passando|passar|usando|usar)\s+"
+    r"(?:(?:o|a)\s+)?(?:meu|minha|ele|ela)\b",
     re.IGNORECASE,
 )
 _CATALOG_PRICE_RECALL_CONTEXT_RE = re.compile(
@@ -1135,7 +1140,11 @@ def is_trade_in_context_request(
         r"(?:iphone\s*)?\d{1,2}\b",
         normalized,
     )
-    if owns_numbered_device and _CATALOG_PRODUCT_PRICE_REQUEST_RE.search(normalized):
+    if (
+        owns_numbered_device
+        and _CATALOG_PRODUCT_PRICE_REQUEST_RE.search(normalized)
+        and not _CATALOG_PRICE_DEVICE_ENTRY_CUE_RE.search(normalized)
+    ):
         return False
     asks_for_trade_in_value = re.search(
         r"\b(?:quanto|ficaria|diferenca|troco|valor|pagamento|entrada)\b",
