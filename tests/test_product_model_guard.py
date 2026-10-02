@@ -2033,6 +2033,44 @@ async def test_availability_query_with_two_models_keeps_available_second_model(t
 
 
 @pytest.mark.asyncio
+async def test_searching_for_iphone_13_or_14_returns_available_14_at_requested_capacity(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-13-or-14-128.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-128",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1490,
+            battery_health=85,
+            search_text="iphone 14 azul 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "Por favor estou procurando um iPhone 13 o 14 128 GB"
+
+    decision = await agent.respond(text)
+
+    assert _requested_iphone_model_keys(text) == ((13, ""), (14, ""))
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-14-128"]
+    assert "IPHONE 14" in decision.reply.upper()
+    assert "128GB" in decision.reply.upper()
+    assert "No momento, não localizei esse produto seminovo" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_catalog_price_recall_returns_available_iphone_instead_of_evaluation_form(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
