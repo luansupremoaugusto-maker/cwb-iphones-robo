@@ -4041,6 +4041,42 @@ def test_procuro_iphone_models_is_a_catalog_availability_request():
 
 
 @pytest.mark.asyncio
+async def test_reversed_airpods_pro_3_model_order_returns_the_matching_available_item(tmp_path):
+    assert _requested_iphone_model_keys("Gostaria de saber se vcs tem o air pods 3 pro") == ()
+
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=SealedCatalog(),
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="airpods-pro-3-seminovo",
+            name="AIRPODS PRO 3",
+            category="Celular",
+            condition="SEMINOVO COM GARANTIA APPLE",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=1290,
+            search_text="airpods pro 3 celular seminovo com garantia apple",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Gostaria de saber se vcs tem o air pods 3 pro")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["airpods-pro-3-seminovo"], decision.reply
+    assert "airpods pro 3" in _normalize(decision.reply)
+    assert "R$ 1.290,00" in decision.reply
+    assert "não localizei" not in _normalize(decision.reply)
+    assert "lista dos seminovos" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_generic_airpods_request_lists_all_available_models_and_conditions(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
