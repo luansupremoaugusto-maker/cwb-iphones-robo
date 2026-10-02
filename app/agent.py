@@ -601,8 +601,13 @@ def _is_product_availability_request(
     accessory_request = _is_accessory_catalog_request(normalized)
     bare_model_request = _is_bare_model_availability_request(text)
     catalog_followup = _is_bare_model_catalog_followup(text, history)
+    generic_phone_budget_request = bool(
+        re.search(r"\bcelulares?\b", normalized)
+        and _extract_budget_limit(text) is not None
+    )
     if not normalized or (
         not _has_product_reference(normalized)
+        and not generic_phone_budget_request
         and not accessory_request
         and not bare_model_request
         and not catalog_followup
@@ -717,6 +722,7 @@ def _is_product_availability_request(
         and (
             _catalog_families(normalized)
             or _has_product_reference(normalized)
+            or generic_phone_budget_request
         )
     )
 
@@ -1819,9 +1825,11 @@ def _is_neutral_encomenda_availability(normalized: str) -> bool:
 
 def _availability_catalog_query(query: str) -> str:
     normalized = _normalize(query)
-    if not _is_neutral_encomenda_availability(normalized):
-        return query
-    return re.sub(r"\bencomendas?\b", " ", query, flags=re.IGNORECASE)
+    if _is_neutral_encomenda_availability(normalized):
+        query = re.sub(r"\bencomendas?\b", " ", query, flags=re.IGNORECASE)
+    # Mercado Phone stores the product type as singular "Celular". Keep a
+    # generic plural request searchable before the later budget filter runs.
+    return re.sub(r"\bcelulares\b", "celular", query, flags=re.IGNORECASE)
 
 
 def _is_photo_retry_request(text: str) -> bool:
@@ -2620,7 +2628,16 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
         r"(?P<variant>\s*(?:e|pro\s+max|pro|max|plus|mini|air))?\b",
         flags=re.IGNORECASE,
     )
-    matches = list(pattern.finditer(text or ""))
+    matches = []
+    for match in pattern.finditer(text or ""):
+        # A thousands separator lets the first digit of "1.000" or "1,500"
+        # look like a bare iPhone generation after a preposition ("faixa de").
+        # Ignore that component while preserving an actual model earlier in
+        # the same request, such as "o 15 na faixa de 1.000 reais".
+        amount_tail = (text or "")[match.end("number") :]
+        if re.match(r"\s*[.,]\s*\d{3}(?!\d)", amount_tail):
+            continue
+        matches.append(match)
     if not matches:
         return None
     match = matches[-1]

@@ -9,7 +9,9 @@ from app.agent import (
     AgentService,
     CATALOG_BUYER_DETAILS_REPLY,
     _extract_budget_limit,
+    _extract_bare_catalog_model_reference,
     _format_product_availability,
+    _is_bare_model_availability_request,
     _is_cheapest_catalog_request,
     _is_available_list_request,
     _is_product_availability_request,
@@ -101,6 +103,21 @@ def test_delivery_deadline_is_not_parsed_as_budget_limit():
     assert _extract_budget_limit("iPhone 17 com entrega em até 1 semana") is None
     assert _extract_budget_limit("iPhone 17 até R$ 7.200,00") == 7200
     assert _extract_budget_limit("orçamento do iPhone 15 Pro Max") is None
+
+
+def test_thousands_separator_budget_is_not_parsed_as_a_bare_model():
+    query = "Olá, gostaria de saber quais celulares vc tem na faixa de 1.000 reais"
+
+    assert _extract_budget_limit(query) == 1000
+    assert _extract_bare_catalog_model_reference(query) is None
+    assert _is_bare_model_availability_request(query) is False
+    assert _is_product_availability_request(query) is True
+    assert (
+        _extract_bare_catalog_model_reference(
+            "Tem o 15 na faixa de 1.000 reais?"
+        )
+        == "iPhone 15"
+    )
 
 
 @pytest.mark.asyncio
@@ -1936,6 +1953,68 @@ async def test_budgeted_multi_device_request_lists_all_matching_options_without_
     assert "R$ 3.820,00" in decision.reply
     assert "iPhone 15 Pro Max" not in decision.reply
     assert "2 aparelhos" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_generic_cellphone_budget_returns_every_available_option_under_1000(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-11-128-white",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=800,
+            battery_health=73,
+            search_text="iphone 11 128gb branco seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-12-64-white",
+            name="iPhone 12",
+            category="Celular",
+            capacity="64GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=990,
+            battery_health=77,
+            search_text="iphone 12 64gb branco seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-13-128-black",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1200,
+            battery_health=80,
+            search_text="iphone 13 128gb preto seminovo celular disponivel para venda",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(
+        "Olá, gostaria de saber quais celulares vc tem na faixa de 1.000 reais"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-11-128-white", "iphone-12-64-white"]
+    assert "iPhone 11" in decision.reply
+    assert "R$ 800,00" in decision.reply
+    assert "iPhone 12" in decision.reply
+    assert "R$ 990,00" in decision.reply
+    assert "iPhone 13" not in decision.reply
 
 
 @pytest.mark.asyncio
