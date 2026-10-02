@@ -153,6 +153,27 @@ async def test_missing_new_model_reports_absence_and_offers_seminovo_alternative
     assert "R$ 1.940,00" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_iphone_17_mixed_condition_request_includes_sealed_by_order_option(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("sheet:iphone-17", "iPhone 17", "256 GB", 5900),
+    ]
+
+    decision = await agent.respond(
+        "Bom dia gostaria de saber o valor do iPhone 17 normal, lacrado e semi novo se tiver tb"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["sheet:iphone-17"]
+    assert "iPhone 17" in decision.reply
+    assert "256 GB" in decision.reply
+    assert "R$ 5.900,00" in decision.reply
+    assert "Novos lacrados por encomenda" in decision.reply
+    assert "iPhone 15 Plus" not in decision.reply
+    assert "nao localizei esse modelo novo/lacrado" not in _normalize(decision.reply)
+
+
 @pytest.mark.parametrize(
     ("message", "history"),
     [

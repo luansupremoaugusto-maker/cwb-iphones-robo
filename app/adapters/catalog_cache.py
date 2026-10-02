@@ -638,8 +638,7 @@ def _is_available_item(item: Any) -> bool:
         return False
 
 
-def _requested_photo_condition(value: Any) -> str | None:
-    """Return the last explicit condition in a photo lookup context."""
+def _requested_condition_occurrences(value: Any) -> list[tuple[int, str]]:
     normalized = _score_text(value)
     markers = (
         ("lacrado", "sealed"),
@@ -653,11 +652,29 @@ def _requested_photo_condition(value: Any) -> str | None:
         ("usado", "used"),
         ("usados", "used"),
     )
-    occurrences = [
+    return [
         (match.start(), condition)
         for marker, condition in markers
         for match in re.finditer(rf"\b{re.escape(marker)}\b", normalized)
     ]
+
+
+def _requested_photo_condition(value: Any) -> str | None:
+    """Return the last explicit condition in a photo lookup context."""
+    occurrences = _requested_condition_occurrences(value)
+    if not occurrences:
+        return None
+    return max(occurrences, key=lambda item: item[0])[1]
+
+
+def _requested_availability_condition(value: Any) -> str | None:
+    """Filter by condition only when availability asks for one condition."""
+    occurrences = _requested_condition_occurrences(value)
+    if len({condition for _position, condition in occurrences}) > 1:
+        # Availability can request one condition and ask for the other as a
+        # fallback. Keep both through the search so AgentService can apply
+        # its complete requested-condition set after model matching.
+        return None
     if not occurrences:
         return None
     return max(occurrences, key=lambda item: item[0])[1]
@@ -803,7 +820,7 @@ class StoreCatalogCache(InventoryCache):
             and (getattr(item, "source", "") != "mercado_phone" or _is_available_item(item))
         ]
         candidates = [item for item in candidates if _matches_requested_model(query, item)]
-        requested_condition = _requested_photo_condition(query)
+        requested_condition = _requested_availability_condition(query)
         candidates = [
             item
             for item in candidates
