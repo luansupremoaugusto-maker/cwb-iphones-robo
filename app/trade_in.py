@@ -243,6 +243,16 @@ _DETAILED_IPHONE_EXCHANGE_OFFER_RE = re.compile(
     r"\b(?:por|pra|para)\s+(?:um|uma)?\s*(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+# Bulk exchange quotes can list quantities and models without first-person
+# ownership or a battery percentage.
+_MULTI_DEVICE_TRADE_PRICE_RE = re.compile(
+    r"\b(?:qual|quanto|melhor|valores?|precos?|pesquisa)\b.{0,90}"
+    r"\btroca\s+de\s+\d+\s+(?:iphone\s*)?\d{1,2}\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b"
+    r".{0,120}\bpor\s+\d+\s+(?:iphone\s*)?\d{1,2}\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_OWNED_EXCHANGE_TARGET_RE = re.compile(
     r"\b(?:penso\s+em|estou\s+pensando\s+em)\b.{0,25}"
     r"\btrocar\s+(?:por|para|pra|pro)\s+(?:um|uma|outro|outra)?\s*"
@@ -342,9 +352,11 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         and _COMPLETE_DEVICE_DETAIL_RE.search(text)
         and _IMPLICIT_EXCHANGE_TARGET_RE.search(text)
     )
+    multi_device_trade_price = _MULTI_DEVICE_TRADE_PRICE_RE.search(text)
     return bool(
         (
-            batched_price_upgrade
+            multi_device_trade_price
+            or batched_price_upgrade
             or detailed_device_exchange_offer
             or (
                 owned_device
@@ -1039,6 +1051,26 @@ def is_trade_in_context_request(
         if entry.get("role") == "user" and entry.get("content")
     )
     if _has_abbreviated_iphone_buyback_profile(recent_user_context):
+        return True
+    # Recover when a multi-device exchange was answered as a new-device
+    # warranty question.
+    latest_assistant_message = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history[-4:])
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    if (
+        _MULTI_DEVICE_TRADE_PRICE_RE.search(recent_user_context)
+        and _OWNED_NUMBERED_IPHONE_RE.search(normalized)
+        and re.search(r"\bgarantia\b", normalized)
+        and re.search(r"\blacrados?\b", latest_assistant_message)
+        and re.search(r"\b1\s+ano\b", latest_assistant_message)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _NON_APPLE_RE.search(f"{recent_user_context} {normalized}")
+    ):
         return True
     # In a catalog exchange, the customer may describe the upgrade as a
     # question plus an owned model, with the newer target only in the reply.
