@@ -211,7 +211,8 @@ _BARE_MODEL_EXCHANGE_OFFER_RE = re.compile(
     r"avali(?:a|am|amos))\b.{0,55}"
     r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b"
     r".{0,80}\b(?:parte\s+do\s+pagamento|como\s+entrada|de\s+entrada|"
-    r"entrada|na\s+troca|para\s+troca|troca)\b",
+    r"entrada|na\s+troca|para\s+troca|troca|trocar\s+(?:por|para|pra|pro|pelo|pela)"
+    r"\s+(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?\d{1,2})\b",
     re.IGNORECASE,
 )
 _DEVICE_AS_ENTRY_RE = re.compile(
