@@ -201,7 +201,7 @@ def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
     normalized = _normalize(value)
-    if any(marker in normalized for marker in ("ipad", "macbook", "airpods", "apple watch")):
+    if any(family != "iphone" for family in _catalog_families(normalized)):
         return ()
 
     normalized = _SHARED_PRO_MAX_CONJUNCTION_PATTERN.sub(
