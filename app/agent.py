@@ -2670,11 +2670,11 @@ def _product_context_query(
     return "\n".join(parts[-6:]).strip()
 
 
-def _customer_product_condition_context_query(
+def _customer_product_request_context_query(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> str:
-    """Keep condition preferences within the current product conversation."""
+    """Keep customer requests within the current product conversation."""
     current = text.strip()
     user_entries = [
         (index, entry.get("content", "").strip())
@@ -2714,6 +2714,20 @@ def _customer_product_condition_context_query(
         )
     ]
     return "\n".join([*relevant_user_messages, current]).strip()
+
+
+def _customer_product_condition_context_query(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str:
+    """Carry prior conditions unless the customer states a new one now."""
+    current = text.strip()
+    normalized_current = _normalize(current)
+    if _has_explicit_sealed_condition(normalized_current) or _has_seminovo_reference(
+        normalized_current
+    ):
+        return current
+    return _customer_product_request_context_query(text, history)
 
 
 def _extract_bare_catalog_model_reference(text: str) -> str | None:
@@ -4335,11 +4349,15 @@ class AgentService:
 
         requested_budget = _extract_budget_limit(query)
         requested_quantity = _requested_device_quantity(query)
-        pronta_entrega_only = _is_pronta_entrega_only_request(text)
+        customer_request_context = _customer_product_request_context_query(text, history)
+        customer_condition_context = _customer_product_condition_context_query(text, history)
+        pronta_entrega_only = _is_pronta_entrega_only_request(
+            text
+        ) or _is_pronta_entrega_only_request(customer_request_context)
         if selection_context_used:
             condition_query = current_query
         else:
-            condition_query = _customer_product_condition_context_query(text, history)
+            condition_query = customer_condition_context
         try:
             candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
         except Exception:

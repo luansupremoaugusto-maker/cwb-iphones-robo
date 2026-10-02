@@ -279,6 +279,82 @@ async def test_new_condition_followup_excludes_seminovo_when_customer_rejects_it
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("has_ready_sealed_stock", [True, False])
+async def test_new_followup_after_mixed_ready_request_keeps_condition_and_delivery_scope(
+    tmp_path, has_ready_sealed_stock
+):
+    agent = build_agent(tmp_path)
+    seminovos = [
+        _seminovo_item("iphone-15-128-used", "iPhone 15", "128 GB", 2820),
+        _seminovo_item("iphone-15-256-used", "iPhone 15", "256 GB", 2890),
+        _seminovo_item("iphone-16-128-used", "iPhone 16", "128 GB", 3750),
+        _seminovo_item("iphone-16-256-used", "iPhone 16", "256 GB", 3850),
+    ]
+    for item, color, battery in zip(
+        seminovos,
+        ("AZUL", "VERDE", "PRETO", "PRETO"),
+        (86, 87, 90, 88),
+    ):
+        item.color = color
+        item.battery_health = battery
+        item.search_text = f"{item.name} {color} {item.capacity} celular seminovo"
+    agent.cache.items = seminovos
+    if has_ready_sealed_stock:
+        agent.cache.items.extend(
+            [
+                _ready_sealed_item("iphone-16-128-ready", "iPhone 16", "128 GB", 4600),
+                _ready_sealed_item("iphone-16-256-ready", "iPhone 16", "256 GB", 4800),
+            ]
+        )
+    agent.cache.sealed_cache.items = (
+        [
+            _sealed_item("iphone-16-128-by-order", "iPhone 16", "128 GB", 4500),
+            _sealed_item("iphone-16-256-by-order", "iPhone 16", "256 GB", 4700),
+        ]
+        if has_ready_sealed_stock
+        else []
+    )
+    agent.cache.last_refresh = time.time()
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Estou procurando um iPhone novo ou semi para compra. Voltei de viagem hoje "
+                "e acabei perdendo o meu... Não consegui rastrear. Quais modelos você tem "
+                "a pronta entrega? 15/16/17. Novo ou semi."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPhone disponíveis:\n"
+                "• IPHONE 15 — AZUL — 128GB — SEMINOVO — R$ 2.820,00 | Bat: 86%\n"
+                "• IPHONE 15 — VERDE — 256GB — SEMINOVO — R$ 2.890,00 | Bat: 87%\n"
+                "• IPHONE 16 — PRETO — 128GB — SEMINOVO — R$ 3.750,00 | Bat: 90%\n"
+                "• IPHONE 16 — PRETO — 256GB — SEMINOVO — R$ 3.850,00 | Bat: 88%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("E novo?", history=history)
+
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert "SEMINOVO" not in decision.reply.upper()
+    if has_ready_sealed_stock:
+        assert set(decision.product_references) == {
+            "iphone-16-128-ready",
+            "iphone-16-256-ready",
+        }
+        assert "LACRADO" in decision.reply.upper()
+        assert "4.600,00" in decision.reply
+        assert "4.800,00" in decision.reply
+    else:
+        assert decision.product_references == []
+        assert "Não localizei esse modelo a pronta entrega" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_missing_lacrado_followup_offers_catalog_alternatives_without_handoff(tmp_path):
     agent = build_agent(tmp_path)
 
