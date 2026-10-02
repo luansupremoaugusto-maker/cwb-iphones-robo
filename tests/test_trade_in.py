@@ -979,6 +979,44 @@ async def test_abbreviated_pegm_trade_in_question_returns_evaluation_form(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_detailed_bare_iphone_trade_up_question_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Boa tarde"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    text = (
+        "Por quanto vocês pegam 14 pro Max roxo, 83% a bateria e 128gb? "
+        "Quero trocar pelo 16 pro Max"
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
 async def test_abbreviated_exchange_model_with_condition_details_returns_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
