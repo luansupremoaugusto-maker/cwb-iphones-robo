@@ -2066,6 +2066,74 @@ async def test_explicit_ipad_does_not_return_iphone_or_macbook(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ipad_11_price_followups_ignore_unrelated_old_photo_and_condition_history(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+
+    class IpadCatalog(SealedCatalog):
+        def __init__(self):
+            self.items = [_sealed_item("ipad-11-128", "iPad 11", "128 GB", 3200)]
+
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+        sealed_cache=IpadCatalog(),
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Pode mandar a foto do iPhone 15 Pro Max seminovo?"},
+        {"role": "assistant", "content": "Claro, seguem as fotos do iPhone 15 Pro Max seminovo."},
+    ]
+
+    family_offer = await agent.respond(
+        "Olá tudo bem? vocês teriam ipad no precinho", history=history
+    )
+    history.extend(
+        [
+            {"role": "user", "content": "Olá tudo bem? vocês teriam ipad no precinho"},
+            {"role": "assistant", "content": family_offer.reply},
+        ]
+    )
+    assert "iPad 11" in family_offer.reply
+    assert "3.200,00" in family_offer.reply
+
+    selected_ipad = await agent.respond("ipad 11 128gb", history=history)
+    assert selected_ipad.handoff is False
+    assert selected_ipad.product_references == ["ipad-11-128"]
+    assert selected_ipad.image_urls == []
+    assert "3.200,00" in selected_ipad.reply
+    assert "não temos fotos" not in selected_ipad.reply.lower()
+    history.extend(
+        [
+            {"role": "user", "content": "ipad 11 128gb"},
+            {"role": "assistant", "content": selected_ipad.reply},
+        ]
+    )
+
+    price_followup = await agent.respond("Qual o valor que esta?", history=history)
+    assert price_followup.handoff is False
+    assert price_followup.product_references == ["ipad-11-128"]
+    assert "3.200,00" in price_followup.reply
+    assert "não localizei" not in price_followup.reply.lower()
+    history.extend(
+        [
+            {"role": "user", "content": "Qual o valor que esta?"},
+            {"role": "assistant", "content": price_followup.reply},
+        ]
+    )
+
+    condition_followup = await agent.respond(
+        "Tem previsão de vir seminovo ou novo?", history=history
+    )
+    assert condition_followup.handoff is False
+    assert condition_followup.product_references == ["ipad-11-128"]
+    assert "iPad 11" in condition_followup.reply
+    assert "3.200,00" in condition_followup.reply
+    assert "não localizei esse modelo novo/lacrado" not in condition_followup.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_mac_or_ipad_availability_question_lists_both_requested_families(tmp_path):
     agent = build_agent(tmp_path)
 

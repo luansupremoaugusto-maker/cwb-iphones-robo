@@ -2471,7 +2471,7 @@ def _format_ambiguous_installment_decision(result: dict[str, Any]) -> AgentDecis
 
 def _strip_catalog_history_constraints(value: str) -> str:
     cleaned = re.sub(
-        r"\b(?:lacrados?|encomendas?|seminovos?|usados?|entregas?|pagamentos?|"
+        r"\b(?:lacrados?|nov[oa]s?|encomendas?|seminovos?|usados?|entregas?|pagamentos?|"
         r"parcel\w*|taxas?|juros|garantia|reserv\w*|endereco|horario|"
         r"nota\s+fiscal|catalogo)\b",
         " ",
@@ -2668,6 +2668,52 @@ def _product_context_query(
             parts.append(content)
     parts.append(current)
     return "\n".join(parts[-6:]).strip()
+
+
+def _customer_product_condition_context_query(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str:
+    """Keep condition preferences within the current product conversation."""
+    current = text.strip()
+    user_entries = [
+        (index, entry.get("content", "").strip())
+        for index, entry in enumerate(history or [])
+        if entry.get("role") == "user" and entry.get("content", "").strip()
+    ]
+    if not user_entries:
+        return current
+
+    current_families = set(_catalog_families(current))
+    if not current_families:
+        for _index, content in reversed(user_entries):
+            if _has_product_reference(_normalize(content)) or _extract_bare_catalog_model_reference(content):
+                current_families = set(_catalog_families(content))
+                if current_families:
+                    break
+
+    anchor_index: int | None = None
+    for index, content in reversed(user_entries):
+        content_families = set(_catalog_families(content))
+        if current_families and content_families and not current_families.intersection(content_families):
+            break
+        if _has_product_reference(_normalize(content)) or _extract_bare_catalog_model_reference(content):
+            anchor_index = index
+            break
+    if anchor_index is None:
+        return current
+
+    relevant_user_messages = [
+        content
+        for index, content in user_entries
+        if index >= anchor_index
+        and (
+            not current_families
+            or not _catalog_families(content)
+            or current_families.intersection(_catalog_families(content))
+        )
+    ]
+    return "\n".join([*relevant_user_messages, current]).strip()
 
 
 def _extract_bare_catalog_model_reference(text: str) -> str | None:
@@ -2949,13 +2995,50 @@ def _is_standalone_photo_followup(
     return has_product_context and has_photo_offer
 
 
-def _has_photo_request_in_history(history: list[dict[str, str]] | None) -> bool:
-    photo_words = ("foto", "fotos", "imagem", "imagens")
-    return any(
-        entry.get("role") == "user"
-        and any(word in _normalize(entry.get("content", "")) for word in photo_words)
-        for entry in (history or [])
+def _has_photo_request_in_history(
+    history: list[dict[str, str]] | None,
+    *,
+    current_text: str | None = None,
+) -> bool:
+    """Return whether a photo request is still the active customer intent."""
+    current_families = set(_catalog_families(current_text or ""))
+    catalog_request = re.compile(
+        r"\b(?:tem|teria|teriam|temos|valor|valores|preco|precos|precinhos?|"
+        r"quanto|custa|disponivel|disponibilidade|estoque|possui|previsao)\b"
     )
+    condition_only = {
+        "lacrado",
+        "lacrada",
+        "novo",
+        "nova",
+        "seminovo",
+        "seminova",
+        "semi novo",
+        "semi nova",
+        "usado",
+        "usada",
+    }
+
+    for entry in reversed(history or []):
+        if entry.get("role") != "user":
+            continue
+        content = entry.get("content", "").strip()
+        if not content:
+            continue
+        if _is_photo_request(content):
+            photo_families = set(_catalog_families(content))
+            return not bool(
+                current_families
+                and photo_families
+                and current_families.isdisjoint(photo_families)
+            )
+
+        normalized = _normalize(content)
+        if normalized in condition_only:
+            continue
+        if catalog_request.search(normalized):
+            return False
+    return False
 
 
 def _is_photo_context_followup(
@@ -2963,7 +3046,7 @@ def _is_photo_context_followup(
     history: list[dict[str, str]] | None,
 ) -> bool:
     """Keep a previous photo request active while the customer clarifies it."""
-    if not _has_photo_request_in_history(history):
+    if not _has_photo_request_in_history(history, current_text=text):
         return False
     normalized = _normalize(text)
     if not normalized:
@@ -4256,16 +4339,7 @@ class AgentService:
         if selection_context_used:
             condition_query = current_query
         else:
-            condition_query = "\n".join(
-                [
-                    text,
-                    *[
-                        entry.get("content", "")
-                        for entry in (history or [])
-                        if entry.get("role") == "user" and entry.get("content", "").strip()
-                    ],
-                ]
-            ).strip()
+            condition_query = _customer_product_condition_context_query(text, history)
         try:
             candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
         except Exception:
@@ -4794,7 +4868,9 @@ class AgentService:
             and not _is_photo_context_followup(text, history)
         ):
             return None
-        if _is_photo_retry_request(text) and not _has_photo_request_in_history(history):
+        if _is_photo_retry_request(text) and not _has_photo_request_in_history(
+            history, current_text=text
+        ):
             return None
         if _is_sealed_photo_request(text):
             return AgentDecision(reply=SEALED_PHOTO_REPLY, confidence="high")

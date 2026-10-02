@@ -672,6 +672,22 @@ def _requested_photo_condition(value: Any) -> str | None:
 def _requested_availability_condition(value: Any) -> str | None:
     """Filter by condition only when availability asks for one condition."""
     occurrences = _requested_condition_occurrences(value)
+    normalized = _score_text(value)
+    without_semi_novo = re.sub(r"\bsemi\s+nov[oa]s?\b", " ", normalized)
+    without_accessory_new = re.sub(
+        r"\b(?:acompanha\w*|inclui\w*)\b(?:\s+\w+){0,8}\s+nov[oa]s?\b",
+        " ",
+        without_semi_novo,
+    )
+    without_accessory_new = re.sub(
+        r"\b(?:cabos?|fontes?|carregadores?|acessorios?)\b(?:\s+\w+){0,3}\s+nov[oa]s?\b",
+        " ",
+        without_accessory_new,
+    )
+    occurrences.extend(
+        (match.start(), "sealed")
+        for match in re.finditer(r"\bnov[oa]s?\b", without_accessory_new)
+    )
     if len({condition for _position, condition in occurrences}) > 1:
         # Availability can request one condition and ask for the other as a
         # fallback. Keep both through the search so AgentService can apply
