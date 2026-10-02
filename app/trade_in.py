@@ -227,6 +227,13 @@ _OWNED_NUMBERED_IPHONE_RE = re.compile(
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
+    r"\b(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma|o|a)?\s*"
+    r"(?:iphone\s*)?\d{1,2}\b.{0,45}\b"
+    r"(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
+    r"como\s+entrada|de\s+entrada)\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
     r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+(?:o|a|um|uma)?\s*"
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
@@ -1050,6 +1057,42 @@ def is_trade_in_context_request(
         for entry in history[-8:]
         if entry.get("role") == "user" and entry.get("content")
     )
+    user_context = f"{recent_user_context} {normalized}".strip()
+    recent_assistant_contexts = [
+        _normalize(entry.get("content", ""))
+        for entry in history[-8:]
+        if entry.get("role") == "assistant" and entry.get("content")
+    ]
+    has_recent_apple_catalog_context = any(
+        _APPLE_PRODUCT_RE.search(assistant_content)
+        and re.search(
+            r"\b(?:catalogo|disponivel|opcoes|seminovo|lacrado|estoque|bateria)\b|\br\$",
+            assistant_content,
+        )
+        for assistant_content in recent_assistant_contexts
+    )
+    has_current_bare_model_trade_offer = bool(
+        _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(normalized)
+    )
+    continues_recent_bare_model_trade_offer = bool(
+        _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(recent_user_context)
+        and (
+            _GENERIC_TRADE_IN_FOLLOWUP_RE.search(normalized)
+            or re.search(
+                r"\bcomo\s+parte\s+de\s+a?pagamento\b",
+                normalized,
+            )
+        )
+    )
+    if (
+        (has_current_bare_model_trade_offer or continues_recent_bare_model_trade_offer)
+        and has_recent_apple_catalog_context
+        and not _NEGATION_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(user_context)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     if _has_abbreviated_iphone_buyback_profile(recent_user_context):
         return True
     # Recover when a multi-device exchange was answered as a new-device

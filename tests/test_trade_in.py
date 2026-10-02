@@ -1227,6 +1227,104 @@ async def test_catalog_upgrade_of_owned_iphone_sends_evaluation_form(tmp_path):
     assert decision.product_references == []
 
 
+@pytest.mark.parametrize(
+    ("history", "text"),
+    [
+        (
+            [
+                {"role": "user", "content": "Os 15 que vc tem é valor"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Tenho estas opções de iPhone 15: seminovo, 256 GB, verde, "
+                        "bateria com 87%: R$ 2.890, disponível para venda; novo "
+                        "lacrado, 128 GB: R$ 4.400, por encomenda."
+                    ),
+                },
+                {"role": "user", "content": "Eu tenho um 13 aceita na troca"},
+            ],
+            "Como parte de apagamento",
+        ),
+        (
+            [
+                {"role": "user", "content": "Os 15 que vc tem é valor"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Tenho estas opções de iPhone 15: seminovo, 256 GB, verde, "
+                        "bateria com 87%: R$ 2.890, disponível para venda; novo "
+                        "lacrado, 128 GB: R$ 4.400, por encomenda."
+                    ),
+                },
+            ],
+            "Eu tenho um 13 aceita na troca. Como parte de apagamento",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_bare_iphone_trade_offer_after_catalog_sends_evaluation_form(
+    history, text, tmp_path
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    assert is_trade_in_context_request(text, history) is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_unrelated_ios_question_does_not_reuse_old_bare_iphone_trade_offer(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Encontrei iPhone 15 disponível no catálogo por R$ 2.890.",
+        },
+        {"role": "user", "content": "Eu tenho um 13 aceita na troca"},
+    ]
+    text = "Como faço upgrade do iOS no iPhone 13?"
+
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply != TRADE_IN_FORM
+
+
 @pytest.mark.asyncio
 async def test_iphone_catalog_buyer_question_does_not_start_trade_in(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
