@@ -12,6 +12,7 @@ from agents import Agent, ModelSettings, Runner, function_tool, set_default_open
 from agents.tracing import set_tracing_disabled
 
 from app.adapters.catalog_cache import (
+    _MODEL_PATTERN,
     _catalog_score,
     _catalog_family,
     _catalog_families,
@@ -2519,6 +2520,55 @@ def _installment_context_query(
     return "\n".join(
         part for part in (current_capacity_hint, *previous_user_text[-4:], current) if part
     ).strip()
+
+
+def _multi_model_installment_queries(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> tuple[str, ...]:
+    """Split a multi-model installment request while keeping each model's details."""
+    normalized = _normalize(text)
+    requested_models = _requested_iphone_model_keys(normalized)
+    if len(requested_models) <= 1:
+        return ()
+
+    mentions = []
+    for match in _MODEL_PATTERN.finditer(normalized):
+        raw_number = match.group("number") or match.group("legacy")
+        if not raw_number:
+            continue
+        number: int | str = int(raw_number) if raw_number.isdigit() else raw_number.upper()
+        variant = " ".join((match.group("variant") or "").split()).lower()
+        mentions.append(((number, variant), match.start(), match.end()))
+    if tuple(model for model, _start, _end in mentions) != requested_models:
+        return ()
+
+    separator_pattern = re.compile(r"\b(?:e|ou|or|and)\b|[,/;]")
+    queries: list[str] = []
+    segment_start = 0
+    for index, (_model, _start, end) in enumerate(mentions[:-1]):
+        next_start = mentions[index + 1][1]
+        separators = list(separator_pattern.finditer(normalized, end, next_start))
+        if not separators:
+            return ()
+        separator = separators[-1]
+        boundary_start = separator.start()
+        boundary_end = separator.end()
+        segment = normalized[segment_start:boundary_start].strip()
+        if _requested_iphone_model_keys(segment) != (requested_models[index],):
+            return ()
+        queries.append(segment)
+        segment_start = boundary_end
+
+    final_segment = normalized[segment_start:].strip()
+    if _requested_iphone_model_keys(final_segment) != (requested_models[-1],):
+        return ()
+    queries.append(final_segment)
+
+    history_condition = _history_installment_condition(text, history)
+    if history_condition:
+        queries = [f"{query}\n{history_condition}" for query in queries]
+    return tuple(queries)
 
 
 def _product_context_query(
@@ -5212,6 +5262,54 @@ class AgentService:
             confidence="high",
         )
 
+    async def _try_multi_model_installment_tables(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        queries = _multi_model_installment_queries(text, history)
+        if not queries:
+            return None
+        method = getattr(self.cache, "simulate_all_installments", None)
+        if not callable(method):
+            return None
+
+        sections: list[str] = []
+        references: list[str] = []
+        all_found = True
+        for query in queries:
+            try:
+                result = await method(query)
+            except Exception:
+                return None
+            if result.get("encontrado"):
+                sections.append(format_installment_table(result))
+                continue
+            if result.get("ambiguo"):
+                ambiguous = _format_ambiguous_installment_decision(result)
+                if ambiguous is not None:
+                    sections.append(ambiguous.reply)
+                    references.extend(ambiguous.product_references)
+                    all_found = False
+                    continue
+
+            requested_model = _requested_iphone_model_keys(query)
+            if requested_model:
+                number, variant = requested_model[0]
+                label = f"iPhone {number}" + (f" {variant.title()}" if variant else "")
+            else:
+                label = "esse modelo"
+            sections.append(
+                f"Não encontrei preço confirmado para simular o {label} no momento."
+            )
+            all_found = False
+
+        return AgentDecision(
+            reply="\n\n".join(sections),
+            product_references=list(dict.fromkeys(references)),
+            confidence="high" if all_found else "medium",
+        )
+
     async def _try_specific_installment(
         self,
         text: str,
@@ -5228,6 +5326,9 @@ class AgentService:
         query = _installment_context_query(text, history)
         if not _has_installment_product_context(query):
             return None
+        multiple_models = await self._try_multi_model_installment_tables(text, history)
+        if multiple_models is not None:
+            return multiple_models
         method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
             return None
@@ -5259,6 +5360,9 @@ class AgentService:
             or _is_installment_model_followup(text, history)
         ):
             return None
+        multiple_models = await self._try_multi_model_installment_tables(text, history)
+        if multiple_models is not None:
+            return multiple_models
         method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
             return None

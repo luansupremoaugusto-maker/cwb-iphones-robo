@@ -736,3 +736,108 @@ async def test_missing_seminew_installment_offers_available_seminew_models(tmp_p
     assert "iPhone 12" in decision.reply
     assert "iPhone 14" in decision.reply
     assert "Novos lacrados" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_prompt_simulates_each_requested_model_with_its_own_details(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="16-pro-128-battery-100",
+            name="iPhone 16 Pro",
+            capacity="128 GB",
+            category="Celular",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4320.0,
+            battery_health=100,
+            source="mercado_phone",
+            search_text="iphone 16 pro 128 gb celular seminovo bateria 100",
+        ),
+        InventoryItem(
+            external_id="16-pro-128-battery-90",
+            name="iPhone 16 Pro",
+            capacity="128 GB",
+            category="Celular",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3990.0,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iphone 16 pro 128 gb celular seminovo bateria 90",
+        ),
+        InventoryItem(
+            external_id="17-pro-max-256-used",
+            name="iPhone 17 Pro Max",
+            capacity="256 GB",
+            category="Celular",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=7600.0,
+            battery_health=100,
+            source="mercado_phone",
+            search_text="iphone 17 pro max 256 gb celular seminovo bateria 100",
+        ),
+    ]
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:16-pro-128-sealed",
+            name="iPhone 16 Pro",
+            capacity="128 GB",
+            price_brl=4900.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 16 pro 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:17-pro-max-256-sealed",
+            name="iPhone 17 Pro Max",
+            capacity="256 GB",
+            price_brl=8100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 17 pro max 256 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:17-pro-max-512-sealed",
+            name="iPhone 17 Pro Max",
+            capacity="512 GB",
+            price_brl=8800.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 17 pro max 512 gb novo lacrado",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "O 16 pro semi-novo 100% e o 17 pro Max lacrado de 256",
+        history=[
+            {
+                "role": "user",
+                "content": "Vocês parcelam em quantas vezes no cartão de crédito?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Parcelamos em até 18x no cartão de crédito, na máquina física, "
+                    "com juros que variam conforme o valor e a quantidade de parcelas. "
+                    "Qual modelo e capacidade você gostaria de simular?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 16 Pro 128 GB" in decision.reply
+    assert "Preço à vista: R$ 4.320,00" in decision.reply
+    assert "Parcelamento do iPhone 17 Pro Max 256 GB" in decision.reply
+    assert "Preço à vista: R$ 8.100,00" in decision.reply
+    assert "R$ 3.990,00" not in decision.reply
+    assert "R$ 7.600,00" not in decision.reply
+    assert "R$ 8.800,00" not in decision.reply
+    assert decision.reply.count("18x de") == 2
