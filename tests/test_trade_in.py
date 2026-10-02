@@ -2346,3 +2346,76 @@ async def test_parts_buyback_question_declines_parts_without_evaluation_form(tmp
     )
     assert "forms.gle" not in decision.reply
     assert "lista de avaliação" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_two_iphone_upgrade_value_question_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "bom dia, estou fazendo uma pesquisa de valores, qual o melhor valor que voce "
+        "consegue fazer para troca de 2 17 pro max 256 (prata e azul) garantia novembro "
+        "por 2 18 pro max 256 (prata e preto)"
+    )
+
+    decision = await service.respond(text)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
+async def test_warranty_followup_after_two_iphone_exchange_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    previous_offer = (
+        "bom dia, estou fazendo uma pesquisa de valores, qual o melhor valor que voce "
+        "consegue fazer para troca de 2 17 pro max 256 (prata e azul) garantia novembro "
+        "por 2 18 pro max 256 (prata e preto)"
+    )
+    history = [
+        {"role": "user", "content": previous_offer},
+        {
+            "role": "assistant",
+            "content": "Produtos novos lacrados têm garantia de 1 ano pela Apple.",
+        },
+    ]
+    text = "sim, o meu 17 ta com garantia novembro"
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_context_request(text, history) is True
