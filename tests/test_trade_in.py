@@ -2633,3 +2633,101 @@ async def test_warranty_followup_after_two_iphone_exchange_sends_evaluation_form
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_context_request(text, history) is True
+
+
+@pytest.mark.asyncio
+async def test_abbreviated_iphone_13_buyback_offer_after_catalog_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Boa noite, tenho interesse no iPhone 16Pro que está no insta de vocês.",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de IPHONE 16 PRO disponíveis: "
+                "TITÂNIO DESERTO, 128GB, SEMINOVO, R$ 4.320,00, bateria 100%."
+            ),
+        },
+    ]
+    text = (
+        "Tenho um 13 branco, sem marca de uso, 128g com 88% de bateria, "
+        "por quanto vocês compram?"
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_loose_battery_buyback_after_iphone_catalog_stays_in_parts_flow(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Opções de iPhone 16 Pro disponíveis: 128GB seminovo por R$ 4.320,00.",
+        },
+    ]
+
+    decision = await service.respond("Vocês compram bateria de iPhone 13?", history=history)
+
+    assert is_trade_in_context_request("Vocês compram bateria de iPhone 13?", history) is False
+    assert decision.reply == PARTS_BUYBACK_REPLY
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_confirmation_after_abbreviated_iphone_13_offer_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Boa noite, tenho interesse no iPhone 16Pro que está no insta de vocês.",
+        },
+        {
+            "role": "assistant",
+            "content": "Opções de IPHONE 16 PRO disponíveis: 128GB seminovo por R$ 4.320,00.",
+        },
+        {
+            "role": "user",
+            "content": (
+                "Tenho um 13 branco, sem marca de uso, 128g com 88% de bateria, "
+                "por quanto vocês compram?"
+            ),
+        },
+        {"role": "assistant", "content": PARTS_BUYBACK_REPLY},
+    ]
+
+    decision = await service.respond(
+        "Então vocês vão fazer a compra do iPhone?",
+        history=history,
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []

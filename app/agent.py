@@ -3476,6 +3476,18 @@ class AgentService:
     ) -> AgentDecision:
         combined_request = " ".join(part for part in (text, image_description) if part)
         if is_parts_buyback_request(combined_request):
+            # Recent Apple catalog context can disambiguate a bare model number
+            # and its battery details from a request to sell a loose battery.
+            if (
+                not is_purchase_without_trade_in_request(combined_request)
+                and is_trade_in_context_request(combined_request, history)
+            ):
+                return AgentDecision(
+                    reply=TRADE_IN_FORM,
+                    handoff=True,
+                    handoff_reason=TRADE_IN_REASON,
+                    confidence="high",
+                )
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
         if is_non_apple_trade_in_request(combined_request):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")

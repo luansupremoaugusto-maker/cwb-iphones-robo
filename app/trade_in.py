@@ -1133,6 +1133,14 @@ def is_trade_in_context_request(
 
     has_current_bare_model_trade_offer = bool(
         _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(normalized)
+        # After a catalog reply, an owned bare generation plus capacity,
+        # condition, and a buyback verb can identify the complete phone.
+        or (
+            _OWNED_NUMBERED_IPHONE_RE.search(normalized)
+            and re.search(r"\b\d{2,4}\s*g(?:b)?\b", normalized)
+            and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
+            and _BUYBACK_VERB_RE.search(normalized)
+        )
     )
     continues_recent_bare_model_trade_offer = bool(
         _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(recent_user_context)
