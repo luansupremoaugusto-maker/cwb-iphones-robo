@@ -103,3 +103,52 @@ async def test_colloquial_semis_warranty_followup_returns_only_used_device_polic
     assert "90 dias" in decision.reply
     assert "1 ano" not in decision.reply
     assert "Apple" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_warranty_and_payment_question_after_catalog_reply_answers_both_without_handoff(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16e-128",
+            name="iPhone 16e",
+            capacity="128GB",
+            category="Celular",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2730.0,
+            search_text="iphone 16e 128gb celular seminovo preto",
+            color="PRETO",
+            colors="PRETO",
+            battery_health=100,
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+    history = [
+        {"role": "user", "content": "Boa noite, teriam o iPhone 16e?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos sim 😊 iPhone 16e seminovo, 128GB, preto, com saúde da bateria "
+                "em 100%. Está disponível por R$ 2.730."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Como funciona pra garantia, forma de pagamento e etc?",
+        history=history,
+    )
+    reply = decision.reply.lower()
+
+    assert decision.handoff is False
+    assert "90 dias" in reply
+    assert "1 ano" not in reply
+    assert "pix" in reply
+    assert "dinheiro" in reply
+    assert "cartão de débito" in reply
+    assert "cartão de crédito" in reply
+    assert "dúvidas sobre esse aparelho" not in reply
+    assert decision.product_references == []
+    assert decision.image_urls == []
