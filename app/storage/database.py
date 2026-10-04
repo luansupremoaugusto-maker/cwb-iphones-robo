@@ -853,7 +853,13 @@ class Repository:
                 conversation.updated_at = utc_now()
             session.commit()
 
-    def recent_messages(self, phone: str, limit: int = 20) -> list[dict[str, str]]:
+    def recent_messages(
+        self,
+        phone: str,
+        limit: int = 20,
+        *,
+        newer_than: datetime | None = None,
+    ) -> list[dict[str, str]]:
         with Session(self.engine) as session:
             conversation = self._find_conversation(session, phone)
             if conversation is None:
@@ -864,6 +870,11 @@ class Repository:
                 .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
                 .limit(limit)
             ).all()
+            if newer_than is not None:
+                cutoff = _utc_datetime(newer_than)
+                records = [
+                    item for item in records if _utc_datetime(item.created_at) >= cutoff
+                ]
             return [
                 {"role": "user" if item.direction == "inbound" else "assistant", "content": item.text}
                 for item in reversed(records)

@@ -1201,6 +1201,15 @@ def _is_today_store_status_request(text: str) -> bool:
     normalized = re.sub(r"\bhj\b", "hoje", _normalize(text))
     has_status_marker = bool(
         re.search(r"\b(?:abert\w*|fechad\w*|atend\w*)\b", normalized)
+        or re.search(
+            r"\b(?:voce|voces|vcs|a loja|loja)\s+"
+            r"(?:(?:esta|estao)\s+)?(?:trabalh|funcion|atend)\w*\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:trabalha|trabalham|funciona|funcionam|atende|atendem)\s+hoje\b",
+            normalized,
+        )
     ) or any(
         marker in normalized
         for marker in (
@@ -3525,6 +3534,13 @@ class AgentService:
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
         if is_non_apple_trade_in_request(combined_request):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
+        current_day_decision = self._try_current_day_information(text)
+        if current_day_decision is not None:
+            if _is_visit_request(text) or _is_reservation_request(text):
+                visit_decision = self._try_visit_scheduling(text, history)
+                if visit_decision is not None:
+                    return protect_customer_decision(visit_decision)
+            return protect_customer_decision(current_day_decision)
         catalog_price_recall_decision = await self._try_catalog_price_recall(combined_request)
         if catalog_price_recall_decision is not None:
             return protect_customer_decision(catalog_price_recall_decision)
@@ -3656,10 +3672,6 @@ class AgentService:
         visit_decision = self._try_visit_scheduling(text, history)
         if visit_decision is not None:
             return protect_customer_decision(visit_decision)
-
-        current_day_decision = self._try_current_day_information(text)
-        if current_day_decision is not None:
-            return protect_customer_decision(current_day_decision)
 
         store_hours_decision = self._try_store_hours(text)
         if store_hours_decision is not None:

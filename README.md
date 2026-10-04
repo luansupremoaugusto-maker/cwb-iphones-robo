@@ -158,7 +158,9 @@ https://SEU_DOMINIO/webhooks/zapi/SEU_WEBHOOK_SECRET
 
 O cliente Mercado Phone usa `GET` para lojas/estoque/catálogo e o `POST` de
 listagem de arquivos somente para leitura. O histórico, eventos e filas ficam no
-banco, com limpeza após `RETENTION_DAYS` (padrão de 30 dias). Áudios e imagens
+banco, com limpeza após `RETENTION_DAYS` (padrão de 30 dias). O agente recebe
+somente as mensagens das últimas 12 horas como contexto da conversa; mensagens
+mais antigas continuam disponíveis no histórico até a limpeza. Áudios e imagens
 recebidos do cliente são removidos após o processamento.
 
 Mantenha `OUTBOUND_MODE=disabled` durante a validaÃ§Ã£o estrutural. Depois use
