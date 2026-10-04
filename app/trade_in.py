@@ -142,6 +142,13 @@ _DEVICE_COMPONENT_REPAIR_RE = re.compile(
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_COMPONENT_REPAIR_REQUEST_RE = re.compile(
+    r"\b(?:troca(?:r|ndo)?|substitu\w*|consert\w*|repar\w*|arrum\w*)\s+"
+    r"(?:a|o|uma|um|de|do|da)?\s*"
+    r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
+    r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
+    re.IGNORECASE,
+)
 _BUYBACK_VERB_RE = re.compile(
     r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando|aria|ariam|em|uem)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
@@ -242,7 +249,8 @@ _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
     re.IGNORECASE,
 )
 _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
-    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+(?:o|a|um|uma)?\s*"
+    r"\b(?:(?:estou\s+)?querendo|quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+"
+    r"(?:o|a|um|uma)?\s*"
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
@@ -367,6 +375,15 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         and _IMPLICIT_EXCHANGE_TARGET_RE.search(text)
     )
     multi_device_trade_price = _MULTI_DEVICE_TRADE_PRICE_RE.search(text)
+    explicit_exchange_context = bool(
+        _NON_APPLE_EXCHANGE_RE.search(text)
+        or _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
+        or re.search(r"\b(?:troca\s+de\s+celular|diferenc\w*|troco)\b", text)
+    )
+    repair_without_exchange = (
+        _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(text)
+        and not explicit_exchange_context
+    )
     return bool(
         (
             multi_device_trade_price
@@ -385,6 +402,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
             )
         )
         and not _NON_APPLE_RE.search(text)
+        and not repair_without_exchange
     )
 
 
@@ -734,6 +752,10 @@ def _has_complete_owned_device_buyback_offer(text: str) -> bool:
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
     if _has_abbreviated_iphone_buyback_profile(text):
+        return True
+    # Parts detection runs before trade-in routing. Preserve battery details
+    # when an owned iPhone and its explicit upgrade target are both present.
+    if _has_implicit_device_upgrade_offer(text):
         return True
     if _has_owned_iphone_business_offer(text):
         return True
