@@ -2714,6 +2714,71 @@ def _build_watch_agent(tmp_path, *, seminovos: list[InventoryItem], sealed: Seal
 
 
 @pytest.mark.asyncio
+async def test_ready_stock_followup_after_watch_order_offer_checks_physical_stock(tmp_path):
+    ready_watch = InventoryItem(
+        external_id="watch-series-11-ready",
+        name="Apple Watch Series 11",
+        category="Celular",
+        capacity="42MM",
+        color="OURO ROSA",
+        source="mercado_phone",
+        condition="NOVO LACRADO",
+        availability="Disponível para venda",
+        quantity=1,
+        price_brl=2600,
+        search_text="apple watch series 11 42mm ouro rosa novo lacrado",
+    )
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[ready_watch],
+        sealed=_watch_sealed_catalog(),
+    )
+
+    decision = await agent.respond(
+        "Nenhum a pronta entrega?",
+        history=[
+            {"role": "user", "content": "Ouro Rosa"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Ouro-rosa está cadastrado para o Apple Watch Series 11 nos dois tamanhos: "
+                    "42 mm por R$ 2.500 ou 46 mm por R$ 2.700. Trabalhamos por encomenda, "
+                    "com prazo de 1 semana. Qual tamanho você prefere?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Enviamos para Curitiba" not in decision.reply
+    assert "Sedex" not in decision.reply
+    assert "Apple Watch Series 11" in decision.reply
+    assert "disponíveis" in decision.reply
+    assert "R$ 2.600,00" in decision.reply
+    assert "Apple Watch SE 3" not in decision.reply
+    assert decision.product_references == ["watch-series-11-ready"]
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_real_sedex_question_for_ready_stock_stays_in_delivery_faq(tmp_path):
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[],
+        sealed=_watch_sealed_catalog(),
+    )
+
+    decision = await agent.respond(
+        "Vocês enviam um Apple Watch Series 11 que está a pronta entrega por Sedex?"
+    )
+
+    assert decision.handoff is False
+    assert "Enviamos para Curitiba" in decision.reply
+    assert "Sedex" in decision.reply
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
 async def test_seminovo_request_does_not_fallback_to_sealed_catalog(tmp_path):
     agent = _build_watch_agent(
         tmp_path,
