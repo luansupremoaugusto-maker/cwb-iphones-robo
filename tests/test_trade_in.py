@@ -5,7 +5,7 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService
+from app.agent import AgentService, TECHNICAL_ASSISTANCE_REPLY
 from app.config import Settings
 from app.faq import FAQStore
 from app.runtime import build_runtime
@@ -1625,6 +1625,29 @@ async def test_explicit_battery_repair_after_catalog_remains_technical_assistanc
     assert decision.handoff is True
     assert decision.reply != TRADE_IN_FORM
     assert "assistência técnica" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_upgrade_interest_does_not_override_battery_repair_request(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Tenho um iPhone 15 Pro e estou querendo um 17 Pro; quanto custa trocar a bateria do 15?"
+
+    assert is_trade_in_request(text) is False
+
+    decision = await service.respond(text)
+
+    assert decision.reply == TECHNICAL_ASSISTANCE_REPLY
+    assert decision.handoff is True
 
 
 @pytest.mark.asyncio

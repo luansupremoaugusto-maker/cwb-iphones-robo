@@ -142,6 +142,13 @@ _DEVICE_COMPONENT_REPAIR_RE = re.compile(
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_COMPONENT_REPAIR_REQUEST_RE = re.compile(
+    r"\b(?:troca(?:r|ndo)?|substitu\w*|consert\w*|repar\w*|arrum\w*)\s+"
+    r"(?:a|o|uma|um|de|do|da)?\s*"
+    r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
+    r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
+    re.IGNORECASE,
+)
 _BUYBACK_VERB_RE = re.compile(
     r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando|aria|ariam|em|uem)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
@@ -368,6 +375,15 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         and _IMPLICIT_EXCHANGE_TARGET_RE.search(text)
     )
     multi_device_trade_price = _MULTI_DEVICE_TRADE_PRICE_RE.search(text)
+    explicit_exchange_context = bool(
+        _NON_APPLE_EXCHANGE_RE.search(text)
+        or _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
+        or re.search(r"\b(?:troca\s+de\s+celular|diferenc\w*|troco)\b", text)
+    )
+    repair_without_exchange = (
+        _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(text)
+        and not explicit_exchange_context
+    )
     return bool(
         (
             multi_device_trade_price
@@ -386,6 +402,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
             )
         )
         and not _NON_APPLE_RE.search(text)
+        and not repair_without_exchange
     )
 
 
