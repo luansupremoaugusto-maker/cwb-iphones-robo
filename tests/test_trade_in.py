@@ -1325,6 +1325,88 @@ async def test_bare_iphone_trade_offer_after_catalog_sends_evaluation_form(
 
 
 @pytest.mark.asyncio
+async def test_bare_iphone_buyback_price_after_newer_catalog_request_sends_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Qual valor do 18 pro Max"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de iPhone 18 Pro Max disponíveis: "
+                "512 GB por R$ 12.200,00, 256 GB por R$ 11.100,00 e "
+                "1 TB por R$ 15.200,00."
+            ),
+        },
+    ]
+    text = "Pega 17 pro Max por quantos"
+
+    assert is_trade_in_context_request(text, history) is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_newer_catalog_context_does_not_turn_a_direct_price_question_into_trade_in(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Qual valor do 18 pro Max"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de iPhone 18 Pro Max disponíveis: "
+                "512 GB por R$ 12.200,00, 256 GB por R$ 11.100,00 e "
+                "1 TB por R$ 15.200,00."
+            ),
+        },
+    ]
+    text = "Qual o valor do iPhone 17 Pro Max de 256 GB?"
+
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_unrelated_ios_question_does_not_reuse_old_bare_iphone_trade_offer(
     tmp_path,
 ):
