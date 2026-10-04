@@ -202,6 +202,13 @@ _BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_IPHONE_BUYBACK_PRICE_RE = re.compile(
+    r"\b(?:pega|pegam|pegaria|pegariam)\s+(?:(?:o|meu)\s+)?"
+    r"(?:iphone\s*)?(?P<model>\d{1,2})\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b.{0,40}"
+    r"\bpor\s+quant(?:o|os)\b",
+    re.IGNORECASE,
+)
 _BARE_MODEL_EXCHANGE_RE = re.compile(
     r"\b(?:na|para)\s+troca\b.{0,20}\b(?:um|uma)\s+\d{1,2}\b",
     re.IGNORECASE,
@@ -1024,6 +1031,45 @@ def is_completed_trade_in_form(text: str | None) -> bool:
     return field_count >= 4 and answer_count >= 4
 
 
+def _iphone_model_generations(text: str) -> set[int]:
+    return {
+        int(re.search(r"\d{1,2}", match.group()).group())
+        for match in _BARE_IPHONE_MODEL_RE.finditer(text)
+    }
+
+
+def _recent_catalog_price_model_generations(
+    history: list[dict[str, str]] | None,
+) -> set[int]:
+    entries = (history or [])[-8:]
+    for index in range(len(entries) - 1, -1, -1):
+        entry = entries[index]
+        if entry.get("role") != "user" or not entry.get("content"):
+            continue
+
+        request = _normalize(entry["content"])
+        if not re.search(r"\b(?:quanto|preco|valor|custa)\b", request):
+            continue
+        requested_generations = _iphone_model_generations(request)
+        if not requested_generations:
+            continue
+
+        replied_generations: set[int] = set()
+        for reply in entries[index + 1 :]:
+            if reply.get("role") != "assistant" or not reply.get("content"):
+                continue
+            content = _normalize(reply["content"])
+            if not _APPLE_PRODUCT_RE.search(content) or not re.search(
+                r"\b(?:catalogo|disponivel|opcoes|seminovo|lacrado|estoque|bateria)\b|\br\$",
+                content,
+            ):
+                continue
+            replied_generations.update(_iphone_model_generations(content))
+        return requested_generations & replied_generations
+
+    return set()
+
+
 def is_trade_in_context_request(
     text: str | None,
     history: list[dict[str, str]] | None,
@@ -1071,6 +1117,20 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    buyback_price_match = _CONTEXTUAL_IPHONE_BUYBACK_PRICE_RE.search(normalized)
+    if (
+        buyback_price_match
+        and has_recent_apple_catalog_context
+        and not _NEGATION_RE.search(normalized)
+        and not _NON_APPLE_RE.search(normalized)
+    ):
+        offered_generation = int(buyback_price_match.group("model"))
+        if any(
+            target_generation > offered_generation
+            for target_generation in _recent_catalog_price_model_generations(history)
+        ):
+            return True
+
     has_current_bare_model_trade_offer = bool(
         _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(normalized)
     )
