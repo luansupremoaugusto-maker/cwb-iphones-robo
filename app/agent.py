@@ -3503,6 +3503,7 @@ class AgentService:
         if (
             _is_catalog_buyer_details_question(combined_request, history)
             and not _is_store_hours_request(combined_request)
+            and not (_is_warranty_request(text) and _is_payment_methods_question(text))
             and not (
                 _is_delivery_or_pickup_request(combined_request)
                 and not _has_catalog_condition_signal(combined_request)
@@ -3580,6 +3581,13 @@ class AgentService:
         price_policy_decision = self._try_price_policy(text)
         if price_policy_decision is not None:
             return protect_customer_decision(price_policy_decision)
+
+        combined_warranty_payment_decision = await self._try_combined_warranty_payment(
+            text,
+            history,
+        )
+        if combined_warranty_payment_decision is not None:
+            return protect_customer_decision(combined_warranty_payment_decision)
 
         payment_methods_decision = self._try_payment_methods(text)
         if payment_methods_decision is not None:
@@ -3789,6 +3797,22 @@ class AgentService:
             )
         return AgentDecision(
             reply=self._append_delivery_or_pickup_info(reply, text),
+            confidence="high",
+        )
+
+    async def _try_combined_warranty_payment(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        payment_decision = self._try_payment_methods(text)
+        if payment_decision is None:
+            return None
+        warranty_decision = await self._try_warranty(text, history)
+        if warranty_decision is None:
+            return None
+        return AgentDecision(
+            reply=f"{warranty_decision.reply.rstrip()} {payment_decision.reply.lstrip()}",
             confidence="high",
         )
 
