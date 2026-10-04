@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.runtime import build_runtime
 from app.schemas import AgentDecision, InventoryItem
-from app.storage.database import MessageBatchRecord, Repository, build_engine, utc_now
+from app.storage.database import MessageBatchRecord, MessageRecord, Repository, build_engine, utc_now
 
 
 def test_debounce_batch_waits_and_coalesces_events():
@@ -66,6 +66,70 @@ async def test_processor_calls_agent_once_and_sends_one_reply_for_batch():
         assert [item["role"] for item in history].count("assistant") == 1
     finally:
         await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_processor_drops_old_topic_from_context_after_long_idle_gap():
+    settings = Settings(
+        database_url="sqlite:///:memory:",
+        openai_api_key=None,
+        mercado_phone_api_key=None,
+        outbound_mode="disabled",
+    )
+    runtime = build_runtime(settings, offline=True)
+    customer = "5511888888888"
+    now = utc_now()
+    runtime.repository.add_message(
+        customer, "inbound", "text", "Tem M5 1T prata?"
+    )
+    runtime.repository.add_message(
+        customer, "outbound", "text", "MacBook Air M5 prata, SSD 1 TB."
+    )
+    runtime.repository.add_message(customer, "inbound", "text", "Oiii")
+    runtime.repository.add_message(
+        customer,
+        "outbound",
+        "text",
+        "Agradecemos sua mensagem. Não estamos disponíveis no momento.",
+    )
+    with Session(runtime.repository.engine) as session:
+        records = session.query(MessageRecord).order_by(MessageRecord.id).all()
+        records[0].created_at = now - timedelta(hours=21, minutes=10)
+        records[1].created_at = now - timedelta(hours=21, minutes=9)
+        records[2].created_at = now - timedelta(minutes=2)
+        records[3].created_at = now - timedelta(minutes=1)
+        session.commit()
+
+    observed_history: list[list[dict[str, str]]] = []
+
+    class CapturingAgent:
+        async def respond(self, text, history=None, image_description=None):
+            observed_history.append(list(history or []))
+            return AgentDecision(reply="Hoje estamos fechados.")
+
+    runtime.processor.agent = CapturingAgent()
+    try:
+        await runtime.processor.process_batch(
+            [
+                {
+                    "messageId": "new-topic-after-idle",
+                    "phone": customer,
+                    "text": {"message": "Hoje você trabalha?"},
+                }
+            ]
+        )
+    finally:
+        await runtime.aclose()
+
+    assert observed_history == [
+        [
+            {"role": "user", "content": "Oiii"},
+            {
+                "role": "assistant",
+                "content": "Agradecemos sua mensagem. Não estamos disponíveis no momento.",
+            },
+        ]
+    ]
 
 
 @pytest.mark.asyncio

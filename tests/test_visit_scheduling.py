@@ -121,6 +121,60 @@ async def test_current_day_question_reports_closed_on_weekend(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hoje você trabalha?",
+        "Oiii\nHoje você trabalha?",
+        "Vocês trabalham hoje?",
+    ],
+)
+async def test_working_today_question_ignores_unrelated_catalog_and_trade_in_history(
+    tmp_path, monkeypatch, text
+):
+    current = datetime(2026, 8, 9, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Tem M5 1T prata?"},
+        {
+            "role": "assistant",
+            "content": "MacBook Air 2026 Apple M5 prata, SSD 1 TB.",
+        },
+        {"role": "user", "content": "Também tenho um iPhone 16 Pro Max para avaliação."},
+        {
+            "role": "assistant",
+            "content": "Envie os dados do iPhone para a avaliação de troca.",
+        },
+    ]
+
+    decision = await agent.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "domingo, 09/08/2026" in decision.reply
+    assert "fechada" in decision.reply.lower()
+    assert "macbook" not in decision.reply.lower()
+    assert "m5" not in decision.reply.lower()
+    assert "iphone 16" not in decision.reply.lower()
+    assert "avaliação" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_working_today_and_visit_request_keeps_scheduling_route(tmp_path, monkeypatch):
+    current = datetime(2026, 8, 10, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Hoje você trabalha? Quero agendar uma visita hoje às 16h."
+    )
+
+    assert decision.handoff is True
+    assert "registrar a solicitação da sua visita" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_colloquial_attendem_hoje_question_reports_closed_on_saturday(
     tmp_path, monkeypatch
 ):

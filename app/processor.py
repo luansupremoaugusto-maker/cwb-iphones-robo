@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from app.adapters.openai_media import OpenAIMediaError
@@ -11,12 +12,13 @@ from app.admin import AdminCommandService
 from app.agent import AgentService
 from app.config import Settings, normalize_phone
 from app.schemas import AgentDecision, IncomingMessage
-from app.storage.database import Repository
+from app.storage.database import Repository, utc_now
 
 
 ADMIN_COMMAND_RE = re.compile(r"^#(assumir|retomar|fechar)\s+(\d{10,15})\s*$", re.IGNORECASE)
 ADMIN_BULK_COMMAND_RE = re.compile(r"^#(retomar_todos|liberar_todos)\s*$", re.IGNORECASE)
 HTTP_URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+AGENT_CONTEXT_WINDOW = timedelta(hours=12)
 
 
 def _fold_text(value: str | None) -> str:
@@ -177,7 +179,11 @@ class MessageProcessor:
         first = incoming_messages[0]
         last = incoming_messages[-1]
         self.repository.get_or_create_conversation(phone, first.chat_name)
-        previous_history = self.repository.recent_messages(phone, limit=12)
+        previous_history = self.repository.recent_messages(
+            phone,
+            limit=12,
+            newer_than=utc_now() - AGENT_CONTEXT_WINDOW,
+        )
 
         stored_message_ids: list[int] = []
         for incoming in incoming_messages:
