@@ -242,7 +242,8 @@ _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
     re.IGNORECASE,
 )
 _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
-    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+(?:o|a|um|uma)?\s*"
+    r"\b(?:(?:estou\s+)?querendo|quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+"
+    r"(?:o|a|um|uma)?\s*"
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
@@ -734,6 +735,10 @@ def _has_complete_owned_device_buyback_offer(text: str) -> bool:
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
     if _has_abbreviated_iphone_buyback_profile(text):
+        return True
+    # Parts detection runs before trade-in routing. Preserve battery details
+    # when an owned iPhone and its explicit upgrade target are both present.
+    if _has_implicit_device_upgrade_offer(text):
         return True
     if _has_owned_iphone_business_offer(text):
         return True

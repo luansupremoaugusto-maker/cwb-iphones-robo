@@ -2485,6 +2485,43 @@ async def test_owned_iphone_15_pro_upgrade_to_17_pro_max_sends_evaluation_form(t
 
 
 @pytest.mark.asyncio
+async def test_iphone_15_pro_max_upgrade_research_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "To querendo mês que vem troca de celular e to fazendo uma pesquisa 😉\n"
+        "Vocês pegam celular e se sim eu tenho um 15 pro Max.\n"
+        "Saúde da bateria 82%\n"
+        "Eu estou querendo 17 pro ou 17 pro Max, menos o laranja, quanto sairia a diferença.\n"
+        "Se fosse no pix qual é a diferença e se fosse no crédito como funciona a parcela por favor 🥺"
+    )
+    history = [
+        {"role": "user", "content": "Oie, bom dia, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert is_parts_buyback_request(text) is False
+    assert is_trade_in_request(text) is True
+
+
+@pytest.mark.asyncio
 async def test_discount_for_delivering_old_phone_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
