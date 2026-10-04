@@ -147,6 +147,40 @@ async def test_shop_offer_for_detailed_iphone_profile_sends_evaluation_form(tmp_
 
 
 @pytest.mark.asyncio
+async def test_iphone_buyback_with_battery_percentage_after_battery_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPhone 17 Pro disponíveis: "
+                "512 GB NOVO LACRADO por R$ 8.700,00 e 256 GB NOVO LACRADO "
+                "por R$ 7.300,00."
+            ),
+        }
+    ]
+    text = (
+        "Outra coisa vocês pegam um iPhone 16 rosa, original com garantia "
+        "da Apple bateria 98%"
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
 async def test_pegaria_detailed_iphone_offer_sends_evaluation_form_with_catalog_history(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(

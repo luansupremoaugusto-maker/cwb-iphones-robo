@@ -168,7 +168,7 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"|\b\d{1,3}\s*%\s*(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?bateria\b"
-    r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%|boa|ruim)\b"
+    r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%(?![\w%])|\b(?:boa|ruim)\b)"
     r"|\b(?:em|com)\s+\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
