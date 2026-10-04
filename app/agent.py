@@ -412,6 +412,33 @@ def _is_pronta_entrega_only_request(text: str) -> bool:
     return _has_pronta_entrega_reference(text) and not re.search(r"\bencomenda\b", normalized)
 
 
+def _is_contextual_pronta_entrega_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a short ready-stock question about the product just discussed."""
+    normalized = _normalize(text)
+    if (
+        not normalized
+        or not _has_pronta_entrega_reference(text)
+        or not re.search(
+            r"\b(?:algum|alguma|nenhum|nenhuma|tem|teria|disponivel|"
+            r"disponibilidade|estoque|existe|existem)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:sedex|motoboy|fretes?|taxas?|envio|enviar|envia\w*|"
+            r"mandar|entregam|entregar|prazo)\b",
+            normalized,
+        )
+    ):
+        return False
+    if _has_product_reference(normalized):
+        return True
+    context_query = _product_context_query(text, history)
+    return _has_product_reference(_normalize(context_query))
+
+
 def _is_available_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -602,6 +629,7 @@ def _is_product_availability_request(
     accessory_request = _is_accessory_catalog_request(normalized)
     bare_model_request = _is_bare_model_availability_request(text)
     catalog_followup = _is_bare_model_catalog_followup(text, history)
+    contextual_ready_stock_followup = _is_contextual_pronta_entrega_followup(text, history)
     generic_phone_budget_request = bool(
         re.search(r"\bcelulares?\b", normalized)
         and _extract_budget_limit(text) is not None
@@ -612,6 +640,7 @@ def _is_product_availability_request(
         and not accessory_request
         and not bare_model_request
         and not catalog_followup
+        and not contextual_ready_stock_followup
     ):
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
@@ -635,7 +664,7 @@ def _is_product_availability_request(
         )
     ) or ("entrega" in normalized and not _has_pronta_entrega_reference(text)):
         return False
-    if catalog_followup:
+    if catalog_followup or contextual_ready_stock_followup:
         return True
     if accessory_request:
         return True
@@ -945,12 +974,17 @@ def _has_catalog_condition_signal(text: str) -> bool:
     )
 
 
-def _is_delivery_or_pickup_request(text: str) -> bool:
+def _is_delivery_or_pickup_request(
+    text: str,
+    history: list[dict[str, str]] | None = None,
+) -> bool:
     normalized = _normalize(text)
     if not normalized or _has_sealed_reference(normalized):
         return False
     if _has_pronta_entrega_reference(text) and (
-        _is_available_list_request(text) or _is_product_availability_request(text)
+        _is_available_list_request(text)
+        or _is_product_availability_request(text)
+        or _is_contextual_pronta_entrega_followup(text, history)
     ):
         return False
     has_delivery = bool(re.search(r"\b(?:entrega|entregam|entregas)\b", normalized))
@@ -3517,7 +3551,7 @@ class AgentService:
             and not _is_store_hours_request(combined_request)
             and not (_is_warranty_request(text) and _is_payment_methods_question(text))
             and not (
-                _is_delivery_or_pickup_request(combined_request)
+                _is_delivery_or_pickup_request(combined_request, history)
                 and not _has_catalog_condition_signal(combined_request)
             )
             and not trade_in_em_andamento(history)
@@ -3864,7 +3898,7 @@ class AgentService:
         pickup_schedule_request = _is_pickup_schedule_request(text)
         if (
             not (
-                _is_delivery_or_pickup_request(text)
+                _is_delivery_or_pickup_request(text, history)
                 or delivery_followup
                 or delivery_fee_request
                 or pickup_schedule_request
@@ -4378,6 +4412,7 @@ class AgentService:
                 or _is_catalog_availability_confirmation(current_query, history)
                 or _is_catalog_model_confirmation(current_query, history)
                 or capacity_availability_followup
+                or _is_contextual_pronta_entrega_followup(current_query, history)
             )
         ):
             query = _product_context_query(
@@ -4390,7 +4425,10 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
-        if not _is_product_availability_request(query, history=history):
+        if not (
+            _is_product_availability_request(query, history=history)
+            or _is_contextual_pronta_entrega_followup(text, history)
+        ):
             return None
 
         requested_budget = _extract_budget_limit(query)
