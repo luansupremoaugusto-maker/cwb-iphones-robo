@@ -1306,8 +1306,10 @@ def _has_visit_date_reference(text: str) -> bool:
         "proxima semana",
         "esta semana",
     )
-    return any(marker in normalized for marker in date_markers) or bool(
-        re.search(r"\bdia\s+\d{1,2}\b", normalized)
+    return (
+        any(marker in normalized for marker in date_markers)
+        or bool(re.search(r"\bhj\b", normalized))
+        or bool(re.search(r"\bdia\s+\d{1,2}\b", normalized))
     )
 
 
@@ -1395,7 +1397,13 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
 
     short_reply = re.sub(r"[^\w\s]", " ", normalized, flags=re.UNICODE)
     short_reply = re.sub(r"\s+", " ", short_reply).strip()
-    return short_reply in {
+    is_now_availability_reply = bool(
+        re.fullmatch(
+            r"(?:estou|estamos) dispon(?:ivel|iveis) (?:agora|agr)",
+            short_reply,
+        )
+    )
+    return is_now_availability_reply or short_reply in {
         "sim",
         "pode",
         "pode ser",
@@ -1517,6 +1525,8 @@ def _visit_date_for_request(
 ) -> datetime | None:
     normalized = _normalize(text)
     current = now or _store_now()
+    if re.search(r"\b(?:hoje|hj)\b", normalized):
+        return current
     if "amanha" in normalized:
         return current + timedelta(days=1)
 
@@ -4765,6 +4775,14 @@ class AgentService:
             and _has_today_visit_offer(history)
         ):
             context = f"hoje\n{context}"
+        visit_day = _visit_date_for_request(text) or _visit_date_for_request(context)
+        if visit_day is not None and not _is_business_weekday(visit_day):
+            reply = (
+                _reservation_reply(self.faq, visit_day=visit_day)
+                if is_reservation
+                else _visit_day_reply(visit_day)
+            )
+            return AgentDecision(reply=reply, confidence="high")
         if _has_visit_date_reference(context) and _has_visit_time_reference(context):
             address = self.faq.get("address") or (
                 "Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060"

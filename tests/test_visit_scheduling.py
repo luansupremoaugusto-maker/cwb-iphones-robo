@@ -287,6 +287,88 @@ async def test_visit_followup_now_reports_closed_on_saturday(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_visit_followup_today_abbreviation_reports_closed_on_saturday(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 10, 3, 15, 34, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Daria hj?",
+        history=[
+            {"role": "user", "content": "Sim por gentileza"},
+            {
+                "role": "assistant",
+                "content": "Claro! 😊 Qual dia e horário você prefere para solicitar a visita?",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sábado, 03/10/2026" in decision.reply.lower()
+    assert "fechada" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_available_now_after_today_visit_offer_reports_closed_on_saturday(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 10, 3, 15, 34, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Estamos disponíveis agr",
+        history=[
+            {"role": "user", "content": "Sim por gentileza"},
+            {
+                "role": "assistant",
+                "content": "Claro! 😊 Qual dia e horário você prefere para solicitar a visita?",
+            },
+            {"role": "user", "content": "Daria hj?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Posso solicitar para hoje, sim 😊 Atendemos de segunda a sexta, "
+                    "das 9h às 18h, sempre com horário marcado. Qual horário você prefere? "
+                    "A visita precisa ser confirmada pelo atendente."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sábado, 03/10/2026" in decision.reply.lower()
+    assert "fechada" in decision.reply.lower()
+    assert "solicitação da sua visita" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_visit_followup_with_closed_day_and_time_is_not_forwarded(
+    tmp_path, monkeypatch
+):
+    current = datetime(2026, 10, 3, 15, 34, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    initial = await agent.respond("Quero marcar uma visita à loja.")
+
+    decision = await agent.respond(
+        "Pode ser sábado às 15h?",
+        history=[
+            {"role": "user", "content": "Quero marcar uma visita à loja."},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "sábado, 03/10/2026" in decision.reply.lower()
+    assert "fechada" in decision.reply.lower()
+    assert "solicitação da sua visita" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_visit_followup_with_tomorrow_uses_tomorrow_instead_of_repeating_today(
     tmp_path, monkeypatch
 ):
