@@ -757,6 +757,16 @@ def _is_product_availability_request(
     )
 
 
+def _is_unresolved_iphone_model_selection(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        "iphone" in _catalog_families(normalized)
+        and not _requested_iphone_model_keys(normalized)
+        and re.search(r"\bmodelo\s+em\s+mente\b", normalized)
+        and re.search(r"\b(?:compr\w*|lacrad\w*)\b", normalized)
+    )
+
+
 def _is_accessory_catalog_request(text: str) -> bool:
     normalized = _normalize(text)
     if not _is_accessory_catalog_query(normalized):
@@ -3622,6 +3632,15 @@ class AgentService:
                     handoff_reason=TECHNICAL_ASSISTANCE_REASON,
                     confidence="high",
                 )
+            )
+
+        if _is_unresolved_iphone_model_selection(combined_request):
+            return AgentDecision(
+                reply=(
+                    "Claro 😊 Qual modelo de iPhone você tem em mente? "
+                    "Aí consulto as opções lacradas disponíveis para você."
+                ),
+                confidence="high",
             )
 
         combined_catalog_installment_decision = await self._try_combined_catalog_installment(

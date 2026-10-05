@@ -2674,6 +2674,41 @@ async def test_iphone_15_plus_or_normal_request_keeps_base_model_in_stock(tmp_pa
     assert "não localizei" not in _normalize(decision.reply)
 
 
+@pytest.mark.asyncio
+async def test_customer_with_model_in_mind_is_asked_before_any_iphone_is_selected(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-16-lacrado-128", "iPhone 16", "128 GB", 5200),
+        _sealed_item("iphone-17-air-lacrado-256", "iPhone 17 Air", "256 GB", 5800),
+    ]
+    initial_message = (
+        "Olá, boa noite!! Gostaria de saber mais sobre as compras de iPhone, "
+        "por favor 😊\nEu tenho um modelo em mente que eu quero comprar lacrado."
+    )
+
+    first_decision = await agent.respond(initial_message)
+
+    assert first_decision.handoff is False
+    assert first_decision.product_references == []
+    assert first_decision.image_urls == []
+    assert "qual modelo" in _normalize(first_decision.reply)
+    assert "iphone 17 air" not in _normalize(first_decision.reply)
+    assert "r$" not in _normalize(first_decision.reply)
+
+    second_decision = await agent.respond(
+        "Eu gostaria do iPhone 16 lacrado.",
+        history=[
+            {"role": "user", "content": initial_message},
+            {"role": "assistant", "content": first_decision.reply},
+        ],
+    )
+
+    assert second_decision.handoff is False
+    assert second_decision.product_references == ["iphone-16-lacrado-128"]
+    assert "iphone 16" in _normalize(second_decision.reply)
+    assert "iphone 17 air" not in _normalize(second_decision.reply)
+
+
 def _watch_seminovo() -> InventoryItem:
     return InventoryItem(
         external_id="watch-se2-seminovo",
