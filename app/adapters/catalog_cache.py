@@ -1040,7 +1040,32 @@ class StoreCatalogCache(InventoryCache):
                 }
             return None, {"encontrado": False, "motivo": "Produto com preço confirmado não localizado"}
 
-        if len(candidates) > 1 and _catalog_score(query, candidates[0]) == _catalog_score(query, candidates[1]):
+        condition_pair = False
+        if len(candidates) == 2 and not _requested_condition_occurrences(query):
+            condition_keys = {
+                "sealed"
+                if _is_sealed_catalog_item(item)
+                else _requested_photo_condition(getattr(item, "condition", "")) or "unknown"
+                for item in candidates
+            }
+            product_keys = {
+                (
+                    _model_key(item.name),
+                    _capacity_key(getattr(item, "capacity", None) or item.name),
+                )
+                for item in candidates
+            }
+            condition_pair = (
+                condition_keys == {"used", "sealed"}
+                and len(product_keys) == 1
+                and next(iter(product_keys))[0] is not None
+                and next(iter(product_keys))[1] is not None
+            )
+
+        if condition_pair or (
+            len(candidates) > 1
+            and _catalog_score(query, candidates[0]) == _catalog_score(query, candidates[1])
+        ):
             return None, {
                 "encontrado": False,
                 "ambiguo": True,
@@ -1049,6 +1074,10 @@ class StoreCatalogCache(InventoryCache):
                         "referencia": item.external_id,
                         "nome": item.name,
                         "capacidade": item.capacity,
+                        "condicao": _display_condition(
+                            item,
+                            sealed=_is_sealed_catalog_item(item),
+                        ),
                         "cor": getattr(item, "color", None) or getattr(item, "colors", None),
                         "preco_brl": item.price_brl,
                         "saude_bateria": getattr(item, "battery_health", None),
