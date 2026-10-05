@@ -2247,6 +2247,7 @@ def _is_full_installment_request(text: str) -> bool:
         return False
     phrases = (
         "como fica o parcelamento",
+        "como funciona o parcelamento",
         "como fica parcelado",
         "quanto fica parcelado",
         "quanto fica o parcelamento",
@@ -3575,6 +3576,8 @@ class AgentService:
         if (
             _is_catalog_buyer_details_question(combined_request, history)
             and not _is_store_hours_request(combined_request)
+            and not _is_full_installment_request(text)
+            and not _is_specific_installment_request(text)
             and not (_is_warranty_request(text) and _is_payment_methods_question(text))
             and not (
                 _is_delivery_or_pickup_request(combined_request, history)
@@ -5559,12 +5562,84 @@ class AgentService:
                 confidence="high",
             )
         if result.get("ambiguo"):
+            condition_tables = await self._try_ambiguous_condition_installment_tables(
+                query,
+                result,
+            )
+            if condition_tables is not None:
+                return condition_tables
             return _format_ambiguous_installment_decision(result)
         if not result.get("ambiguo"):
             alternative = await self._try_unavailable_seminew_alternative(query)
             if alternative is not None:
                 return alternative
             return None
+
+    async def _try_ambiguous_condition_installment_tables(
+        self,
+        query: str,
+        result: dict[str, Any],
+    ) -> AgentDecision | None:
+        """Simulate both confirmed conditions when only condition is ambiguous."""
+        candidates = result.get("candidatos") or []
+        if len(candidates) != 2:
+            return None
+
+        normalized_query = _normalize(query)
+        if _has_explicit_sealed_condition(normalized_query) or _has_seminovo_reference(
+            normalized_query
+        ):
+            return None
+
+        by_condition: dict[str, dict[str, Any]] = {}
+        product_keys: set[tuple[str, str]] = set()
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                return None
+            condition = _normalize(str(candidate.get("condicao") or ""))
+            if _has_explicit_sealed_condition(condition):
+                key = "lacrado"
+            elif _has_seminovo_reference(condition):
+                key = "seminovo"
+            else:
+                return None
+            if key in by_condition:
+                return None
+            by_condition[key] = candidate
+            name = _normalize(str(candidate.get("nome") or ""))
+            capacity = _normalize(str(candidate.get("capacidade") or ""))
+            if not name or not capacity:
+                return None
+            product_keys.add((name, capacity))
+
+        if set(by_condition) != {"seminovo", "lacrado"} or len(product_keys) != 1:
+            return None
+
+        method = getattr(self.cache, "simulate_all_installments", None)
+        if not callable(method):
+            return None
+
+        sections: list[str] = []
+        for condition, label in (
+            ("seminovo", "Opção seminova"),
+            ("lacrado", "Opção novo lacrado por encomenda"),
+        ):
+            try:
+                table = await method(f"{query}\n{condition}")
+            except Exception:
+                return None
+            if not table.get("encontrado"):
+                return None
+            if condition == "seminovo":
+                battery = by_condition[condition].get("saude_bateria")
+                if battery is not None:
+                    label += f" (bateria {float(battery):g}%)"
+            sections.append(f"{label}:\n{format_installment_table(table)}")
+
+        return AgentDecision(
+            reply="\n\n".join(sections),
+            confidence="high",
+        )
 
     async def _try_full_installment_table(
         self,
@@ -5583,15 +5658,22 @@ class AgentService:
         method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
             return None
+        query = _installment_context_query(text, history)
         try:
-            result = await method(_installment_context_query(text, history))
+            result = await method(query)
         except Exception:
             return None
         if not result.get("encontrado"):
             if result.get("ambiguo"):
+                condition_tables = await self._try_ambiguous_condition_installment_tables(
+                    query,
+                    result,
+                )
+                if condition_tables is not None:
+                    return condition_tables
                 return _format_ambiguous_installment_decision(result)
             return await self._try_unavailable_seminew_alternative(
-                _installment_context_query(text, history)
+                query
             )
         return AgentDecision(
             reply=format_installment_table(result),

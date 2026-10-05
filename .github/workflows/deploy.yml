@@ -108,6 +108,42 @@ jobs:
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_contextual_pronta_entrega_followup, _is_delivery_or_pickup_request; history = [{"role": "assistant", "content": "Ouro-rosa está cadastrado para o Apple Watch Series 11 nos dois tamanhos: 42 mm por R$ 2.500 ou 46 mm por R$ 2.700. Trabalhamos por encomenda, com prazo de 1 semana. Qual tamanho você prefere?"}]; text = "Nenhum a pronta entrega?"; assert _is_contextual_pronta_entrega_followup(text, history); assert not _is_delivery_or_pickup_request(text, history); print("APPLE_WATCH_READY_STOCK_CONTEXT_GUARD_OK")'
           docker compose --env-file .env.local exec -T app python -c 'from datetime import timedelta; from app.agent import _is_today_store_status_request; from app.processor import AGENT_CONTEXT_WINDOW; assert AGENT_CONTEXT_WINDOW == timedelta(hours=12); assert _is_today_store_status_request("Hoje você trabalha?"); assert _is_today_store_status_request("Vocês trabalham hoje?"); assert not _is_today_store_status_request("Eu trabalho hoje?"); print("Conversation topic and store-status guards: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_unresolved_iphone_model_selection; generic = "Tenho um modelo em mente de iPhone que quero comprar lacrado"; specific = "Quero comprar iPhone 16 lacrado"; assert _is_unresolved_iphone_model_selection(generic); assert not _is_unresolved_iphone_model_selection(specific); print("Unspecified iPhone model clarification: ok")'
+          docker compose --env-file .env.local exec -T app python -c '
+          import asyncio
+          from types import SimpleNamespace
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.installments import simulate_installment_table
+
+          class InstallmentGuardCache:
+              async def search(self, query, limit=10):
+                  return []
+
+              async def simulate_all_installments(self, query):
+                  normalized = query.rstrip().lower()
+                  if normalized.endswith("seminovo"):
+                      return simulate_installment_table(SimpleNamespace(name="iPhone 16", capacity="128 GB", price_brl=3750.0))
+                  if normalized.endswith("lacrado"):
+                      return simulate_installment_table(SimpleNamespace(name="iPhone 16", capacity="128 GB", price_brl=4900.0))
+                  return {"encontrado": False, "ambiguo": True, "candidatos": [
+                      {"nome": "iPhone 16", "capacidade": "128 GB", "condicao": "seminovo", "saude_bateria": 90},
+                      {"nome": "iPhone 16", "capacidade": "128 GB", "condicao": "novo lacrado", "saude_bateria": None},
+                  ]}
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(InstallmentGuardCache(), FAQStore(settings.faq_file), settings, offline=True)
+          history = [{"role": "assistant", "content": "Encontrei o iPhone 16 de 128 GB seminovo por R$ 3.750,00 e novo lacrado por R$ 4.900,00."}]
+          decision = asyncio.run(service.respond("Como funciona o parcelamento do iPhone 16 de 128 GB ?", history=history))
+          assert not decision.handoff, decision
+          assert decision.product_references == [], decision.product_references
+          assert "Preço à vista: R$ 3.750,00" in decision.reply, decision.reply
+          assert "Preço à vista: R$ 4.900,00" in decision.reply, decision.reply
+          assert decision.reply.count(chr(10) + "1x de") == 2, decision.reply
+          assert decision.reply.count(chr(10) + "18x de") == 2, decision.reply
+          assert "256 GB" not in decision.reply, decision.reply
+          print("iPhone 16 128 GB installment routing: ok")
+          '
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

@@ -841,3 +841,160 @@ async def test_installment_prompt_simulates_each_requested_model_with_its_own_de
     assert "R$ 7.600,00" not in decision.reply
     assert "R$ 8.800,00" not in decision.reply
     assert decision.reply.count("18x de") == 2
+
+
+@pytest.mark.asyncio
+async def test_literal_iphone_16_128_installment_after_catalog_sends_both_conditions(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-128-black-used",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3750.0,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iphone 16 preto 128 gb seminovo bateria 90",
+        ),
+        InventoryItem(
+            external_id="iphone-16-256-black-used",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3850.0,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 16 preto 256 gb seminovo bateria 88",
+        ),
+    ]
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:iphone-16-128-sealed",
+            name="iPhone 16",
+            capacity="128 GB",
+            price_brl=4900.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text=(
+                "iphone 16 azul ultramarino verde acinzentado rosa branco preto "
+                "128 gb novo lacrado"
+            ),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    conversation = [
+        {"role": "user", "content": "Olá bom dia."},
+        {"role": "assistant", "content": "Olá, bom dia! 😊 Como posso te ajudar?"},
+        {
+            "role": "user",
+            "content": "Gostaria de saber se vcs tem o iPhone 16 á venda",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 disponíveis:\n"
+                "📱 Seminovos disponíveis para pronta entrega:\n"
+                "• IPHONE 16 — PRETO — 128GB — SEMINOVO — R$ 3.750,00 | Bat: 90%\n"
+                "• IPHONE 16 — PRETO — 256GB — SEMINOVO — R$ 3.850,00 | Bat: 88%\n"
+                "📦 Novos lacrados por encomenda:\n"
+                "• iPhone 16 — Azul Ultramarino | Verde-acinzentado |  Rosa | Branco | "
+                "Preto — 128 GB — NOVO LACRADO — R$ 4.900,00 | Bat: não se aplica\n"
+                "Os lacrados são por encomenda, com prazo de 1 semana. Em qualquer envio, "
+                "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
+                "despacho; na retirada na loja, o pagamento é feito na hora."
+            ),
+        },
+        {"role": "user", "content": "Vcs parcelam em até quantas vezes?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Parcelamento do IPHONE 16 256GB\n"
+                "Preço à vista: R$ 3.850,00\n"
+                "1x de R$ 4.050,50 (total R$ 4.050,50)\n"
+                "2x de R$ 2.039,63 (total R$ 4.079,25)\n"
+                "3x de R$ 1.376,38 (total R$ 4.129,13)\n"
+                "4x de R$ 1.041,22 (total R$ 4.164,86)\n"
+                "5x de R$ 839,88 (total R$ 4.199,39)\n"
+                "6x de R$ 707,07 (total R$ 4.242,42)\n"
+                "7x de R$ 610,70 (total R$ 4.274,93)\n"
+                "8x de R$ 539,64 (total R$ 4.317,11)\n"
+                "9x de R$ 484,62 (total R$ 4.361,62)\n"
+                "10x de R$ 439,50 (total R$ 4.394,98)\n"
+                "11x de R$ 402,11 (total R$ 4.423,25)\n"
+                "12x de R$ 373,28 (total R$ 4.479,35)\n"
+                "13x de R$ 348,42 (total R$ 4.529,41)\n"
+                "14x de R$ 326,60 (total R$ 4.572,45)\n"
+                "15x de R$ 307,02 (total R$ 4.605,26)\n"
+                "16x de R$ 290,26 (total R$ 4.644,15)\n"
+                "17x de R$ 276,18 (total R$ 4.695,12)\n"
+                "18x de R$ 264,71 (total R$ 4.764,85)\n"
+                "Valores calculados para pagamento no cartão de crédito."
+            ),
+        },
+        {"role": "user", "content": "eu queria o iPhone 16 de 128 gb"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 disponíveis:\n"
+                "📱 Seminovos disponíveis para pronta entrega:\n"
+                "• IPHONE 16 — PRETO — 128GB — SEMINOVO — R$ 3.750,00 | Bat: 90%\n"
+                "📦 Novos lacrados por encomenda:\n"
+                "• iPhone 16 — Azul Ultramarino | Verde-acinzentado |  Rosa | Branco | "
+                "Preto — 128 GB — NOVO LACRADO — R$ 4.900,00 | Bat: não se aplica\n"
+                "Os lacrados são por encomenda, com prazo de 1 semana. Em qualquer envio, "
+                "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
+                "despacho; na retirada na loja, o pagamento é feito na hora."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Como funciona o parcelamento do iPhone 16 de 128 GB ?",
+        history=conversation,
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "Opção seminova" in decision.reply
+    assert "Parcelamento do IPHONE 16 128 GB" in decision.reply
+    assert "Preço à vista: R$ 3.750,00" in decision.reply
+    assert "Opção novo lacrado por encomenda" in decision.reply
+    assert "Parcelamento do iPhone 16 128 GB" in decision.reply
+    assert "Preço à vista: R$ 4.900,00" in decision.reply
+    assert decision.reply.count("\n1x de") == 2
+    assert decision.reply.count("18x de") == 2
+    assert "R$ 3.850,00" not in decision.reply
+    assert "256 GB" not in decision.reply
+    assert "Vou encaminhar" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_catalog_device_condition_question_still_hands_off_after_installment_route_fix(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Como funciona a bateria do iPhone 16? Ela já foi trocada?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontrei o iPhone 16 128 GB seminovo disponível por R$ 3.750,00."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in decision.reply.lower()
