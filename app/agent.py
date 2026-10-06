@@ -1081,6 +1081,25 @@ def _is_delivery_followup_request(
     )
 
 
+def _is_delivery_payment_question(
+    text: str,
+) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    has_delivery_context = bool(
+        re.search(r"\b(?:entrega|entregar|motoboy|sedex|frete|envio|enviar)\b", normalized)
+    )
+    has_payment_context = bool(
+        re.search(
+            r"\b(?:pagamento|pagar|pago|parcelad\w*|parcelamento|pix|dinheiro|"
+            r"debito|credito|cartao)\b",
+            normalized,
+        )
+    )
+    return has_delivery_context and has_payment_context
+
+
 def _is_explicit_human_request(text: str) -> bool:
     normalized = _normalize(text)
     return bool(
@@ -1111,6 +1130,64 @@ def _delivery_or_pickup_reply(
             or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da retirada."
         )
     return "\n\n".join(reply for reply in replies if reply)
+
+
+def _is_visit_unavailability_message(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    cannot_visit = bool(
+        re.search(
+            r"\bnao\s+(?:consigo|posso)\s+(?:ir|vir|visitar|passar|comparecer)\b"
+            r".{0,45}\b(?:loja|estabelecimento)\b"
+            r"|\bnao\s+da\s+tempo\b"
+            r"|\bsem\s+tempo\s+(?:de|para)\s+(?:ir|vir|visitar|passar|comparecer)\b",
+            normalized,
+        )
+    )
+    if not cannot_visit:
+        return False
+    has_positive_visit_plan = bool(
+        re.search(
+            r"(?<!nao\s)\b(?:mas\s+)?(?:posso|consigo|vou|gostaria\s+de)\s+"
+            r"(?:ir|vir|visitar|passar|comparecer|marcar|agendar)\b",
+            normalized,
+        )
+    )
+    return not has_positive_visit_plan
+
+
+def _delivery_payment_reply(
+    faq: FAQStore,
+    *,
+    acknowledge_cannot_visit: bool = False,
+) -> str:
+    delivery = faq.get("entrega") or (
+        "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
+    )
+    delivery = re.sub(
+        r"\s*O pagamento deve ser antecipado antes do despacho\.?",
+        "",
+        delivery,
+        flags=re.IGNORECASE,
+    )
+    delivery = re.sub(
+        r"\s*Taxa e prazo devem ser cotados com um atendente\.?",
+        "",
+        delivery,
+        flags=re.IGNORECASE,
+    ).strip()
+    payment = faq.get("pagamento") or PAYMENT_METHODS_REPLY
+    acknowledgement = (
+        "Entendi que você não consegue vir até a loja. " if acknowledge_cannot_visit else ""
+    )
+    return (
+        f"{acknowledgement}{delivery} "
+        "Para envio, o pagamento deve ser antecipado antes do despacho; não é possível pagar na entrega. "
+        f"{payment} Não aceitamos pagamento por cartão de crédito online ou link. "
+        "Um atendente precisa confirmar a taxa e o prazo pelo endereço e orientar "
+        "como concluir o pagamento antes do envio. Qual é seu bairro ou CEP?"
+    )
 
 
 def _extract_time_reference(text: str) -> tuple[int, str] | None:
@@ -1287,7 +1364,7 @@ def _is_store_hours_request(text: str) -> bool:
 
 def _is_visit_request(text: str) -> bool:
     normalized = _normalize(text)
-    if not normalized:
+    if not normalized or _is_visit_unavailability_message(text):
         return False
     phrases = (
         "marcar um horario",
@@ -1432,7 +1509,7 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
         return False
 
     normalized = _normalize(text)
-    if not normalized:
+    if not normalized or _is_visit_unavailability_message(text):
         return False
 
     # A new request must win over an old appointment prompt.
@@ -3675,6 +3752,10 @@ class AgentService:
         if combined_warranty_payment_decision is not None:
             return protect_customer_decision(combined_warranty_payment_decision)
 
+        delivery_payment_decision = self._try_delivery_payment(text, history)
+        if delivery_payment_decision is not None:
+            return protect_customer_decision(delivery_payment_decision)
+
         payment_methods_decision = self._try_payment_methods(text)
         if payment_methods_decision is not None:
             return protect_customer_decision(payment_methods_decision)
@@ -3923,6 +4004,24 @@ class AgentService:
         if not information:
             return reply
         return f"{reply}\n\n{information}"
+
+    def _try_delivery_payment(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> AgentDecision | None:
+        acknowledge_cannot_visit = (
+            _is_visit_unavailability_message(text) and _has_delivery_context(history)
+        )
+        if not acknowledge_cannot_visit and not _is_delivery_payment_question(text):
+            return None
+        return AgentDecision(
+            reply=_delivery_payment_reply(
+                self.faq,
+                acknowledge_cannot_visit=acknowledge_cannot_visit,
+            ),
+            confidence="high",
+        )
 
     def _try_delivery_or_pickup(
         self,
