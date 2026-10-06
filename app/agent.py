@@ -2262,7 +2262,13 @@ def _is_boleto_payment_request(text: str) -> bool:
             normalized,
         )
     )
-    return has_installment_question or has_payment_intent
+    has_store_sale_intent = bool(
+        re.search(
+            r"\b(?:(?:voce|voces)\s+|(?:a|na)\s+loja\s+)?vend(?:e|em|emos|endo)\b",
+            normalized,
+        )
+    ) and not _is_warranty_request(text)
+    return has_installment_question or has_payment_intent or has_store_sale_intent
 
 
 def _is_payment_methods_question(text: str) -> bool:
