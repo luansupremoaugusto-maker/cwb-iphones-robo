@@ -416,6 +416,26 @@ async def test_boleto_installment_followup_refuses_simulation_and_explains_polic
 
 
 @pytest.mark.asyncio
+async def test_literal_boleto_sales_question_after_greeting_returns_payment_policy_without_catalog(
+    tmp_path,
+):
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {"role": "user", "content": "Olá"},
+        {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"},
+    ]
+
+    decision = await agent.respond("Você vende iPhone no boleto?", history=history)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "iphone 13 pro max" not in _normalize(decision.reply)
+    assert "nao parcelamos no boleto" in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_boleto_purchase_question_routes_to_payment_policy_not_evaluation(tmp_path):
     agent = build_agent(tmp_path)
     history = [

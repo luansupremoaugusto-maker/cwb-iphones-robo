@@ -2226,7 +2226,7 @@ def _is_boleto_payment_request(text: str) -> bool:
     )
     has_payment_intent = bool(
         re.search(
-            r"\b(?:aceit\w*|compr\w*|aprov\w*|pag\w*|quero|queria|gostaria|"
+            r"\b(?:aceit\w*|compr\w*|aprov\w*|pag\w*|vend\w*|quero|queria|gostaria|"
             r"posso|pode|tem|teria|consegu\w*)\b",
             normalized,
         )
