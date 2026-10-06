@@ -6,6 +6,7 @@ from app.adapters.mercado_phone import InventoryCache
 from app.agent import AgentService
 from app.config import Settings
 from app.faq import FAQStore
+from app.trade_in import CONDITION_HANDOFF_REASON, CONDITION_HANDOFF_REPLY
 
 
 class EmptyMercadoClient:
@@ -71,6 +72,30 @@ async def test_battery_health_question_is_not_treated_as_repair(tmp_path):
     decision = await agent.respond("Qual a saúde da bateria do iPhone 11?")
 
     assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_battery_original_or_replaced_question_after_video_is_product_condition(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "a bateria é original? ou trocada",
+        image_description=(
+            "Descrição cautelosa do vídeo recebido: aparelho celular nas mãos do cliente."
+        ),
+    )
+
+    assert decision.reply == CONDITION_HANDOFF_REPLY
+    assert decision.handoff is True
+    assert decision.handoff_reason == CONDITION_HANDOFF_REASON
+    assert decision.product_references == []
+    assert decision.image_urls == []
 
 
 @pytest.mark.asyncio
