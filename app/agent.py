@@ -1484,6 +1484,13 @@ def _is_visit_request(text: str) -> bool:
             r"\b(?:posso|consigo)\s+(?:te\s+)?entreg\w*\b.{0,60}\bhoje\b",
             normalized,
         )
+        or (
+            re.search(r"\bmarcar\b", normalized)
+            and (
+                _has_visit_date_reference(text)
+                or _has_visit_time_reference(text)
+            )
+        )
     )
 
 
