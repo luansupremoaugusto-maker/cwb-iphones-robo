@@ -2926,3 +2926,42 @@ async def test_detailed_owned_iphone_upgrade_in_whatsapp_message_sends_evaluatio
     assert decision.image_urls == []
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
+async def test_apple_purchase_source_does_not_turn_direct_model_interest_into_trade_in(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-18-pro-max-256",
+            name="iPhone 18 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=11500,
+            battery_health=100,
+            search_text="iphone 18 pro max 256 gb titanio preto celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = (
+        "Meu iPhone 17 Pro Max 256 GB está perfeito, comprei da Apple. "
+        "Quero o iPhone 18 Pro Max."
+    )
+
+    decision = await service.respond(text)
+
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+    assert is_trade_in_request(text) is False

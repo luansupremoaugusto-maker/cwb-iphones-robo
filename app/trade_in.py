@@ -361,6 +361,18 @@ _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
 )
 
 
+def _has_explicit_device_exchange_context(text: str) -> bool:
+    return bool(
+        _NON_APPLE_EXCHANGE_RE.search(text)
+        or _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
+        or re.search(
+            r"\b(?:troca\s+de\s+celular|diferenc\w*|troco|"
+            r"trocar\s+(?:por|para|pra|pro|pelo|pela))\b",
+            text,
+        )
+    )
+
+
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
     owned_device = _OWNED_NUMBERED_IPHONE_RE.search(text) or (
         _has_complete_owned_device_profile(text)
@@ -396,11 +408,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         and _IMPLICIT_EXCHANGE_TARGET_RE.search(text)
     )
     multi_device_trade_price = _MULTI_DEVICE_TRADE_PRICE_RE.search(text)
-    explicit_exchange_context = bool(
-        _NON_APPLE_EXCHANGE_RE.search(text)
-        or _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
-        or re.search(r"\b(?:troca\s+de\s+celular|diferenc\w*|troco)\b", text)
-    )
+    explicit_exchange_context = _has_explicit_device_exchange_context(text)
     repair_without_exchange = (
         _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(text)
         and not explicit_exchange_context
@@ -915,8 +923,9 @@ def is_trade_in_request(text: str | None) -> bool:
         return False
     if re.search(r"\b(?:nao quero|so quero|s[oó] quero)\s+comprar\b", normalized):
         return False
-    if re.search(r"\bcompr(?:ar|o|ei)\b.{0,20}\bda\s+apple\b", normalized) and not (
-        _has_implicit_device_upgrade_offer(normalized)
+    if (
+        re.search(r"\bcompr(?:ar|o|ei)\b.{0,20}\bda\s+apple\b", normalized)
+        and not _has_explicit_device_exchange_context(normalized)
     ):
         return False
     if _is_catalog_purchase_observation(normalized):
