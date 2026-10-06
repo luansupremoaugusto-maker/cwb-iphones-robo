@@ -8,7 +8,7 @@ import pytest
 
 import app.agent as agent_module
 from app.adapters.mercado_phone import InventoryCache
-from app.agent import AgentService
+from app.agent import AgentService, _normalize
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -56,6 +56,76 @@ async def test_visit_request_offers_today_on_weekday(tmp_path, monkeypatch):
     assert "visita para hoje" in decision.reply.lower()
     assert "qual horário" in decision.reply.lower()
     assert "reserva" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_unable_to_visit_after_delivery_question_does_not_offer_appointment(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Qual é o endereço de vocês?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Estamos na Avenida Nossa Senhora da Luz, 1341. Posso marcar uma "
+                "visita para hoje? Qual horário fica melhor para você?"
+            ),
+        },
+        {
+            "role": "user",
+            "content": "E se acaso fosse para vocês entregarem na minha casa, como faríamos?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Se for em Curitiba ou região, podemos enviar por motoboy; para outras "
+                "cidades, por Sedex. O pagamento precisa ser feito antes do envio; não "
+                "fazemos pagamento na entrega."
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Não consigo ir até a loja, não dá tempo", history=history)
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "motoboy" in reply
+    assert "antecipado antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+    assert "visita" not in reply
+    assert "qual horario" not in reply
+
+
+@pytest.mark.asyncio
+async def test_future_visit_plan_overrides_no_time_to_visit_today(tmp_path, monkeypatch):
+    current = datetime(2026, 8, 18, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    initial = await agent.respond("Gostaria de marcar uma visita para hoje.")
+    history = [
+        {"role": "user", "content": "Gostaria de marcar uma visita para hoje."},
+        {"role": "assistant", "content": initial.reply},
+        {
+            "role": "user",
+            "content": "E se acaso fosse para vocês entregarem na minha casa?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Enviamos para Curitiba e região por motoboy. O pagamento deve ser "
+                "antecipado antes do despacho."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Não dá tempo de ir hoje, vou deixar para ir amanhã.",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "quarta-feira, 19/08/2026" in decision.reply
+    assert "visita para amanhã" in decision.reply.lower()
+    assert "qual horário" in decision.reply.lower()
 
 
 @pytest.mark.asyncio

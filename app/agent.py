@@ -1081,6 +1081,105 @@ def _is_delivery_followup_request(
     )
 
 
+def _is_delivery_payment_question(
+    text: str,
+) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    has_delivery_context = bool(
+        re.search(r"\b(?:entreg\w*|motoboy|sedex|frete|envio|envi\w*)\b", normalized)
+    )
+    has_payment_context = bool(
+        re.search(
+            r"\b(?:pagamento|pagar|pago|parcelad\w*|parcelamento|pix|dinheiro|"
+            r"debito|credito|cartao)\b",
+            normalized,
+        )
+    )
+    return has_delivery_context and has_payment_context
+
+
+def _is_delivery_quote_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if not normalized or not history:
+        return False
+
+    latest_assistant_reply = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history)
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    if not (
+        "qual e seu bairro ou cep" in latest_assistant_reply
+        and "taxa" in latest_assistant_reply
+        and "prazo" in latest_assistant_reply
+        and "pagamento" in latest_assistant_reply
+        and re.search(r"\b(?:entrega|motoboy|sedex)\b", latest_assistant_reply)
+    ):
+        return False
+
+    has_postal_code = bool(re.search(r"\b\d{5}-?\d{3}\b", text))
+    has_location_statement = bool(
+        re.search(
+            r"\b(?:(?:moro|resido)\s+(?:em|no|na)|sou\s+de|"
+            r"meu\s+(?:bairro|endereco)\s+e)\s+[a-z0-9]+|"
+            r"\bbairro\s+(?!(?:qual|e|pode|ser\w*|voce|fica|melhor|atende|"
+            r"de|do|dos|da|das|em|no|na|para|pra)\b)[a-z0-9]+|"
+            r"\bfica\s+(?:em|no|na)\s+[a-z0-9]+",
+            normalized,
+        )
+    )
+    if "?" in text and re.search(r"\bfica\s+(?:em|no|na)\b", normalized):
+        has_location_statement = False
+    has_street_address = bool(
+        re.search(
+            r"\b(?:rua|avenida|av|alameda|travessa|praca|endereco)\b"
+            r".{0,60}\b\d{1,5}\b",
+            normalized,
+        )
+    )
+    if has_postal_code or has_location_statement or has_street_address:
+        return True
+
+    candidate = re.sub(
+        r"^(?:(?:sim|ok|certo|beleza|obrigad\w*|ola|oi|bom dia|boa tarde|boa noite)"
+        r"\b[\s,]*)+",
+        "",
+        normalized,
+    ).strip()
+    candidate = re.sub(r"^[,;:\s]+|[,;:!?]+\s*$", "", candidate).strip()
+    if not candidate:
+        return False
+    words = re.findall(r"[a-z0-9]+", candidate)
+    if not words or len(words) > 6:
+        return False
+    unrelated_markers = (
+        r"\b(?:sim|nao|ok|certo|beleza|obrigad\w*|ola|oi|pode|ser|tudo|bem|claro|"
+        r"perfeito|combinado|confirmo|iphone|ipad|airpods|watch|samsung|motorola|xiaomi|redmi|"
+        r"modelo|preco|quanto|qual|como|"
+        r"pagamento|pagar|pago|pix|dinheiro|debito|credito|cartao|parcela\w*|vezes|reais?|"
+        r"voces|entrega|entreg\w*|motoboy|sedex|frete|taxa|prazo|fica|em|no|na|de|para|pra|"
+        r"hoje|amanha|visita|marcar|agendar|remarcar|vou|quero|gostaria|"
+        r"consigo|posso|tempo|ir|loja|atendente)\b"
+    )
+    if re.search(unrelated_markers, candidate):
+        return False
+
+    location_only = bool(re.fullmatch(r"[a-z]+(?:[ ,]+[a-z]+){0,3}", candidate))
+    if location_only and re.search(r"\b(?:curitiba|pinhais|colombo|araucaria)\b", candidate):
+        return True
+    if "?" in text or re.fullmatch(r"\d+", normalized):
+        return False
+    return location_only and len(words) <= 4
+
+
 def _is_explicit_human_request(text: str) -> bool:
     normalized = _normalize(text)
     return bool(
@@ -1111,6 +1210,66 @@ def _delivery_or_pickup_reply(
             or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da retirada."
         )
     return "\n\n".join(reply for reply in replies if reply)
+
+
+def _is_visit_unavailability_message(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    cannot_visit = bool(
+        re.search(
+            r"\bnao\s+(?:consigo|posso)\s+(?:ir|vir|visitar|passar|comparecer)\b"
+            r".{0,45}\b(?:loja|estabelecimento)\b"
+            r"|\bnao\s+da\s+tempo\b"
+            r"|\bsem\s+tempo\s+(?:de|para)\s+(?:ir|vir|visitar|passar|comparecer)\b",
+            normalized,
+        )
+    )
+    if not cannot_visit:
+        return False
+    has_positive_visit_plan = bool(
+        re.search(
+            r"(?<!nao\s)\b(?:mas\s+)?(?:posso|consigo|vou|gostaria\s+de)\s+"
+            r"(?:ir|vir|visitar|passar|comparecer|marcar|agendar)\b"
+            r"|\b(?:vou|quero|pretendo)\s+deixar\s+(?:para|pra)\s+"
+            r"(?:ir|vir|visitar|passar|comparecer)\b",
+            normalized,
+        )
+    )
+    return not has_positive_visit_plan
+
+
+def _delivery_payment_reply(
+    faq: FAQStore,
+    *,
+    acknowledge_cannot_visit: bool = False,
+) -> str:
+    delivery = faq.get("entrega") or (
+        "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
+    )
+    delivery = re.sub(
+        r"\s*O pagamento deve ser antecipado antes do despacho\.?",
+        "",
+        delivery,
+        flags=re.IGNORECASE,
+    )
+    delivery = re.sub(
+        r"\s*Taxa e prazo devem ser cotados com um atendente\.?",
+        "",
+        delivery,
+        flags=re.IGNORECASE,
+    ).strip()
+    payment = faq.get("pagamento") or PAYMENT_METHODS_REPLY
+    acknowledgement = (
+        "Entendi que você não consegue vir até a loja. " if acknowledge_cannot_visit else ""
+    )
+    return (
+        f"{acknowledgement}{delivery} "
+        "Para envio, o pagamento deve ser antecipado antes do despacho; não é possível pagar na entrega. "
+        f"{payment} Não aceitamos pagamento por cartão de crédito online ou link. "
+        "Um atendente precisa confirmar a taxa e o prazo pelo endereço e orientar "
+        "como concluir o pagamento antes do envio. Qual é seu bairro ou CEP?"
+    )
 
 
 def _extract_time_reference(text: str) -> tuple[int, str] | None:
@@ -1287,7 +1446,7 @@ def _is_store_hours_request(text: str) -> bool:
 
 def _is_visit_request(text: str) -> bool:
     normalized = _normalize(text)
-    if not normalized:
+    if not normalized or _is_visit_unavailability_message(text):
         return False
     phrases = (
         "marcar um horario",
@@ -1432,7 +1591,7 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
         return False
 
     normalized = _normalize(text)
-    if not normalized:
+    if not normalized or _is_visit_unavailability_message(text):
         return False
 
     # A new request must win over an old appointment prompt.
@@ -3675,6 +3834,10 @@ class AgentService:
         if combined_warranty_payment_decision is not None:
             return protect_customer_decision(combined_warranty_payment_decision)
 
+        delivery_payment_decision = self._try_delivery_payment(text, history)
+        if delivery_payment_decision is not None:
+            return protect_customer_decision(delivery_payment_decision)
+
         payment_methods_decision = self._try_payment_methods(text)
         if payment_methods_decision is not None:
             return protect_customer_decision(payment_methods_decision)
@@ -3923,6 +4086,38 @@ class AgentService:
         if not information:
             return reply
         return f"{reply}\n\n{information}"
+
+    def _try_delivery_payment(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> AgentDecision | None:
+        if _is_delivery_quote_followup(text, history):
+            return AgentDecision(
+                reply=(
+                    "Obrigado! Vou encaminhar seu endereço para um atendente confirmar "
+                    "a taxa e o prazo da entrega e orientar como concluir o pagamento antes do envio."
+                ),
+                handoff=True,
+                handoff_reason=DELIVERY_FEE_HANDOFF_REASON,
+                confidence="high",
+            )
+
+        delivery_fee_request = _is_delivery_fee_request(text, history)
+        acknowledge_cannot_visit = (
+            _is_visit_unavailability_message(text) and _has_delivery_context(history)
+        )
+        if not acknowledge_cannot_visit and not _is_delivery_payment_question(text):
+            return None
+        return AgentDecision(
+            reply=_delivery_payment_reply(
+                self.faq,
+                acknowledge_cannot_visit=acknowledge_cannot_visit,
+            ),
+            handoff=delivery_fee_request,
+            handoff_reason=DELIVERY_FEE_HANDOFF_REASON if delivery_fee_request else None,
+            confidence="high",
+        )
 
     def _try_delivery_or_pickup(
         self,

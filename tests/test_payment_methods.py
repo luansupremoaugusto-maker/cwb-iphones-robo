@@ -138,6 +138,164 @@ async def test_payment_methods_question_after_sealed_catalog_reply_does_not_repe
 
 
 @pytest.mark.asyncio
+async def test_delivery_payment_question_explains_prepayment_and_available_methods():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, "
+                "enviamos por Sedex. O pagamento deve ser antecipado antes do despacho. "
+                "O cartão parcelado é na máquina física. A taxa e o prazo da entrega "
+                "precisam ser confirmados com um atendente."
+            ),
+        }
+    ]
+
+    decision = await agent.respond("E como pago a entrega e o celular?", history=history)
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "antecipado antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+    assert "pix" in reply
+    assert "dinheiro" in reply
+    assert "cartao de debito" in reply
+    assert "cartao de credito" in reply
+    assert "maquina fisica" in reply
+    assert "nao aceitamos pagamento por cartao de credito online" in reply
+    assert "taxa" in reply and "atendente" in reply
+    assert "bairro" in reply or "cep" in reply
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_installment_delivery_question_explains_machine_and_no_pay_on_arrival():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Parcelamento do iPhone 17 128 GB: 1x de R$ 3.500,00. "
+                "Valores para pagamento no cartão de crédito."
+            ),
+        }
+    ]
+
+    decision = await agent.respond(
+        "Se for pagar parcelado tem que ser na loja ou vocês entregam e faz o pagamento na entrega?",
+        history=history,
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "parcelado" in reply
+    assert "maquina fisica" in reply
+    assert "antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+    assert "motoboy" in reply
+    assert "sedex" in reply
+
+
+@pytest.mark.asyncio
+async def test_delivery_payment_question_recognizes_deliveram_verb_form():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Vocês entregam e posso pagar parcelado?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "motoboy" in reply
+    assert "parcelado" in reply
+    assert "maquina fisica" in reply
+    assert "antecipado antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+
+
+@pytest.mark.asyncio
+async def test_delivery_fee_and_installment_question_keeps_attendant_handoff():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Qual a taxa do motoboy e posso pagar parcelado?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is True
+    assert "antecipado antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+    assert "maquina fisica" in reply
+    assert "taxa" in reply and "atendente" in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "address",
+    [
+        "Bacacheri, Curitiba",
+        "Boa Vista",
+        "Curitiba?",
+        "82520-060?",
+        "Não, moro em Pinhais",
+        "Rua das Flores, 123?",
+    ],
+)
+async def test_delivery_neighborhood_reply_after_quote_prompt_hands_off_to_attendant(
+    address,
+):
+    agent = build_agent_with_cache(AvailableCatalog())
+    question = "E como pago a entrega e o celular?"
+    initial = await agent.respond(question)
+
+    decision = await agent.respond(
+        address,
+        history=[
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is True
+    assert "atendente" in reply
+    assert "taxa" in reply
+    assert "prazo" in reply
+    assert "pagamento" in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Sim",
+        "Sim, pode ser",
+        "Qual é a rua?",
+        "Vocês entregam em Curitiba?",
+        "Qual bairro de Curitiba?",
+        "Fica em Curitiba?",
+    ],
+)
+async def test_delivery_quote_prompt_does_not_treat_non_address_reply_as_location(reply):
+    agent = build_agent_with_cache(AvailableCatalog())
+    initial = await agent.respond("E como pago a entrega e o celular?")
+
+    decision = await agent.respond(
+        reply,
+        history=[{"role": "assistant", "content": initial.reply}],
+    )
+
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_without_delivery_quote_prompt_does_not_handoff():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Bacacheri, Curitiba")
+
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_iphone_model_list_question_still_returns_products():
     agent = build_agent_with_cache(AvailableCatalog())
 
