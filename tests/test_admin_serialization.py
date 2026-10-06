@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 
 import pytest
@@ -260,3 +261,57 @@ def test_catalog_pdf_is_landscape_and_repeats_the_exact_csv_header_on_multiple_p
         text = page.extract_text() or ""
         assert "Categoria" in text
         assert "Fotos disponíveis" in text
+
+
+def test_catalog_pdf_numbers_items_across_selected_categories_and_pages():
+    used_items = [
+        {
+            "nome": "iPhone Seminovo modelo",
+            "capacidade": "",
+            "condicao": "Seminovo",
+            "quantidade": None,
+            "precos_brl": [],
+            "cores": [],
+            "saude_bateria": None,
+            "fotos_disponiveis": 0,
+        }
+        for _ in range(60)
+    ]
+    sealed_items = [
+        {
+            "nome": "iPhone Lacrado modelo",
+            "capacidade": "",
+            "condicao": "Lacrado por encomenda",
+            "quantidade": None,
+            "precos_brl": [],
+            "cores": [],
+            "saude_bateria": None,
+            "fotos_disponiveis": 0,
+        }
+        for _ in range(45)
+    ]
+    payload = public_catalog_payload(
+        {
+            "seminovos": used_items,
+            "lacrados_pronta_entrega": [],
+            "lacrados": sealed_items,
+        },
+        100.0,
+        200.0,
+        "now",
+    )
+
+    reader = PdfReader(
+        BytesIO(catalog_pdf_bytes(payload, sections=["lacrados", "seminovos"]))
+    )
+    text = " ".join(
+        " ".join(page.extract_text().split())
+        for page in reader.pages
+        if page.extract_text()
+    )
+    item_numbers = re.findall(
+        r"(\d+)\.\s+iPhone\s+(?:Seminovo|Lacrado)\s+modelo", text
+    )
+
+    assert len(reader.pages) >= 2
+    assert [int(number) for number in item_numbers] == list(range(1, 106))

@@ -56,59 +56,6 @@ def _route_page(route: Route, html: str) -> None:
             body=b"Categoria;Produto\r\n",
         )
         return
-    if path == "/admin/api/recovery/draft" and request.method == "POST":
-        route.fulfill(
-            content_type="application/json",
-            body=json.dumps(
-                {
-                    "phone": "551196543210",
-                    "chat_name": "Maria",
-                    "last_message_id": 7,
-                    "source_message_id": 7,
-                    "category_label": "Compra, preço ou estoque",
-                    "confidence": "high",
-                    "messages": [
-                        {
-                            "id": 7,
-                            "direction": "inbound",
-                            "kind": "text",
-                            "text": "Tem iPhone 15?",
-                            "created_at": "2026-09-15T12:00:00+00:00",
-                        }
-                    ],
-                    "draft": "Olá! Desculpe a demora. Retomando seu atendimento.",
-                    "review_required": False,
-                    "review_reason": None,
-                }
-            ),
-        )
-        return
-    if path == "/admin/api/recovery/send" and request.method == "POST":
-        route.fulfill(
-            content_type="application/json",
-            body=json.dumps(
-                {
-                    "phone": "551196543210",
-                    "sent": True,
-                    "suppressed": False,
-                    "status": "human_active",
-                    "message": "Resposta enviada ao cliente.",
-                }
-            ),
-        )
-        return
-    if path == "/admin/api/recovery/skip" and request.method == "POST":
-        route.fulfill(
-            content_type="application/json",
-            body=json.dumps(
-                {
-                    "phone": "551196543210",
-                    "skipped": True,
-                    "message": "Conversa pulada até chegar uma nova mensagem do cliente.",
-                }
-            ),
-        )
-        return
     if path.startswith("/admin/api/conversations/"):
         route.fulfill(
             content_type="application/json",
@@ -172,22 +119,6 @@ def _route_page(route: Route, html: str) -> None:
             "role": "owner",
         },
         "/admin/api/conversations": {"items": []},
-        "/admin/api/recovery": {
-            "generated_at": CATALOG["generated_at"],
-            "total": 1,
-            "has_more": False,
-            "items": [
-                {
-                    "phone": "551196543210",
-                    "phone_aliases": ["551196543210", "5511996543210"],
-                    "chat_name": "Maria",
-                    "category_label": "Compra, preço ou estoque",
-                    "last_message": "Tem iPhone 15?",
-                    "last_message_id": 7,
-                    "age_hours": 72.0,
-                }
-            ],
-        },
         "/admin/api/audit": {"items": []},
         "/admin/api/control": {
             "permissions": {"owner_controls": True},
@@ -270,8 +201,8 @@ def test_admin_page_panels_can_be_collapsed_and_remember_state():
             _open_admin_page(page, html)
 
             panels = page.locator("section.panel[data-panel-key]")
-            assert panels.count() == 8
-            assert panels.locator("[data-panel-toggle]").count() == 8
+            assert panels.count() == 7
+            assert panels.locator("[data-panel-toggle]").count() == 7
 
             operations = page.locator('section.panel[data-panel-key="operations"]')
             toggle = operations.locator("[data-panel-toggle]")
@@ -301,110 +232,25 @@ def test_admin_page_panels_can_be_collapsed_and_remember_state():
             browser.close()
 
 
-def test_recovery_editor_prepares_and_sends_one_reviewed_message_in_a_real_browser():
+def test_admin_page_does_not_load_recovery_queue_in_a_real_browser():
     html = render_admin_page("csrf-token")
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         try:
             page = browser.new_page()
-            _open_admin_page(page, html)
-            page.on("dialog", lambda dialog: dialog.accept())
-
-            page.locator(
-                '#recovery-queue-body button[data-recovery-action="prepare"]'
-            ).click()
-
-            page.locator("#recovery-editor").wait_for(state="visible")
-            page.wait_for_function(
-                "() => document.querySelector('#recovery-message').value.length > 0"
+            recovery_requests: list[str] = []
+            page.on(
+                "request",
+                lambda request: recovery_requests.append(request.url)
+                if "/admin/api/recovery" in request.url
+                else None,
             )
-            assert page.locator("#recovery-message").input_value().startswith("Olá!")
-            assert "Tem iPhone 15?" in page.locator("#recovery-history").inner_text()
-
-            with page.expect_request(
-                lambda request: request.url.endswith("/admin/api/recovery/send")
-                and request.method == "POST"
-            ) as send_request:
-                page.locator("#send-recovery-message").click()
-
-            assert '"expected_last_message_id":7' in (send_request.value.post_data or "").replace(" ", "")
-        finally:
-            browser.close()
-
-
-def test_recovery_editor_can_be_closed_in_a_real_browser():
-    html = render_admin_page("csrf-token")
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        try:
-            page = browser.new_page()
             _open_admin_page(page, html)
-
-            page.locator(
-                '#recovery-queue-body button[data-recovery-action="prepare"]'
-            ).click()
-            page.wait_for_function(
-                "() => document.querySelector('#recovery-message').value.length > 0"
-            )
-            assert page.locator("#recovery-editor").is_visible()
-
-            page.locator("#close-recovery-editor").click()
-
-            assert page.locator("#recovery-editor").is_hidden()
-            assert not page.locator("#recovery-editor").is_visible()
-        finally:
-            browser.close()
-
-
-def test_recovery_editor_is_above_queue_and_each_row_can_skip_in_a_real_browser():
-    html = render_admin_page("csrf-token")
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        try:
-            page = browser.new_page()
-            _open_admin_page(page, html)
-            page.on("dialog", lambda dialog: dialog.accept())
-
-            assert page.locator("#recovery-editor").evaluate(
-                "(editor) => Boolean(editor.compareDocumentPosition(document.querySelector('#recovery-queue-body')) & Node.DOCUMENT_POSITION_FOLLOWING)"
-            )
-            skip_button = page.locator(
-                '#recovery-queue-body button[data-recovery-action="skip"]'
-            ).first
-            skip_button.wait_for()
-
-            with page.expect_request(
-                lambda request: request.url.endswith("/admin/api/recovery/skip")
-                and request.method == "POST"
-            ) as skip_request:
-                skip_button.click()
-
-            assert '"expected_last_message_id":7' in (
-                skip_request.value.post_data or ""
-            ).replace(" ", "")
-        finally:
-            browser.close()
-
-
-def test_recovery_search_accepts_brazilian_mobile_ninth_digit_alias_in_a_real_browser():
-    html = render_admin_page("csrf-token")
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        try:
-            page = browser.new_page()
-            _open_admin_page(page, html)
-
-            with page.expect_request(
-                lambda request: "/admin/api/recovery?" in request.url
-                and "search=5511996543210" in request.url
-            ):
-                page.locator("#recovery-search").fill("5511996543210")
-
-            assert page.locator('#recovery-queue-body button[data-recovery-action="prepare"]').count() == 1
+            assert "Recuperação pós-viagem" not in page.content()
+            assert page.locator('section.panel[data-panel-key="recovery"]').count() == 0
+            assert page.locator("#recovery-queue-body").count() == 0
+            assert recovery_requests == []
         finally:
             browser.close()
 

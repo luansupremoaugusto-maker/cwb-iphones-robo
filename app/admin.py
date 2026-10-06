@@ -433,10 +433,13 @@ def catalog_pdf_bytes(payload: dict[str, Any], *, sections: Iterable[str] | None
     table_data: list[list[Any]] = [[
         Paragraph(_catalog_pdf_markup(column), header_style) for column in CATALOG_EXPORT_COLUMNS
     ]]
+    item_number = 0
     for section in selected_sections:
         label = CATALOG_SECTION_LABELS[section]
         for item in payload.get(section, []):
+            item_number += 1
             row = _catalog_export_row(label, item)
+            row["Produto"] = f"{item_number}. {row['Produto']}"
             table_data.append([cell(row[column]) for column in CATALOG_EXPORT_COLUMNS])
 
     if len(table_data) == 1:
