@@ -779,6 +779,26 @@ async def test_owned_ipad_11_sale_with_pronoun_sends_evaluation_list(tmp_path):
     assert decision.image_urls == []
 
 
+@pytest.mark.asyncio
+async def test_negated_pronominal_ipad_sale_does_not_start_evaluation(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Tenho um iPad, mas não gostaria de vendê-lo."
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
 def test_trade_in_history_marker_only_counts_assistant_form():
     assert trade_in_em_andamento(
         [{"role": "assistant", "content": TRADE_IN_FORM}]
