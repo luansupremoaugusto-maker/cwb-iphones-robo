@@ -199,6 +199,35 @@ async def test_installment_delivery_question_explains_machine_and_no_pay_on_arri
 
 
 @pytest.mark.asyncio
+async def test_delivery_payment_question_recognizes_deliveram_verb_form():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Vocês entregam e posso pagar parcelado?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "motoboy" in reply
+    assert "parcelado" in reply
+    assert "maquina fisica" in reply
+    assert "antecipado antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+
+
+@pytest.mark.asyncio
+async def test_delivery_fee_and_installment_question_keeps_attendant_handoff():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Qual a taxa do motoboy e posso pagar parcelado?")
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is True
+    assert "antecipado antes do despacho" in reply
+    assert "nao e possivel pagar na entrega" in reply
+    assert "maquina fisica" in reply
+    assert "taxa" in reply and "atendente" in reply
+
+
+@pytest.mark.asyncio
 async def test_iphone_model_list_question_still_returns_products():
     agent = build_agent_with_cache(AvailableCatalog())
 

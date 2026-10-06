@@ -1088,7 +1088,7 @@ def _is_delivery_payment_question(
     if not normalized:
         return False
     has_delivery_context = bool(
-        re.search(r"\b(?:entrega|entregar|motoboy|sedex|frete|envio|enviar)\b", normalized)
+        re.search(r"\b(?:entreg\w*|motoboy|sedex|frete|envio|envi\w*)\b", normalized)
     )
     has_payment_context = bool(
         re.search(
@@ -1150,7 +1150,9 @@ def _is_visit_unavailability_message(text: str) -> bool:
     has_positive_visit_plan = bool(
         re.search(
             r"(?<!nao\s)\b(?:mas\s+)?(?:posso|consigo|vou|gostaria\s+de)\s+"
-            r"(?:ir|vir|visitar|passar|comparecer|marcar|agendar)\b",
+            r"(?:ir|vir|visitar|passar|comparecer|marcar|agendar)\b"
+            r"|\b(?:vou|quero|pretendo)\s+deixar\s+(?:para|pra)\s+"
+            r"(?:ir|vir|visitar|passar|comparecer)\b",
             normalized,
         )
     )
@@ -4010,6 +4012,7 @@ class AgentService:
         text: str,
         history: list[dict[str, str]] | None = None,
     ) -> AgentDecision | None:
+        delivery_fee_request = _is_delivery_fee_request(text, history)
         acknowledge_cannot_visit = (
             _is_visit_unavailability_message(text) and _has_delivery_context(history)
         )
@@ -4020,6 +4023,8 @@ class AgentService:
                 self.faq,
                 acknowledge_cannot_visit=acknowledge_cannot_visit,
             ),
+            handoff=delivery_fee_request,
+            handoff_reason=DELIVERY_FEE_HANDOFF_REASON if delivery_fee_request else None,
             confidence="high",
         )
 

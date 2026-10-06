@@ -96,6 +96,39 @@ async def test_unable_to_visit_after_delivery_question_does_not_offer_appointmen
 
 
 @pytest.mark.asyncio
+async def test_future_visit_plan_overrides_no_time_to_visit_today(tmp_path, monkeypatch):
+    current = datetime(2026, 8, 18, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    initial = await agent.respond("Gostaria de marcar uma visita para hoje.")
+    history = [
+        {"role": "user", "content": "Gostaria de marcar uma visita para hoje."},
+        {"role": "assistant", "content": initial.reply},
+        {
+            "role": "user",
+            "content": "E se acaso fosse para vocês entregarem na minha casa?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Enviamos para Curitiba e região por motoboy. O pagamento deve ser "
+                "antecipado antes do despacho."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Não dá tempo de ir hoje, vou deixar para ir amanhã.",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "quarta-feira, 19/08/2026" in decision.reply
+    assert "visita para amanhã" in decision.reply.lower()
+    assert "qual horário" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "text",
     [
