@@ -85,6 +85,29 @@ async def test_generic_warranty_question_returns_both_approved_rules(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Qual a garantia do iPhone vendido no boleto?",
+        "Qual a garantia dos iPhones que vocês vendem no boleto?",
+    ],
+)
+async def test_warranty_question_about_phone_sold_on_boleto_stays_on_warranty_policy(
+    tmp_path,
+    text,
+):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "90 dias" in decision.reply
+    assert "boleto" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_colloquial_semis_warranty_followup_returns_only_used_device_policy(tmp_path):
     agent = build_agent(tmp_path)
     history = [
