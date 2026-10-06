@@ -552,14 +552,29 @@ def _is_sealed_catalog_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or _has_product_reference(normalized):
         return False
-    if not re.search(r"\blacrados\b", normalized):
+    if _has_seminovo_reference(normalized):
+        return False
+    new_model_list_request = _is_new_model_list_request(normalized)
+    if not new_model_list_request and not re.search(r"\blacrados\b", normalized):
         return False
     return bool(
         re.search(
             r"\b(?:quanto|qual|quais|preco|precos|valor|valores|lista|tabela|"
-            r"tem|vende|possui|disponivel|disponibilidade|estoque)\b",
+            r"tem|vende|possui|disponiveis?|disponibilidade|estoque)\b",
             normalized,
         )
+    )
+
+
+def _is_new_model_list_request(text: str) -> bool:
+    """Recognize broad requests for new models without an explicit model."""
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and not _has_product_reference(normalized)
+        and not _has_seminovo_reference(normalized)
+        and re.search(r"\b(?:modelos|aparelhos|celulares|iphones)\b", normalized)
+        and re.search(r"\bnov[oa]s?\b", normalized)
     )
 
 
@@ -4201,6 +4216,14 @@ class AgentService:
             lacrados_pronta_entrega = result.get("lacrados_pronta_entrega") or []
             lacrados = result.get("lacrados") or []
             if not lacrados_pronta_entrega and not lacrados:
+                if _is_new_model_list_request(text):
+                    return AgentDecision(
+                        reply=(
+                            "No momento, não localizei modelos novos/lacrados disponíveis no catálogo. "
+                            "Se quiser, posso verificar um modelo específico ou outra capacidade."
+                        ),
+                        confidence="medium",
+                    )
                 return None
             result = {
                 "encontrado": True,
