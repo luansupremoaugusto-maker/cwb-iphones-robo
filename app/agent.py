@@ -1263,6 +1263,8 @@ def _is_store_day_hours_request(text: str) -> bool:
 
 def _is_store_hours_request(text: str) -> bool:
     normalized = _normalize(text)
+    normalized = re.sub(r"\bq\b", "que", normalized)
+    normalized = re.sub(r"\bhrs?\b", "horas", normalized)
     if not normalized or "hoje" in normalized:
         return False
     if _is_store_day_hours_request(text):
