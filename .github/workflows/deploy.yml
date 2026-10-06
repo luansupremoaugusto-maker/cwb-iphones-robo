@@ -110,6 +110,63 @@ jobs:
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _customer_product_condition_context_query, _customer_product_request_context_query, _is_pronta_entrega_only_request; history = [{"role": "user", "content": "Estou procurando um iPhone novo ou semi para compra. Quais modelos você tem a pronta entrega? 15/16/17. Novo ou semi."}]; current = "E novo?"; condition = _customer_product_condition_context_query(current, history); context = _customer_product_request_context_query(current, history); assert condition == current, condition; assert _is_pronta_entrega_only_request(context), context; print("New-condition pronta-entrega follow-up: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_contextual_pronta_entrega_followup, _is_delivery_or_pickup_request; history = [{"role": "assistant", "content": "Ouro-rosa está cadastrado para o Apple Watch Series 11 nos dois tamanhos: 42 mm por R$ 2.500 ou 46 mm por R$ 2.700. Trabalhamos por encomenda, com prazo de 1 semana. Qual tamanho você prefere?"}]; text = "Nenhum a pronta entrega?"; assert _is_contextual_pronta_entrega_followup(text, history); assert not _is_delivery_or_pickup_request(text, history); print("APPLE_WATCH_READY_STOCK_CONTEXT_GUARD_OK")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_store_hours_request; query = "até q hrs vcs ficam abertos?"; assert _is_store_hours_request(query); print("STORE_HOURS_SHORTHAND_GUARD_OK")'
+          docker compose --env-file .env.local exec -T app python -c '
+          import asyncio
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import app.agent as agent_module
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          agent_module._store_now = lambda: datetime(
+              2026, 10, 6, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo")
+          )
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  object(),
+                  settings,
+                  cache_path="/tmp/visit-booking-after-catalog.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          history = [
+              {
+                  "role": "user",
+                  "content": (
+                      "To interessaaado no Iphone 14 Pro Max ou 16 Pro max. "
+                      "Ainda na hora vou decidir se os dois ainda estiverem disponíveis."
+                  ),
+              },
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Entendi! No momento, temos seminovos disponíveis dos dois modelos: "
+                      "iPhone 14 Pro Max (128 GB e 256 GB) e iPhone 16 Pro Max "
+                      "(256 GB e 512 GB). A disponibilidade pode mudar até o dia da visita. "
+                      "Quando definir o dia e o horário, é só me avisar."
+                  ),
+              },
+          ]
+          decision = asyncio.run(
+              service.respond(
+                  "Ta corrido essa semana ahahaha, podemos marcar na sexta as 09h?",
+                  history=history,
+              )
+          )
+          assert (
+              decision.handoff
+              and "agendamento" in (decision.handoff_reason or "").lower()
+          ), decision
+          assert decision.product_references == [], decision
+          assert decision.image_urls == [], decision
+          assert "r$ 9,00" not in decision.reply.lower(), decision.reply
+          print("VISIT_BOOKING_AFTER_CATALOG_OK")
+          '
           docker compose --env-file .env.local exec -T app python -c 'from datetime import timedelta; from app.agent import _is_today_store_status_request; from app.processor import AGENT_CONTEXT_WINDOW; assert AGENT_CONTEXT_WINDOW == timedelta(hours=12); assert _is_today_store_status_request("Hoje você trabalha?"); assert _is_today_store_status_request("Vocês trabalham hoje?"); assert not _is_today_store_status_request("Eu trabalho hoje?"); print("Conversation topic and store-status guards: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_unresolved_iphone_model_selection; generic = "Tenho um modelo em mente de iPhone que quero comprar lacrado"; specific = "Quero comprar iPhone 16 lacrado"; assert _is_unresolved_iphone_model_selection(generic); assert not _is_unresolved_iphone_model_selection(specific); print("Unspecified iPhone model clarification: ok")'
           docker compose --env-file .env.local exec -T app python -c '
