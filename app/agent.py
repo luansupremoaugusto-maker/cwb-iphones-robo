@@ -1815,7 +1815,7 @@ def _is_catalog_buyer_details_question(
     )
     named_product_state_question = bool(
         _has_product_reference(normalized)
-        and re.search(r"\b(?:tem|possui|esta|vem)\b", normalized)
+        and re.search(r"\b(?:tem|possui|esta|e|vem)\b", normalized)
         and re.search(r"\b(?:bateria|tela|display|vidro|pecas?)\b", normalized)
         and re.search(r"\b(?:trocad\w*|substituid\w*)\b", normalized)
     )
