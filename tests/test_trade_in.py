@@ -2884,3 +2884,45 @@ async def test_confirmation_after_abbreviated_iphone_13_offer_sends_evaluation_f
     assert decision.handoff is True
     assert decision.product_references == []
     assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_detailed_owned_iphone_upgrade_in_whatsapp_message_sends_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "bom dia!! vcs fazem upgrade de celular? meu atual é um iPhone 17 Pro Max "
+        "256 GB em ótimo estado, sem avarias, com 84% de saúde da bateria e sem "
+        "restrição de operadora (comprei fora) e garantia da apple até 25/12. e eu "
+        "to querendo trocar pelo 18 pro max de 256gb!"
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        }
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False

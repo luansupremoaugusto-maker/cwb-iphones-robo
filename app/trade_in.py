@@ -268,6 +268,7 @@ _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
 )
 _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
     r"\b(?:(?:estou\s+)?querendo|quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+"
+    r"(?:trocar\s+(?:por|para|pra|pro|pelo|pela)\s+)?"
     r"(?:o|a|um|uma)?\s*"
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
@@ -361,7 +362,9 @@ _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
 
 
 def _has_implicit_device_upgrade_offer(text: str) -> bool:
-    owned_device = _OWNED_NUMBERED_IPHONE_RE.search(text)
+    owned_device = _OWNED_NUMBERED_IPHONE_RE.search(text) or (
+        _has_complete_owned_device_profile(text)
+    )
     # Batched messages may list offered iPhone details between "trocar" and the target.
     detailed_exchange = _DETAILED_IPHONE_EXCHANGE_OFFER_RE.search(text)
     detailed_device_exchange_offer = False
@@ -912,7 +915,9 @@ def is_trade_in_request(text: str | None) -> bool:
         return False
     if re.search(r"\b(?:nao quero|so quero|s[oó] quero)\s+comprar\b", normalized):
         return False
-    if re.search(r"\bcompr(?:ar|o|ei)\b.{0,20}\bda\s+apple\b", normalized):
+    if re.search(r"\bcompr(?:ar|o|ei)\b.{0,20}\bda\s+apple\b", normalized) and not (
+        _has_implicit_device_upgrade_offer(normalized)
+    ):
         return False
     if _is_catalog_purchase_observation(normalized):
         return False
