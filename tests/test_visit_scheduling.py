@@ -281,6 +281,42 @@ async def test_visit_followup_with_day_and_time_is_forwarded(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_explicit_visit_booking_after_catalog_reply_is_forwarded(tmp_path, monkeypatch):
+    current = datetime(2026, 10, 6, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Ta corrido essa semana ahahaha, podemos marcar na sexta as 09h?",
+        history=[
+            {
+                "role": "user",
+                "content": (
+                    "To interessaaado no Iphone 14 Pro Max ou 16 Pro max. "
+                    "Ainda na hora vou decidir se os dois ainda estiverem disponíveis."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Entendi! No momento, temos seminovos disponíveis dos dois modelos: "
+                    "iPhone 14 Pro Max (128 GB e 256 GB) e iPhone 16 Pro Max "
+                    "(256 GB e 512 GB). A disponibilidade pode mudar até o dia da visita. "
+                    "Quando definir o dia e o horário, é só me avisar."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "encaminhar para um atendente confirmar" in decision.reply.lower()
+    assert "agendamento" in (decision.handoff_reason or "").lower()
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "r$ 9,00" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_visit_followup_with_compact_hour_is_forwarded(tmp_path):
     agent = build_agent(tmp_path)
     initial = await agent.respond("Quero marcar uma visita a loja.")
