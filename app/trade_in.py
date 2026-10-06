@@ -98,7 +98,7 @@ _NEGATION_RE = re.compile(
     r"\b(?:nao|nunca|jamais|sem|nenhum|nenhuma)\b.{0,35}\b"
     r"(?:(?:troca|trocar|troco)(?!\s+(?:de\s+)?(?:pecas?|tela|bateria|"
     r"display|vidro|conector|camera|carcaca|microfone|alto\s+falante|"
-    r"chip|flex|placa|componentes?))|vender|venda|trade[- ]?in)\b",
+    r"chip|flex|placa|componentes?))|vender|venda|vende-l[oa]s?|trade[- ]?in)\b",
     re.IGNORECASE,
 )
 _PAYMENT_METHOD_RE = re.compile(
@@ -675,7 +675,8 @@ def _has_device_offer(text: str) -> bool:
 
     if re.search(
         r"\b(?:quero|vou|posso|gostaria de|pretendo)\s+"
-        r"(?:trocar|vender|avaliar|oferecer|dar|usar|repassar)\b",
+        # _normalize turns "vendê-lo" into "vende-lo".
+        r"(?:trocar|vender|vende-l[oa]s?|avaliar|oferecer|dar|usar|repassar)\b",
         text,
         flags=re.IGNORECASE,
     ) and _has_device_reference(text):
