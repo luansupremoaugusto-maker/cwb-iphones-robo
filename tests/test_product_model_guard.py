@@ -4503,6 +4503,26 @@ async def test_iphone_17_pro_max_cash_price_on_pix_uses_catalog_on_first_reply(t
 
 
 @pytest.mark.asyncio
+async def test_explicit_catalog_price_and_payment_methods_request_answers_both(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Qual o preço do iPhone 17 Pro Max e quais formas de pagamento vocês aceitam?"
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert decision.product_references == [
+        "17-pro-max-128",
+        "17-pro-max-256",
+    ]
+    assert "r$ 7.000,00" in reply
+    assert "r$ 7.800,00" in reply
+    assert "pix" in reply
+    assert "cartao de credito" in reply
+
+
+@pytest.mark.asyncio
 async def test_combined_availability_pix_and_installment_answers_every_question(tmp_path):
     agent = build_agent(tmp_path)
     item = _sealed_item("17-pro-256-blue", "iPhone 17 Pro", "256 GB", 7300)
