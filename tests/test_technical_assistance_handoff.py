@@ -176,7 +176,16 @@ async def test_catalog_battery_replacement_followup_is_forwarded_as_product_ques
 
 
 @pytest.mark.asyncio
-async def test_named_model_battery_replacement_question_is_product_question(tmp_path):
+@pytest.mark.parametrize(
+    "question",
+    [
+        "o iphone 16 plus tem a bateria trocada?",
+        "Boa tarde! Esse iPhone 16 pro, a bateria dele é trocada?",
+        "Boa tarde! Esse iPhone 16 pro, a bateria dele é trocada?\n"
+        "Mandei mensagem pra vocês no Insta!",
+    ],
+)
+async def test_named_model_battery_replacement_question_is_product_question(tmp_path, question):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = InventoryCache(
         EmptyMercadoClient(),
@@ -185,12 +194,14 @@ async def test_named_model_battery_replacement_question_is_product_question(tmp_
     )
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
-    decision = await agent.respond("o iphone 16 plus tem a bateria trocada?")
+    decision = await agent.respond(question)
 
     assert decision.handoff is True
     assert "atendente" in decision.reply.lower()
     assert "dúvida" in decision.reply.lower()
     assert "assistência técnica" not in decision.reply.lower()
+    assert decision.product_references == []
+    assert decision.image_urls == []
 
 
 @pytest.mark.asyncio
