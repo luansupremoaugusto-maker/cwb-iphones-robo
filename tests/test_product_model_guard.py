@@ -4469,6 +4469,40 @@ def _build_17_pro_price_followup_agent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_iphone_17_pro_max_cash_price_on_pix_uses_catalog_on_first_reply(tmp_path):
+    agent = build_agent(tmp_path)
+    initial_request = (
+        "Você tem o iPhone 17 pro max? Qual valor para pagamento à vista no pix?"
+    )
+    greeting_history = [{"role": "user", "content": "Olá, bom dia!"}]
+
+    first_decision = await agent.respond(initial_request, history=greeting_history)
+
+    assert first_decision.handoff is False
+    assert first_decision.product_references == [
+        "17-pro-max-128",
+        "17-pro-max-256",
+    ]
+    assert "R$ 7.000,00" in first_decision.reply
+    assert "R$ 7.800,00" in first_decision.reply
+    assert "juros da máquina" not in _normalize(first_decision.reply)
+
+    followup_decision = await agent.respond(
+        "Certo e qual valor do iPhone 17 pro max?",
+        history=[
+            *greeting_history,
+            {"role": "user", "content": initial_request},
+            {"role": "assistant", "content": first_decision.reply},
+        ],
+    )
+
+    assert followup_decision.handoff is False
+    assert followup_decision.product_references == first_decision.product_references
+    assert "R$ 7.000,00" in followup_decision.reply
+    assert "R$ 7.800,00" in followup_decision.reply
+
+
+@pytest.mark.asyncio
 async def test_combined_availability_pix_and_installment_answers_every_question(tmp_path):
     agent = build_agent(tmp_path)
     item = _sealed_item("17-pro-256-blue", "iPhone 17 Pro", "256 GB", 7300)

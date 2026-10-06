@@ -620,6 +620,18 @@ def _confirmed_catalog_price(item: Any) -> float | None:
     return price if math.isfinite(price) and price >= 0 else None
 
 
+def _is_explicit_catalog_price_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and _has_product_reference(normalized)
+        and re.search(
+            r"\b(?:precos?|valor(?:es)?|custa|cotacao)\b|\bquanto\s+(?:custa|fica)\b",
+            normalized,
+        )
+    )
+
+
 def _is_product_availability_request(
     text: str,
     history: list[dict[str, str]] | None = None,
@@ -645,6 +657,7 @@ def _is_product_availability_request(
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
+    explicit_catalog_price_request = _is_explicit_catalog_price_request(text)
     if any(
         marker in normalized
         for marker in (
@@ -657,12 +670,13 @@ def _is_product_availability_request(
             "reserva",
             "endereco",
             "horario",
-            "pagamento",
             "nota fiscal",
             "quantas vezes",
             "em quantas",
         )
     ) or ("entrega" in normalized and not _has_pronta_entrega_reference(text)):
+        return False
+    if "pagamento" in normalized and not explicit_catalog_price_request:
         return False
     if catalog_followup or contextual_ready_stock_followup:
         return True
@@ -2221,7 +2235,11 @@ def _is_boleto_payment_request(text: str) -> bool:
 
 def _is_payment_methods_question(text: str) -> bool:
     normalized = _normalize(text)
-    if not normalized or _is_payment_link_request(text):
+    if (
+        not normalized
+        or _is_payment_link_request(text)
+        or _is_explicit_catalog_price_request(text)
+    ):
         return False
     has_cash_method = bool(re.search(r"\b(?:pix|dinheiro|debito)\b", normalized))
     if any(
