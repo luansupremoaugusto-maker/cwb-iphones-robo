@@ -686,6 +686,32 @@ async def test_generic_hours_question_uses_faq_and_marked_appointment(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_abbreviated_hours_question_after_catalog_offer_returns_faq_hours(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "até q hrs vcs ficam abertos?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Esse não interessaria? iPhone 14 Pro Max 128 GB seminovo "
+                    "por R$ 3.080,00."
+                ),
+            },
+            {"role": "user", "content": "Oi"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "09:00" in decision.reply
+    assert "18:00" in decision.reply
+    assert "horário marcado" in decision.reply.lower()
+    assert "confirmar" not in decision.reply.lower()
+    assert "atendente" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_today_hours_question_with_whatsapp_shorthand_returns_real_hours(
     tmp_path, monkeypatch
 ):
