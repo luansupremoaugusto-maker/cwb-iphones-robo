@@ -1100,6 +1100,86 @@ def _is_delivery_payment_question(
     return has_delivery_context and has_payment_context
 
 
+def _is_delivery_quote_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if not normalized or not history:
+        return False
+
+    latest_assistant_reply = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history)
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    if not (
+        "qual e seu bairro ou cep" in latest_assistant_reply
+        and "taxa" in latest_assistant_reply
+        and "prazo" in latest_assistant_reply
+        and "pagamento" in latest_assistant_reply
+        and re.search(r"\b(?:entrega|motoboy|sedex)\b", latest_assistant_reply)
+    ):
+        return False
+
+    has_postal_code = bool(re.search(r"\b\d{5}-?\d{3}\b", text))
+    has_location_statement = bool(
+        re.search(
+            r"\b(?:(?:moro|resido)\s+(?:em|no|na)|sou\s+de|"
+            r"meu\s+(?:bairro|endereco)\s+e)\s+[a-z0-9]+|"
+            r"\bbairro\s+(?!(?:qual|e|pode|ser\w*|voce|fica|melhor|atende|"
+            r"de|do|dos|da|das|em|no|na|para|pra)\b)[a-z0-9]+|"
+            r"\bfica\s+(?:em|no|na)\s+[a-z0-9]+",
+            normalized,
+        )
+    )
+    if "?" in text and re.search(r"\bfica\s+(?:em|no|na)\b", normalized):
+        has_location_statement = False
+    has_street_address = bool(
+        re.search(
+            r"\b(?:rua|avenida|av|alameda|travessa|praca|endereco)\b"
+            r".{0,60}\b\d{1,5}\b",
+            normalized,
+        )
+    )
+    if has_postal_code or has_location_statement or has_street_address:
+        return True
+
+    candidate = re.sub(
+        r"^(?:(?:sim|ok|certo|beleza|obrigad\w*|ola|oi|bom dia|boa tarde|boa noite)"
+        r"\b[\s,]*)+",
+        "",
+        normalized,
+    ).strip()
+    candidate = re.sub(r"^[,;:\s]+|[,;:!?]+\s*$", "", candidate).strip()
+    if not candidate:
+        return False
+    words = re.findall(r"[a-z0-9]+", candidate)
+    if not words or len(words) > 6:
+        return False
+    unrelated_markers = (
+        r"\b(?:sim|nao|ok|certo|beleza|obrigad\w*|ola|oi|pode|ser|tudo|bem|claro|"
+        r"perfeito|combinado|confirmo|iphone|ipad|airpods|watch|samsung|motorola|xiaomi|redmi|"
+        r"modelo|preco|quanto|qual|como|"
+        r"pagamento|pagar|pago|pix|dinheiro|debito|credito|cartao|parcela\w*|vezes|reais?|"
+        r"voces|entrega|entreg\w*|motoboy|sedex|frete|taxa|prazo|fica|em|no|na|de|para|pra|"
+        r"hoje|amanha|visita|marcar|agendar|remarcar|vou|quero|gostaria|"
+        r"consigo|posso|tempo|ir|loja|atendente)\b"
+    )
+    if re.search(unrelated_markers, candidate):
+        return False
+
+    location_only = bool(re.fullmatch(r"[a-z]+(?:[ ,]+[a-z]+){0,3}", candidate))
+    if location_only and re.search(r"\b(?:curitiba|pinhais|colombo|araucaria)\b", candidate):
+        return True
+    if "?" in text or re.fullmatch(r"\d+", normalized):
+        return False
+    return location_only and len(words) <= 4
+
+
 def _is_explicit_human_request(text: str) -> bool:
     normalized = _normalize(text)
     return bool(
@@ -4012,6 +4092,17 @@ class AgentService:
         text: str,
         history: list[dict[str, str]] | None = None,
     ) -> AgentDecision | None:
+        if _is_delivery_quote_followup(text, history):
+            return AgentDecision(
+                reply=(
+                    "Obrigado! Vou encaminhar seu endereço para um atendente confirmar "
+                    "a taxa e o prazo da entrega e orientar como concluir o pagamento antes do envio."
+                ),
+                handoff=True,
+                handoff_reason=DELIVERY_FEE_HANDOFF_REASON,
+                confidence="high",
+            )
+
         delivery_fee_request = _is_delivery_fee_request(text, history)
         acknowledge_cannot_visit = (
             _is_visit_unavailability_message(text) and _has_delivery_context(history)

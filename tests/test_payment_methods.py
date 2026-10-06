@@ -228,6 +228,74 @@ async def test_delivery_fee_and_installment_question_keeps_attendant_handoff():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "address",
+    [
+        "Bacacheri, Curitiba",
+        "Boa Vista",
+        "Curitiba?",
+        "82520-060?",
+        "Não, moro em Pinhais",
+        "Rua das Flores, 123?",
+    ],
+)
+async def test_delivery_neighborhood_reply_after_quote_prompt_hands_off_to_attendant(
+    address,
+):
+    agent = build_agent_with_cache(AvailableCatalog())
+    question = "E como pago a entrega e o celular?"
+    initial = await agent.respond(question)
+
+    decision = await agent.respond(
+        address,
+        history=[
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is True
+    assert "atendente" in reply
+    assert "taxa" in reply
+    assert "prazo" in reply
+    assert "pagamento" in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Sim",
+        "Sim, pode ser",
+        "Qual é a rua?",
+        "Vocês entregam em Curitiba?",
+        "Qual bairro de Curitiba?",
+        "Fica em Curitiba?",
+    ],
+)
+async def test_delivery_quote_prompt_does_not_treat_non_address_reply_as_location(reply):
+    agent = build_agent_with_cache(AvailableCatalog())
+    initial = await agent.respond("E como pago a entrega e o celular?")
+
+    decision = await agent.respond(
+        reply,
+        history=[{"role": "assistant", "content": initial.reply}],
+    )
+
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_without_delivery_quote_prompt_does_not_handoff():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond("Bacacheri, Curitiba")
+
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_iphone_model_list_question_still_returns_products():
     agent = build_agent_with_cache(AvailableCatalog())
 
