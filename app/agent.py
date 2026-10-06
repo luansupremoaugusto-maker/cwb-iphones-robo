@@ -635,6 +635,35 @@ def _confirmed_catalog_price(item: Any) -> float | None:
     return price if math.isfinite(price) and price >= 0 else None
 
 
+def _is_explicit_catalog_price_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and _has_product_reference(normalized)
+        and re.search(
+            r"\b(?:precos?|valor(?:es)?|custa|cotacao)\b|\bquanto\s+(?:custa|fica)\b",
+            normalized,
+        )
+    )
+
+
+def _is_independent_payment_methods_request(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+    if re.search(r"\b(?:forma[s]?|metodo[s]?|meio[s]?)\s+de\s+pagamento\b", normalized):
+        return True
+    asks_about_payment_methods = re.search(
+        r"\b(?:aceita(?:m)?|posso\s+pagar|pagar\s+com)\b",
+        normalized,
+    )
+    names_payment_method = re.search(
+        r"\b(?:pix|dinheiro|debito|credito|cartao|cartoes)\b",
+        normalized,
+    )
+    return bool(asks_about_payment_methods and names_payment_method)
+
+
 def _is_product_availability_request(
     text: str,
     history: list[dict[str, str]] | None = None,
@@ -660,6 +689,7 @@ def _is_product_availability_request(
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
+    explicit_catalog_price_request = _is_explicit_catalog_price_request(text)
     if any(
         marker in normalized
         for marker in (
@@ -672,12 +702,13 @@ def _is_product_availability_request(
             "reserva",
             "endereco",
             "horario",
-            "pagamento",
             "nota fiscal",
             "quantas vezes",
             "em quantas",
         )
     ) or ("entrega" in normalized and not _has_pronta_entrega_reference(text)):
+        return False
+    if "pagamento" in normalized and not explicit_catalog_price_request:
         return False
     if catalog_followup or contextual_ready_stock_followup:
         return True
@@ -2236,7 +2267,14 @@ def _is_boleto_payment_request(text: str) -> bool:
 
 def _is_payment_methods_question(text: str) -> bool:
     normalized = _normalize(text)
-    if not normalized or _is_payment_link_request(text):
+    if (
+        not normalized
+        or _is_payment_link_request(text)
+        or (
+            _is_explicit_catalog_price_request(text)
+            and not _is_independent_payment_methods_request(text)
+        )
+    ):
         return False
     has_cash_method = bool(re.search(r"\b(?:pix|dinheiro|debito)\b", normalized))
     if any(
@@ -3873,6 +3911,13 @@ class AgentService:
         if delivery_payment_decision is not None:
             return protect_customer_decision(delivery_payment_decision)
 
+        combined_catalog_payment_decision = await self._try_combined_catalog_payment_methods(
+            text,
+            history,
+        )
+        if combined_catalog_payment_decision is not None:
+            return protect_customer_decision(combined_catalog_payment_decision)
+
         payment_methods_decision = self._try_payment_methods(text)
         if payment_methods_decision is not None:
             return protect_customer_decision(payment_methods_decision)
@@ -4084,6 +4129,32 @@ class AgentService:
             )
         return AgentDecision(
             reply=self._append_delivery_or_pickup_info(reply, text),
+            confidence="high",
+        )
+
+    async def _try_combined_catalog_payment_methods(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if (
+            not _is_explicit_catalog_price_request(text)
+            or not _is_independent_payment_methods_request(text)
+            or not _is_payment_methods_question(text)
+        ):
+            return None
+
+        catalog_decision = await self._try_product_availability(text, history=history)
+        payment_decision = self._try_payment_methods(text)
+        if catalog_decision is None or payment_decision is None:
+            return None
+        if catalog_decision.handoff:
+            return catalog_decision
+
+        return AgentDecision(
+            reply=f"{catalog_decision.reply.rstrip()}\n\n{payment_decision.reply.strip()}",
+            product_references=catalog_decision.product_references,
+            image_urls=catalog_decision.image_urls,
             confidence="high",
         )
 

@@ -729,6 +729,11 @@ def _is_store_buyback_question(text: str) -> bool:
     """Recognize questions about the shop buying an Apple device."""
     if re.search(r"\b(?:compram|compra)\s+da\s+apple\b", text):
         return False
+    if (
+        _CATALOG_PRODUCT_PRICE_REQUEST_RE.search(text)
+        and re.search(r"\b(?:forma[s]?|metodo[s]?|meio[s]?)\s+de\s+pagamento\b", text)
+    ):
+        return False
     if _PAYMENT_METHOD_RE.search(text) and not _has_device_reference(text):
         return False
 
