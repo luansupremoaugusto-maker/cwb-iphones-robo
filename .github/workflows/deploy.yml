@@ -43,6 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Buffer the heredoc first; docker compose exec must not consume the remaining script.
           ssh \
             -i "$HOME/.ssh/cwb_iphones_actions" \
             -o IdentitiesOnly=yes \
@@ -51,7 +52,7 @@ jobs:
             -o ConnectTimeout=20 \
             -p "$VPS_PORT" \
             "$VPS_USER@$VPS_HOST" \
-            "DEPLOY_SHA='$DEPLOY_SHA' bash -s" <<'REMOTE'
+            "DEPLOY_SHA='$DEPLOY_SHA' bash -c 'script=\$(cat); bash -c \"\$script\" </dev/null'" <<'REMOTE'
           set -euo pipefail
 
           cd /opt/cwb-iphones
