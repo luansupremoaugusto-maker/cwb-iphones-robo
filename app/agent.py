@@ -5766,9 +5766,10 @@ def _is_device_condition_question(text: str | None) -> bool:
     if re.search(
         r"\b(?:"
         r"(?:ja\s+)?foi\s+(?:trocad\w*|substituid\w*)\b.{0,20}"
-        r"(?:tela|display|vidro|peca\w*)"
-        r"|(?:tela|display|vidro|peca\w*)\b.{0,20}"
+        r"(?:tela|display|vidro|bateria|peca\w*)"
+        r"|(?:tela|display|vidro|bateria|peca\w*)\b.{0,20}"
         r"(?:ja\s+)?foi\s+(?:trocad\w*|substituid\w*)"
+        r"|bateria\b.{0,30}\b(?:trocad\w*|substituid\w*)"
         r"|(?:tela|display|vidro)\s+(?:e|esta|sao)?\s*original\w*"
         r"|(?:tudo|todas?\s+as\s+pecas?)\s+(?:e|esta|sao)?\s*original\w*"
         r")\b",
