@@ -89,6 +89,74 @@ jobs:
           fi
           docker compose --env-file .env.local up -d --build
           docker compose --env-file .env.local ps
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class EmptySealedCatalog:
+              items = []
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return []
+
+              async def get(self, product_id):
+                  return None
+
+          settings = Settings(google_sheets_enabled=True)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/new-models-list-guard.json",
+              sealed_cache=EmptySealedCatalog(),
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-16-pro-max-used",
+                  name="iPhone 16 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="PRETO",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=5170,
+                  battery_health=89,
+                  search_text="iphone 16 pro max 256 gb preto celular seminovo",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "user", "content": "Quais opções de iPhone 16 Pro Max seminovo?"},
+              {
+                  "role": "assistant",
+                  "content": "iPhone 16 Pro Max 256 GB seminovo por R$ 5.170,00, bateria 89%.",
+              },
+          ]
+          decision = asyncio.run(
+              service.respond("E os modelos novos disponíveis?", history=history)
+          )
+          assert not decision.handoff, decision
+          assert decision.product_references == [], decision
+          assert decision.image_urls == [], decision
+          assert "modelos novos/lacrados" in decision.reply.lower(), decision.reply
+          assert "seminovo" not in decision.reply.lower(), decision.reply
+          assert "iphone 16 pro max" not in decision.reply.lower(), decision.reply
+          print("NEW_MODELS_LIST_EXCLUDES_SEMINOVOS_OK")
+          PY
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-replaced-components.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "oi"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "user", "content": "tudo bem?"}, {"role": "assistant", "content": "Oi! Tudo bem? 😊 Como posso te ajudar?"}]; text = "queria ver\nse vocês pegam troca\no meu é o 13\nmas tem a bateria e a tela trocada..."; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 replaced battery/screen evaluation routing: ok")'
           for service in app worker; do
             effective_model="$(docker compose --env-file .env.local exec -T "$service" python -c 'from app.config import Settings; print(Settings().openai_model)')"

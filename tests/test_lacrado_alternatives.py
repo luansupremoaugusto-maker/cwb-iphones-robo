@@ -154,6 +154,85 @@ async def test_missing_new_model_reports_absence_and_offers_seminovo_alternative
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("include_new_stock", [False, True])
+async def test_new_models_followup_does_not_fall_back_to_previous_seminovo_list(
+    tmp_path, include_new_stock
+):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-16-pro-max-used", "iPhone 16 Pro Max", "256 GB", 5170)
+    ]
+    agent.cache.sealed_cache.items = (
+        [_sealed_item("iphone-18-pro-max-sealed", "iPhone 18 Pro Max", "256 GB", 10100)]
+        if include_new_stock
+        else []
+    )
+    history = [
+        {"role": "user", "content": "Quais opções de iPhone 16 Pro Max seminovo?"},
+        {
+            "role": "assistant",
+            "content": (
+                "IPHONE 16 PRO MAX\n"
+                "• TITÂNIO DESERTO - 256GB - SEMINOVO — R$ 5.170,00 | Bat: 89%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("E os modelos novos disponíveis?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "SEMINOVO" not in decision.reply.upper()
+    assert "IPHONE 16 PRO MAX" not in decision.reply.upper()
+    if include_new_stock:
+        assert "IPHONE 18 PRO MAX" in decision.reply.upper()
+        assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper()
+    else:
+        assert "modelos novos/lacrados" in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
+async def test_new_or_seminovo_model_list_keeps_both_requested_conditions(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-max-sealed", "iPhone 18 Pro Max", "256 GB", 10100)
+    ]
+
+    decision = await agent.respond("Quais modelos novos ou seminovos disponíveis?")
+
+    assert decision.handoff is False
+    assert "IPHONE 15 PLUS" in decision.reply.upper()
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "IPHONE 18 PRO MAX" in decision.reply.upper()
+    assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_singular_new_model_followup_keeps_previous_model_scope(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-16-pro-max-used", "iPhone 16 Pro Max", "256 GB", 5170)
+    ]
+    agent.cache.sealed_cache.items = []
+    history = [
+        {"role": "user", "content": "Quais opções de iPhone 16 Pro Max seminovo?"},
+        {
+            "role": "assistant",
+            "content": "iPhone 16 Pro Max, 256 GB, seminovo por R$ 5.170,00.",
+        },
+    ]
+
+    decision = await agent.respond("E o modelo novo disponível?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "nao localizei esse modelo novo/lacrado" in _normalize(decision.reply)
+    assert "IPHONE 16 PRO MAX" in decision.reply.upper()
+    assert "SEMINOVO" in decision.reply.upper()
+
+
+@pytest.mark.asyncio
 async def test_iphone_17_mixed_condition_request_includes_sealed_by_order_option(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items = [
