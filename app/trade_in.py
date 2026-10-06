@@ -675,7 +675,8 @@ def _has_device_offer(text: str) -> bool:
 
     if re.search(
         r"\b(?:quero|vou|posso|gostaria de|pretendo)\s+"
-        r"(?:trocar|vender|avaliar|oferecer|dar|usar|repassar)\b",
+        # _normalize turns "vendê-lo" into "vende-lo".
+        r"(?:trocar|vender|vende-l[oa]s?|avaliar|oferecer|dar|usar|repassar)\b",
         text,
         flags=re.IGNORECASE,
     ) and _has_device_reference(text):
