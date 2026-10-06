@@ -186,19 +186,37 @@ _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE = re.compile(
     r"(?!\s*(?:anos?|gb|tb)\b)",
     re.IGNORECASE,
 )
+_BARE_OWNED_IPHONE_MODEL_RE = re.compile(
+    r"\b(?:o\s+)?meu\s+(?:e\s+(?:o\s+)?)?(?:iphone\s*)?"
+    r"(?:[6-9]|1[0-7])\b",
+    re.IGNORECASE,
+)
 _BATTERY_PERCENT_AFTER_BATTERY_RE = re.compile(
     r"\bbateria\b.{0,35}\b(?:esta|ta|com|em)?\s*\d{1,3}\s*%(?!\d)",
+    re.IGNORECASE,
+)
+_REPLACED_DEVICE_COMPONENT_DETAIL_RE = re.compile(
+    r"\b(?:bateria|tela|display|vidro|conector|camera|carcaca|microfone|"
+    r"alto\s+falante|chip|flex|placa)\b.{0,25}"
+    r"\b(?:trocad[oa]s?|substituid[oa]s?)\b",
     re.IGNORECASE,
 )
 
 
 def _has_abbreviated_iphone_buyback_profile(text: str) -> bool:
-    """Recognize a bare iPhone generation backed by ownership and battery detail."""
+    """Recognize an owned bare iPhone model described for evaluation."""
     normalized = _normalize(text)
+    has_battery_health_profile = bool(
+        re.search(r"\b(?:comprei|tenho|possuo|meu|minha)\b", normalized)
+        and _BATTERY_PERCENT_AFTER_BATTERY_RE.search(normalized)
+    )
+    has_replaced_component_profile = bool(
+        _BARE_OWNED_IPHONE_MODEL_RE.search(normalized)
+        and _REPLACED_DEVICE_COMPONENT_DETAIL_RE.search(normalized)
+    )
     return bool(
         _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE.search(normalized)
-        and re.search(r"\b(?:comprei|tenho|possuo|meu|minha)\b", normalized)
-        and _BATTERY_PERCENT_AFTER_BATTERY_RE.search(normalized)
+        and (has_battery_health_profile or has_replaced_component_profile)
         and not _NON_APPLE_RE.search(normalized)
         and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
         and not _NEGATION_RE.search(normalized)

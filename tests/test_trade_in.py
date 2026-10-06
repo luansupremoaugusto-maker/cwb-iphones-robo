@@ -2696,6 +2696,46 @@ async def test_warranty_followup_after_two_iphone_exchange_sends_evaluation_form
 
 
 @pytest.mark.asyncio
+async def test_batched_iphone_13_exchange_with_replaced_battery_and_screen_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "oi"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {"role": "user", "content": "tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Oi! Tudo bem? 😊 Como posso te ajudar?",
+        },
+    ]
+    text = "\n".join(
+        (
+            "queria ver",
+            "se vocês pegam troca",
+            "o meu é o 13",
+            "mas tem a bateria e a tela trocada...",
+        )
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
 async def test_abbreviated_iphone_13_buyback_offer_after_catalog_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
