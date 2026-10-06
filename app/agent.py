@@ -2201,9 +2201,22 @@ def _is_boleto_payment_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or not re.search(r"\bboletos?\b", normalized):
         return False
-    return _requested_installments(text) is not None or bool(
-        re.search(r"\bparcel\w*\b|\b(?:no|por|via|pelo|em)\s+boleto\b", normalized)
+    if re.search(
+        r"\b(?:nao|nunca|jamais)\b.{0,35}\b(?:no|por|via|pelo|em)\s+boleto\b",
+        normalized,
+    ):
+        return False
+    has_installment_question = _requested_installments(text) is not None or bool(
+        re.search(r"\bparcel\w*\b", normalized)
     )
+    has_payment_intent = bool(
+        re.search(
+            r"\b(?:aceit\w*|compr\w*|aprov\w*|pag\w*|quero|queria|gostaria|"
+            r"posso|pode|tem|teria|consegu\w*)\b",
+            normalized,
+        )
+    )
+    return has_installment_question or has_payment_intent
 
 
 def _is_payment_methods_question(text: str) -> bool:
