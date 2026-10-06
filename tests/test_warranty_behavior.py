@@ -152,3 +152,15 @@ async def test_warranty_and_payment_question_after_catalog_reply_answers_both_wi
     assert "dúvidas sobre esse aparelho" not in reply
     assert decision.product_references == []
     assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_negative_boleto_mention_does_not_override_warranty_question(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Como funciona a garantia? Não vou pagar no boleto")
+
+    reply = decision.reply.lower()
+    assert decision.handoff is False
+    assert "90 dias" in reply
+    assert "não parcelamos no boleto" not in reply

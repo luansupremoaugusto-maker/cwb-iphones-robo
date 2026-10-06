@@ -735,10 +735,11 @@ def _is_store_buyback_question(text: str) -> bool:
         text,
         flags=re.IGNORECASE,
     )
-    # In "na compra de um iPhone", compra is a noun describing the
-    # customer's purchase, not a verb asking whether the store buys a device.
+    # In "na compra de um iPhone" or "uma compra de um iPhone", compra is a
+    # noun describing the customer's purchase, not a verb asking whether the
+    # store buys a device.
     customer_purchase_context = re.search(
-        r"\b(?:na|em|para|pra|pela|por)\s+compra\s+de\b",
+        r"\b(?:(?:na|em|para|pra|pela|por)\s+|(?:um|uma|a)\s+)compra\s+de\b",
         text,
         flags=re.IGNORECASE,
     )
