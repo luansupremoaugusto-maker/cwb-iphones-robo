@@ -148,6 +148,53 @@ jobs:
           assert "256 GB" not in decision.reply, decision.reply
           print("iPhone 16 128 GB installment routing: ok")
           '
+          docker compose --env-file .env.local exec -T app python -c '
+          import asyncio
+          from app.agent import AgentService, _normalize
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          class EmptyInventoryCache:
+              async def search(self, query, limit=10):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          agent = AgentService(
+              EmptyInventoryCache(),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          question = "E como pago a entrega e o celular?"
+          initial = asyncio.run(agent.respond(question))
+          initial_reply = _normalize(initial.reply)
+          assert not initial.handoff, initial
+          assert "antecipado antes do despacho" in initial_reply, initial.reply
+          assert "nao e possivel pagar na entrega" in initial_reply, initial.reply
+          assert "maquina fisica" in initial_reply, initial.reply
+          history = [
+              {"role": "user", "content": question},
+              {"role": "assistant", "content": initial.reply},
+          ]
+          unable_to_visit = asyncio.run(
+              agent.respond("Não consigo ir até a loja, não dá tempo", history=history)
+          )
+          unable_reply = _normalize(unable_to_visit.reply)
+          assert not unable_to_visit.handoff, unable_to_visit
+          assert "visita" not in unable_reply and "qual horario" not in unable_reply, unable_to_visit
+          address = asyncio.run(agent.respond("Bacacheri, Curitiba", history=history))
+          address_reply = _normalize(address.reply)
+          assert address.handoff, address
+          assert "atendente" in address_reply and "taxa" in address_reply, address.reply
+          assert "prazo" in address_reply and "pagamento" in address_reply, address.reply
+          confirmation = asyncio.run(agent.respond("Sim, pode ser", history=history))
+          assert not confirmation.handoff, confirmation
+          question_about_city = asyncio.run(
+              agent.respond("Vocês entregam em Curitiba?", history=history)
+          )
+          assert not question_about_city.handoff, question_about_city
+          print("DELIVERY_PAYMENT_AND_ADDRESS_HANDOFF_OK")
+          '
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE
