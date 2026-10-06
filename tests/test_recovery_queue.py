@@ -501,19 +501,11 @@ def test_recovery_send_reports_provider_failure_without_claiming_success():
     assert runtime.repository.get_conversation("5511111111111").status == "human_pending"
 
 
-def test_admin_page_contains_recovery_queue_and_draft_controls():
+def test_admin_page_does_not_render_recovery_queue_controls():
     from app.admin_page import render_admin_page
 
     html = render_admin_page("csrf-token")
 
-    assert "Recuperação pós-viagem" in html
-    assert 'id="recovery-queue-body"' in html
-    assert "/admin/api/recovery" in html
-    assert "/admin/api/recovery/draft" in html
-    assert "/admin/api/recovery/send" in html
-    assert "/admin/api/recovery/skip" in html
-    assert "Preparar resposta" in html
-    assert "Pular" in html
-    assert "inclusive quando o robô respondeu por último" in html
-    assert 'id="recovery-more"' in html
-    assert html.index('id="recovery-editor"') < html.index('id="recovery-queue-body"')
+    assert "Recuperação pós-viagem" not in html
+    assert 'id="recovery-queue-body"' not in html
+    assert "/admin/api/recovery" not in html

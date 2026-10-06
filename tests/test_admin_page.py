@@ -72,6 +72,17 @@ def test_admin_page_contains_dashboard_queue_and_audit_sections():
     assert "/admin/api/audit" in html
 
 
+def test_admin_page_does_not_render_recovery_queue():
+    from app.admin_page import render_admin_page
+
+    html = render_admin_page("csrf-token")
+
+    assert "Recuperação pós-viagem" not in html
+    assert 'data-panel-key="recovery"' not in html
+    assert 'id="recovery-queue-body"' not in html
+    assert "/admin/api/recovery" not in html
+
+
 def test_admin_page_contains_safe_command_preview_monitoring_filters_and_controls():
     from app.admin_page import render_admin_page
 
