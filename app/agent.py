@@ -2197,12 +2197,12 @@ def _is_credit_only_installment_question(text: str) -> bool:
     return has_only_marker and has_credit_marker
 
 
-def _is_boleto_installment_request(text: str) -> bool:
+def _is_boleto_payment_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or not re.search(r"\bboletos?\b", normalized):
         return False
     return _requested_installments(text) is not None or bool(
-        re.search(r"\bparcel\w*\b", normalized)
+        re.search(r"\bparcel\w*\b|\b(?:no|por|via|pelo|em)\s+boleto\b", normalized)
     )
 
 
@@ -4026,10 +4026,17 @@ class AgentService:
         )
 
     def _try_boleto_installment(self, text: str) -> AgentDecision | None:
-        if not _is_boleto_installment_request(text):
+        if not _is_boleto_payment_request(text):
             return None
+        normalized = _normalize(text)
+        has_installment_question = _requested_installments(text) is not None or bool(
+            re.search(r"\bparcel\w*\b", normalized)
+        )
+        reply = BOLETO_INSTALLMENT_REPLY
+        if not has_installment_question:
+            reply = self.faq.get("pagamento") or BOLETO_INSTALLMENT_REPLY
         return AgentDecision(
-            reply=self._append_delivery_or_pickup_info(BOLETO_INSTALLMENT_REPLY, text),
+            reply=self._append_delivery_or_pickup_info(reply, text),
             confidence="high",
         )
 
@@ -5655,7 +5662,7 @@ class AgentService:
     ) -> AgentDecision | None:
         if _extract_entry_amount(text) is not None:
             return None
-        if _is_payment_link_request(text) or _is_boleto_installment_request(text):
+        if _is_payment_link_request(text) or _is_boleto_payment_request(text):
             return None
         if not _is_product_availability_request(text, history=history):
             return None

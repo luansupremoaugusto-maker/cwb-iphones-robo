@@ -10,6 +10,7 @@ from app.agent import AgentService, _normalize
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
+from app.trade_in import TRADE_IN_FORM, is_trade_in_context_request, is_trade_in_request
 
 
 class EmptyMercadoClient:
@@ -412,3 +413,45 @@ async def test_boleto_installment_followup_refuses_simulation_and_explains_polic
     assert "maquina fisica" in reply
     assert "1x de" not in decision.reply
     assert "18x de" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_boleto_purchase_question_routes_to_payment_policy_not_evaluation(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Opa"},
+        {"role": "user", "content": "Boa tarde"},
+        {
+            "role": "assistant",
+            "content": "Opa, boa tarde! 😊 Como posso te ajudar?",
+        },
+    ]
+    text = "Queria ver se aprovava uma compra de um iPhone no boleto"
+
+    decision = await agent.respond(text, history=history)
+
+    reply = _normalize(decision.reply)
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "nao parcelamos no boleto" in reply
+    assert "cartao de credito" in reply
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+
+@pytest.mark.asyncio
+async def test_real_iphone_trade_in_remains_evaluation_when_purchase_mentions_boleto(tmp_path):
+    agent = build_agent(tmp_path)
+    text = (
+        "Tenho um iPhone 13 para dar como entrada na compra de um iPhone novo; "
+        "posso pagar a diferença no boleto?"
+    )
+
+    decision = await agent.respond(text)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
