@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from urllib.parse import unquote
 
-from playwright.sync_api import Page, Route, sync_playwright
+from playwright.sync_api import Page, Route, expect, sync_playwright
 
 from app.admin_page import render_admin_page
 
@@ -271,6 +271,7 @@ def test_conversation_lookup_opens_timeline_by_protocol_in_a_real_browser():
                 page.locator("#conversation-lookup-submit").click()
 
             page.locator("#conversation-lookup-result").wait_for(state="visible")
+            expect(page.locator("#conversation-lookup-meta")).to_contain_text("CWB-00000007")
             assert "CWB-00000007" in page.locator("#conversation-lookup-meta").inner_text()
             assert "Tem iPhone 15?" in page.locator("#conversation-lookup-history").inner_text()
             assert "agent_response" in page.locator("#conversation-lookup-audit-body").inner_text()
