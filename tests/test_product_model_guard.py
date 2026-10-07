@@ -133,6 +133,15 @@ def test_thousands_separator_budget_is_not_parsed_as_a_bare_model():
     )
 
 
+def test_battery_percentage_is_not_parsed_as_a_bare_catalog_model():
+    assert _extract_bare_catalog_model_reference("Procuro com bateria acima de 85%") is None
+    assert _extract_bare_catalog_model_reference("Qual a saúde da bateria do 15?") == "iPhone 15"
+
+
+def test_warranty_question_without_stock_request_is_not_product_availability():
+    assert _is_product_availability_request("Qual a garantia do iPhone 13 Pro Max seminovo?") is False
+
+
 @pytest.mark.asyncio
 async def test_orcamento_do_iphone_15_pro_max_nao_vira_limite_de_15_reais(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
@@ -2064,6 +2073,49 @@ async def test_explicit_iphone_pro_max_with_abbreviated_battery_matches_first_re
     assert decision.product_references == ["iphone-15-pro-max-95"]
     assert "iPhone 15 Pro Max" in decision.reply
     assert "95%" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_13_pro_max_availability_with_battery_and_warranty_details_returns_the_unit(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-13-pro-max-battery-availability-regression.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-max-128-88",
+            name="iPhone 13 Pro Max",
+            category="Celular",
+            capacity="128 GB",
+            color="GRAFITE",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2390,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 13 pro max grafite 128 gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vocês têm iPhone 13 Pro Max 128 GB seminovo? Procuro um com bateria acima de 85%, "
+        "sem peças não originais, Face ID funcionando, nota fiscal e garantia. "
+        "Qual está disponível hoje e qual a saúde da bateria?"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-pro-max-128-88"]
+    assert "iPhone 13 Pro Max" in decision.reply
+    assert "128 GB" in decision.reply
+    assert "R$ 2.390,00" in decision.reply
+    assert "88%" in decision.reply
+    assert "iPhone 85" not in decision.reply
+    assert "Não localizei" not in decision.reply
 
 
 @pytest.mark.asyncio

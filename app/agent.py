@@ -690,7 +690,11 @@ def _is_product_availability_request(
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
     explicit_catalog_price_request = _is_explicit_catalog_price_request(text)
-    if any(
+    explicit_availability_question = bool(
+        _has_product_reference(normalized)
+        and re.search(r"\b(?:qual|quais)\s+(?:esta|estao)\s+disponivel\b", normalized)
+    )
+    has_specialized_detail = any(
         marker in normalized
         for marker in (
             "foto",
@@ -706,7 +710,11 @@ def _is_product_availability_request(
             "quantas vezes",
             "em quantas",
         )
-    ) or ("entrega" in normalized and not _has_pronta_entrega_reference(text)):
+    )
+    if (
+        (has_specialized_detail and not explicit_availability_question)
+        or ("entrega" in normalized and not _has_pronta_entrega_reference(text))
+    ):
         return False
     if "pagamento" in normalized and not explicit_catalog_price_request:
         return False
@@ -3066,6 +3074,8 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
         amount_tail = (text or "")[match.end("number") :]
         if re.match(r"\s*[.,]\s*\d{3}(?!\d)", amount_tail):
             continue
+        if re.match(r"\s*%|\s+por\s+cento\b", amount_tail, flags=re.IGNORECASE):
+            continue
         matches.append(match)
     if not matches:
         return None
@@ -4430,7 +4440,10 @@ class AgentService:
         text: str,
         history: list[dict[str, str]] | None,
     ) -> AgentDecision | None:
-        if not _is_battery_detail_request(text):
+        if not _is_battery_detail_request(text) or _is_product_availability_request(
+            text,
+            history=history,
+        ):
             return None
         query = _battery_detail_context_query(text, history)
         if not query:
