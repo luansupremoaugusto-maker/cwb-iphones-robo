@@ -157,6 +157,95 @@ jobs:
           assert "iphone 16 pro max" not in decision.reply.lower(), decision.reply
           print("NEW_MODELS_LIST_EXCLUDES_SEMINOVOS_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          def sealed_item(external_id, name, capacity, price):
+              return InventoryItem(
+                  external_id=external_id,
+                  name=name,
+                  category="Novo lacrado",
+                  capacity=capacity,
+                  price_brl=price,
+                  source="google_sheets",
+                  condition="novo lacrado",
+                  availability="Preco confirmado",
+                  search_text=f"{name} {capacity} novo lacrado",
+              )
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class SealedCatalog:
+              items = [
+                  sealed_item("iphone-16-pro-max-256", "iPhone 16 Pro Max", "256 GB", 6500),
+                  sealed_item("iphone-17-128", "iPhone 17", "128 GB", 5000),
+                  sealed_item("iphone-17-air-256", "iPhone 17 Air", "256 GB", 6500),
+                  sealed_item("iphone-17-pro-512", "iPhone 17 Pro", "512 GB", 7200),
+                  sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 7900),
+                  sealed_item("iphone-18-128", "iPhone 18", "128 GB", 8200),
+                  sealed_item("iphone-18-pro-256", "iPhone 18 Pro", "256 GB", 9500),
+                  sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 11000),
+              ]
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return self.items[:limit]
+
+              async def get(self, product_id):
+                  return next((item for item in self.items if item.external_id == product_id), None)
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=True)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-17-pro-floor-guard.json",
+              sealed_cache=SealedCatalog(),
+          )
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          query = "Gostaria de saber os valores de iPhones novos lacrado iPhone 17 pro pra cima"
+          history = [
+              {"role": "user", "content": "Bom dia tudo bem"},
+              {"role": "assistant", "content": "Bom dia! Tudo bem por aqui. Como posso te ajudar?"},
+          ]
+          decision = asyncio.run(service.respond(query, history=history))
+          assert not decision.handoff, decision
+          assert decision.image_urls == [], decision
+          assert set(decision.product_references) == {
+              "iphone-17-pro-512",
+              "iphone-17-pro-max-256",
+              "iphone-18-128",
+              "iphone-18-pro-256",
+              "iphone-18-pro-max-256",
+          }, decision.product_references
+          for model in (
+              "iPhone 17 Pro",
+              "iPhone 17 Pro Max",
+              "iPhone 18",
+              "iPhone 18 Pro",
+              "iPhone 18 Pro Max",
+          ):
+              assert model in decision.reply, decision.reply
+          for price in (
+              "R$ 7.200,00",
+              "R$ 7.900,00",
+              "R$ 8.200,00",
+              "R$ 9.500,00",
+              "R$ 11.000,00",
+          ):
+              assert price in decision.reply, decision.reply
+          print("IPHONE_17_PRO_AND_UP_RANGE_GUARD_OK")
+          PY
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; settings = Settings(openai_api_key=None, google_sheets_enabled=False); faq = FAQStore(settings.faq_file); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-boleto-payment-policy.json"), faq, settings, offline=True); history = [{"role": "user", "content": "Olá"}, {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"}]; decision = asyncio.run(service.respond("Você vende iPhone no boleto?", history=history)); assert decision.reply == faq.get("pagamento"), decision; assert not decision.handoff and decision.product_references == [] and decision.image_urls == []; assert "Lista completa" not in decision.reply and "iphone 13 pro max" not in decision.reply.lower(); print("IPHONE_BOLETO_PAYMENT_POLICY_OK")'
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-replaced-components.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "oi"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "user", "content": "tudo bem?"}, {"role": "assistant", "content": "Oi! Tudo bem? 😊 Como posso te ajudar?"}]; text = "queria ver\nse vocês pegam troca\no meu é o 13\nmas tem a bateria e a tela trocada..."; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 replaced battery/screen evaluation routing: ok")'
           for service in app worker; do

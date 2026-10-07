@@ -3986,6 +3986,64 @@ async def test_shared_pro_and_pro_max_suffix_returns_both_requested_models(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_iphone_17_pro_and_up_lists_all_newer_sealed_models(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-16-pro-max-256", "iPhone 16 Pro Max", "256 GB", 6500),
+        _sealed_item("iphone-17-128", "iPhone 17", "128 GB", 5000),
+        _sealed_item("iphone-17-air-256", "iPhone 17 Air", "256 GB", 6500),
+        _sealed_item("iphone-17-pro-512", "iPhone 17 Pro", "512 GB", 7200),
+        _sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 7900),
+        _sealed_item("iphone-18-128", "iPhone 18", "128 GB", 8200),
+        _sealed_item("iphone-18-pro-256", "iPhone 18 Pro", "256 GB", 9500),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 11000),
+    ]
+    query = "Gostaria de saber os valores de iPhones novos lacrado iPhone 17 pro pra cima"
+    history = [
+        {"role": "user", "content": "Bom dia tudo bem"},
+        {
+            "role": "assistant",
+            "content": "Bom dia! Tudo bem por aqui. Como posso te ajudar?",
+        },
+    ]
+
+    decision = await agent.respond(query, history=history)
+
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert set(decision.product_references) == {
+        "iphone-17-pro-512",
+        "iphone-17-pro-max-256",
+        "iphone-18-128",
+        "iphone-18-pro-256",
+        "iphone-18-pro-max-256",
+    }
+    for model in (
+        "iPhone 17 Pro",
+        "iPhone 17 Pro Max",
+        "iPhone 18",
+        "iPhone 18 Pro",
+        "iPhone 18 Pro Max",
+    ):
+        assert model in decision.reply
+    for price in (
+        "R$ 7.200,00",
+        "R$ 7.900,00",
+        "R$ 8.200,00",
+        "R$ 9.500,00",
+        "R$ 11.000,00",
+    ):
+        assert price in decision.reply
+    for excluded_model in ("iPhone 16 Pro Max", "iPhone 17 Air"):
+        assert excluded_model not in decision.reply
+
+    exact_model = await agent.respond("Qual o valor do iPhone 17 Pro?")
+
+    assert exact_model.product_references == ["iphone-17-pro-512"]
+    assert "iPhone 17 Pro Max" not in exact_model.reply
+
+
+@pytest.mark.asyncio
 async def test_slash_separated_pro_and_pro_max_request_returns_both_models(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
