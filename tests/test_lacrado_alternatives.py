@@ -154,6 +154,93 @@ async def test_missing_new_model_reports_absence_and_offers_seminovo_alternative
 
 
 @pytest.mark.asyncio
+async def test_missing_ipad_seminovo_offers_new_ipads_instead_of_iphone_seminovos(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+        _ready_sealed_item("ipad-10-ready", "iPad 10", "64 GB", 2200),
+    ]
+    agent.cache.sealed_cache.items = [
+        _sealed_item("ipad-11-new", "iPad 11 A16", "128 GB", 3100),
+        _sealed_item("iphone-16-new", "iPhone 16", "128 GB", 4600),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    history = [
+        {"role": "user", "content": "Boa noite"},
+        {"role": "assistant", "content": "Boa noite! Como posso te ajudar?"},
+        {"role": "user", "content": "Estou a procura de um ipad"},
+        {"role": "user", "content": "10 ou 11"},
+    ]
+    decision = await agent.respond("Semi novo", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "iPad 10" in decision.reply
+    assert "iPad 11 A16" in decision.reply
+    assert "NOVO LACRADO" in decision.reply.upper()
+    assert "LACRADOS DISPONÍVEIS PARA PRONTA ENTREGA" in decision.reply.upper()
+    assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper()
+    assert "IPHONE" not in decision.reply.upper()
+    assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_missing_ipad_seminovo_without_new_ipad_does_not_offer_iphone_seminovos(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+    ]
+    agent.cache.sealed_cache.items = []
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(
+        "Semi novo",
+        history=[
+            {"role": "user", "content": "Estou a procura de um ipad"},
+            {"role": "user", "content": "10 ou 11"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "IPHONE" not in decision.reply.upper()
+    normalized = _normalize(decision.reply)
+    assert "tambem nao encontrei ipads novos disponiveis no catalogo" in normalized
+    assert "seminovos disponiveis para venda" not in normalized
+
+
+@pytest.mark.asyncio
+async def test_missing_ipad_variant_keeps_other_ipad_seminovos_in_alternatives(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("ipad-air-5-used", "iPad Air 5", "64 GB", 2100),
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+    ]
+    agent.cache.sealed_cache.items = [
+        _sealed_item("ipad-11-new", "iPad 11 A16", "128 GB", 3100),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent._try_unavailable_seminew_alternative(
+        "iPad 10 ou 11 128 GB seminovo"
+    )
+
+    assert decision is not None
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "IPAD AIR 5" in decision.reply.upper()
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "IPAD 11 A16" in decision.reply.upper()
+    assert "IPHONE" not in decision.reply.upper()
+    assert "nao localizei opcoes de ipad seminovo disponiveis" not in normalized
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("include_new_stock", [False, True])
 async def test_new_models_followup_does_not_fall_back_to_previous_seminovo_list(
     tmp_path, include_new_stock

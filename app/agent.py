@@ -4662,6 +4662,61 @@ class AgentService:
         except Exception:
             return None
 
+        if _catalog_family(query) == "ipad":
+            def is_ipad_entry(entry: dict[str, Any]) -> bool:
+                return _catalog_family(str(entry.get("nome") or "")) == "ipad"
+
+            ipad_options = {
+                "seminovos": [
+                    entry for entry in result.get("seminovos") or [] if is_ipad_entry(entry)
+                ],
+                "lacrados_pronta_entrega": [
+                    entry
+                    for entry in result.get("lacrados_pronta_entrega") or []
+                    if is_ipad_entry(entry)
+                ],
+                "lacrados": [
+                    entry for entry in result.get("lacrados") or [] if is_ipad_entry(entry)
+                ],
+            }
+            new_ipads_available = any(
+                ipad_options[section]
+                for section in ("lacrados_pronta_entrega", "lacrados")
+            )
+            if not any(ipad_options.values()):
+                return AgentDecision(
+                    reply=(
+                        "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
+                        "Também não encontrei iPads novos disponíveis no catálogo. "
+                        "Se quiser, posso verificar outro modelo ou capacidade."
+                    ),
+                    confidence="medium",
+                )
+
+            formatted_ipads = _format_available_products(ipad_options).removeprefix(
+                "📋 Lista completa de produtos disponíveis:\n"
+            )
+            if ipad_options["seminovos"]:
+                intro = (
+                    "Não localizei a opção de iPad seminovo solicitada. "
+                    "Encontrei estes iPads seminovos"
+                )
+                if new_ipads_available:
+                    intro += " e novos disponíveis para você escolher:\n\n"
+                else:
+                    intro += " disponíveis para você escolher:\n\n"
+            else:
+                intro = (
+                    "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
+                    "Para você escolher, seguem as opções de iPads novos disponíveis:\n\n"
+                )
+            return AgentDecision(
+                reply=(
+                    intro + formatted_ipads
+                ),
+                confidence="medium",
+            )
+
         seminovos = result.get("seminovos") or []
         if not seminovos:
             return None

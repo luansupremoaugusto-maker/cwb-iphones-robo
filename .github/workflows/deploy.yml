@@ -156,6 +156,92 @@ jobs:
           assert "seminovo" not in decision.reply.lower(), decision.reply
           assert "iphone 16 pro max" not in decision.reply.lower(), decision.reply
           print("NEW_MODELS_LIST_EXCLUDES_SEMINOVOS_OK")
+
+          ipad_sealed = EmptySealedCatalog()
+          ipad_sealed.items = [
+              InventoryItem(
+                  external_id="sheet:ipad-11-128",
+                  name="iPad 11 A16",
+                  category="Novo lacrado",
+                  capacity="128 GB",
+                  source="google_sheets",
+                  condition="novo lacrado",
+                  availability="Preço confirmado",
+                  price_brl=3100,
+                  search_text="ipad 11 a16 128 gb novo lacrado",
+              ),
+              InventoryItem(
+                  external_id="sheet:iphone-16-128",
+                  name="iPhone 16",
+                  category="Novo lacrado",
+                  capacity="128 GB",
+                  source="google_sheets",
+                  condition="novo lacrado",
+                  availability="Preço confirmado",
+                  price_brl=4600,
+                  search_text="iphone 16 128 gb novo lacrado",
+              ),
+          ]
+          ipad_cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/ipad-seminovo-new-options-guard.json",
+              sealed_cache=ipad_sealed,
+          )
+          ipad_cache.items = [
+              InventoryItem(
+                  external_id="iphone-13-pro-used",
+                  name="iPhone 13 Pro",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="ROSA",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=2390,
+                  battery_health=88,
+                  search_text="iphone 13 pro 128 gb rosa celular seminovo",
+              ),
+              InventoryItem(
+                  external_id="ipad-10-ready",
+                  name="iPad 10",
+                  category="Celular",
+                  capacity="64 GB",
+                  color="AZUL",
+                  source="mercado_phone",
+                  condition="LACRADO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=2200,
+                  search_text="ipad 10 64 gb azul lacrado",
+              ),
+          ]
+          ipad_cache.last_refresh = time.time()
+          ipad_service = AgentService(
+              ipad_cache,
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          ipad_history = [
+              {"role": "user", "content": "Boa noite"},
+              {"role": "assistant", "content": "Boa noite! Como posso te ajudar?"},
+              {"role": "user", "content": "Estou a procura de um ipad"},
+              {"role": "user", "content": "10 ou 11"},
+          ]
+          ipad_decision = asyncio.run(
+              ipad_service.respond("Semi novo", history=ipad_history)
+          )
+          assert not ipad_decision.handoff, ipad_decision
+          assert ipad_decision.product_references == [], ipad_decision
+          assert ipad_decision.image_urls == [], ipad_decision
+          assert "iPad 10" in ipad_decision.reply, ipad_decision.reply
+          assert "iPad 11 A16" in ipad_decision.reply, ipad_decision.reply
+          assert "NOVO LACRADO" in ipad_decision.reply.upper(), ipad_decision.reply
+          assert "IPHONE" not in ipad_decision.reply.upper(), ipad_decision.reply
+          assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in ipad_decision.reply.upper()
+          print("IPAD_SEMINOVO_OFFERS_NEW_IPADS_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
