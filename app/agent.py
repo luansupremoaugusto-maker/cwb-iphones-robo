@@ -2612,41 +2612,54 @@ def _requested_device_quantity(text: str) -> int | None:
     return None
 
 
+_ENTRY_AMOUNT_WORD_MULTIPLIERS = {
+    "um": 1,
+    "uma": 1,
+    "dois": 2,
+    "duas": 2,
+    "tres": 3,
+    "quatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "sete": 7,
+    "oito": 8,
+    "nove": 9,
+    "dez": 10,
+}
+_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN = (
+    r"(?:\d+(?:[.,]\d+)?|" + "|".join(_ENTRY_AMOUNT_WORD_MULTIPLIERS) + r")"
+)
+
+
+def _parse_entry_amount(raw_value: str) -> float | None:
+    normalized_value = _normalize(raw_value)
+    spoken_thousands = re.fullmatch(
+        rf"(?:(?P<multiplier>{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s+)?"
+        r"mil(?:\s+reais?)?",
+        normalized_value,
+    )
+    if not spoken_thousands:
+        return _parse_brl_amount(raw_value)
+
+    multiplier = spoken_thousands.group("multiplier")
+    if not multiplier:
+        return 1000.0
+    if multiplier in _ENTRY_AMOUNT_WORD_MULTIPLIERS:
+        return float(_ENTRY_AMOUNT_WORD_MULTIPLIERS[multiplier] * 1000)
+    numeric_multiplier = _parse_brl_amount(multiplier)
+    return numeric_multiplier * 1000 if numeric_multiplier is not None else None
+
+
 def _extract_entry_amount(text: str) -> float | None:
     normalized = _normalize(text)
     if "entrada" not in normalized and "sinal" not in normalized:
         return None
 
-    spoken_thousands = re.search(
-        r"\b(?:(?P<multiplier>\d+(?:[.,]\d+)?|um|uma|dois|duas|tres|quatro|"
-        r"cinco|seis|sete|oito|nove|dez)\s+)?mil\b",
-        normalized,
+    numeric_amount = r"(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?"
+    spoken_thousands = (
+        rf"(?:(?:{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s+)?mil(?:\s+reais?)?"
     )
-    if spoken_thousands:
-        multiplier = spoken_thousands.group("multiplier")
-        word_multipliers = {
-            "um": 1,
-            "uma": 1,
-            "dois": 2,
-            "duas": 2,
-            "tres": 3,
-            "quatro": 4,
-            "cinco": 5,
-            "seis": 6,
-            "sete": 7,
-            "oito": 8,
-            "nove": 9,
-            "dez": 10,
-        }
-        numeric_multiplier = (
-            _parse_brl_amount(multiplier)
-            if multiplier and multiplier[0].isdigit()
-            else word_multipliers.get(multiplier or "", 1)
-        )
-        if numeric_multiplier is not None:
-            return numeric_multiplier * 1000
-
-    amount = r"(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?"
+    amount = rf"(?:{numeric_amount}|{spoken_thousands})"
     patterns = (
         rf"\b(?:entrada|sinal)\s*(?:(?:a|à)\s+vista\s*)?(?:de|no valor de|:)??\s*(?:r\$\s*)?({amount})",
         rf"\b(?:r\$\s*)?({amount})\s*(?:de\s+)?(?:entrada|sinal)\b",
@@ -2654,7 +2667,7 @@ def _extract_entry_amount(text: str) -> float | None:
     for pattern in patterns:
         match = re.search(pattern, text or "", flags=re.IGNORECASE)
         if match:
-            return _parse_brl_amount(match.group(1))
+            return _parse_entry_amount(match.group(1))
     return None
 
 

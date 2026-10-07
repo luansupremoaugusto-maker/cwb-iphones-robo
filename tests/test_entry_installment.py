@@ -132,12 +132,42 @@ async def test_agent_returns_full_entry_comparison_table_when_quantity_is_reques
 
 
 @pytest.mark.asyncio
-async def test_written_thousand_entry_uses_remaining_balance_for_customer_installment_question(tmp_path):
+@pytest.mark.parametrize(
+    ("price_brl", "price_label", "message", "entry_label", "balance_label", "expected_installments"),
+    [
+        (
+            2840.0,
+            "2.840",
+            "Eu dando mil de entrada, parcelando o restante no cartão ficaria quanto de 4 ou 5x?",
+            "1.000",
+            "1.840",
+            ("4x de R$ 497,62", "5x de R$ 401,40"),
+        ),
+        (
+            6000.0,
+            "6.000",
+            "O preço fica seis mil e eu quero pagar dois mil de entrada, "
+            "parcelando o restante no cartão em 4x.",
+            "2.000",
+            "4.000",
+            ("4x de R$ 1.081,78",),
+        ),
+    ],
+)
+async def test_spoken_entry_uses_amount_adjacent_to_entry_marker(
+    tmp_path,
+    price_brl,
+    price_label,
+    message,
+    entry_label,
+    balance_label,
+    expected_installments,
+):
     item = InventoryItem(
         external_id="mercado:iphone-13-pro-max-blue-sierra",
         name="iPhone 13 Pro Max",
         capacity="128 GB",
-        price_brl=2840.0,
+        price_brl=price_brl,
         condition="seminovo",
         availability="Disponível para venda",
         quantity=1,
@@ -165,25 +195,26 @@ async def test_written_thousand_entry_uses_remaining_balance_for_customer_instal
             "role": "assistant",
             "content": (
                 "No catálogo, o iPhone 13 Pro Max 128 GB Azul Sierra seminovo está "
-                "por R$ 2.840 e consta como disponível para venda. 😊"
+                f"por R$ {price_label} e consta como disponível para venda. 😊"
             ),
         },
     ]
 
     decision = await agent.respond(
-        "Eu dando mil de entrada, parcelando o restante no cartão ficaria quanto de 4 ou 5x?",
+        message,
         history=history,
     )
 
     assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
-    assert "Preço total: R$ 2.840,00" in decision.reply
-    assert "Entrada à vista: R$ 1.000,00" in decision.reply
-    assert "Saldo restante para parcelar: R$ 1.840,00" in decision.reply
-    assert "4x de R$ 497,62" in decision.reply
-    assert "5x de R$ 401,40" in decision.reply
-    assert "4x de R$ 768,07" not in decision.reply
+    assert f"Preço total: R$ {price_label},00" in decision.reply
+    assert f"Entrada à vista: R$ {entry_label},00" in decision.reply
+    assert f"Saldo restante para parcelar: R$ {balance_label},00" in decision.reply
+    for expected in expected_installments:
+        assert expected in decision.reply
+    if price_brl == 2840.0:
+        assert "4x de R$ 768,07" not in decision.reply
 
 
 def test_faq_allows_payment_with_multiple_cards():
