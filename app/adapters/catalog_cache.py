@@ -81,6 +81,17 @@ _IPHONE_MODEL_RANGE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_IPHONE_MODEL_VARIANT_RANK = {
+    "": 0,
+    "mini": 1,
+    "e": 1,
+    "plus": 2,
+    "air": 2,
+    "pro": 3,
+    "max": 3,
+    "pro max": 4,
+}
+
 _PRICE_THOUSANDS_SUFFIX_RE = re.compile(r"^[.,]\d{3}(?:[.,]\d{2})?\b")
 
 
@@ -352,16 +363,21 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     return tuple(selected)
 
 
-def _requested_iphone_model_floor(value: Any) -> int | None:
-    """Return the lowest iPhone generation requested by an open-ended range."""
+def _requested_iphone_model_floor(value: Any) -> tuple[int, str] | None:
+    """Return the lowest iPhone model requested by an open-ended range."""
     normalized = _score_text(value)
     if not re.search(r"\biphones?\b", normalized):
         return None
     match = re.search(
-        r"\biphones?\s+(?P<number>\d{1,2})\s+(?:pra|para)\s+cima\b",
+        r"\biphones?\s+(?P<number>\d{1,2})"
+        r"(?:\s+(?P<variant>pro\s+max|pro))?\s+"
+        r"(?:pra|para)\s+cima\b",
         normalized,
     )
-    return int(match.group("number")) if match else None
+    if not match:
+        return None
+    variant = " ".join((match.group("variant") or "").split())
+    return int(match.group("number")), variant
 
 
 def _matches_requested_model(query: str, item: Any) -> bool:
@@ -376,7 +392,14 @@ def _matches_requested_model(query: str, item: Any) -> bool:
             _is_iphone_catalog_item(item)
             and item_model is not None
             and isinstance(item_model[0], int)
-            and item_model[0] >= floor
+            and (
+                item_model[0] > floor[0]
+                or (
+                    item_model[0] == floor[0]
+                    and _IPHONE_MODEL_VARIANT_RANK.get(item_model[1], -1)
+                    >= _IPHONE_MODEL_VARIANT_RANK.get(floor[1], -1)
+                )
+            )
         )
     targets = _requested_iphone_model_keys(query)
     if not targets:
