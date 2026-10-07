@@ -213,6 +213,34 @@ async def test_missing_ipad_seminovo_without_new_ipad_does_not_offer_iphone_semi
 
 
 @pytest.mark.asyncio
+async def test_missing_ipad_variant_keeps_other_ipad_seminovos_in_alternatives(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("ipad-air-5-used", "iPad Air 5", "64 GB", 2100),
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+    ]
+    agent.cache.sealed_cache.items = [
+        _sealed_item("ipad-11-new", "iPad 11 A16", "128 GB", 3100),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent._try_unavailable_seminew_alternative(
+        "iPad 10 ou 11 128 GB seminovo"
+    )
+
+    assert decision is not None
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "IPAD AIR 5" in decision.reply.upper()
+    assert "SEMINOVO" in decision.reply.upper()
+    assert "IPAD 11 A16" in decision.reply.upper()
+    assert "IPHONE" not in decision.reply.upper()
+    assert "nao localizei opcoes de ipad seminovo disponiveis" not in normalized
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("include_new_stock", [False, True])
 async def test_new_models_followup_does_not_fall_back_to_previous_seminovo_list(
     tmp_path, include_new_stock

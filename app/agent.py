@@ -4666,8 +4666,10 @@ class AgentService:
             def is_ipad_entry(entry: dict[str, Any]) -> bool:
                 return _catalog_family(str(entry.get("nome") or "")) == "ipad"
 
-            new_ipads = {
-                "seminovos": [],
+            ipad_options = {
+                "seminovos": [
+                    entry for entry in result.get("seminovos") or [] if is_ipad_entry(entry)
+                ],
                 "lacrados_pronta_entrega": [
                     entry
                     for entry in result.get("lacrados_pronta_entrega") or []
@@ -4677,7 +4679,11 @@ class AgentService:
                     entry for entry in result.get("lacrados") or [] if is_ipad_entry(entry)
                 ],
             }
-            if not any(new_ipads.values()):
+            new_ipads_available = any(
+                ipad_options[section]
+                for section in ("lacrados_pronta_entrega", "lacrados")
+            )
+            if not any(ipad_options.values()):
                 return AgentDecision(
                     reply=(
                         "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
@@ -4687,14 +4693,26 @@ class AgentService:
                     confidence="medium",
                 )
 
-            formatted_ipads = _format_available_products(new_ipads).removeprefix(
+            formatted_ipads = _format_available_products(ipad_options).removeprefix(
                 "📋 Lista completa de produtos disponíveis:\n"
             )
-            return AgentDecision(
-                reply=(
+            if ipad_options["seminovos"]:
+                intro = (
+                    "Não localizei a opção de iPad seminovo solicitada. "
+                    "Encontrei estes iPads seminovos"
+                )
+                if new_ipads_available:
+                    intro += " e novos disponíveis para você escolher:\n\n"
+                else:
+                    intro += " disponíveis para você escolher:\n\n"
+            else:
+                intro = (
                     "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
                     "Para você escolher, seguem as opções de iPads novos disponíveis:\n\n"
-                    + formatted_ipads
+                )
+            return AgentDecision(
+                reply=(
+                    intro + formatted_ipads
                 ),
                 confidence="medium",
             )
