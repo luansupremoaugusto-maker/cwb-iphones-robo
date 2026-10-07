@@ -4662,6 +4662,43 @@ class AgentService:
         except Exception:
             return None
 
+        if _catalog_family(query) == "ipad":
+            def is_ipad_entry(entry: dict[str, Any]) -> bool:
+                return _catalog_family(str(entry.get("nome") or "")) == "ipad"
+
+            new_ipads = {
+                "seminovos": [],
+                "lacrados_pronta_entrega": [
+                    entry
+                    for entry in result.get("lacrados_pronta_entrega") or []
+                    if is_ipad_entry(entry)
+                ],
+                "lacrados": [
+                    entry for entry in result.get("lacrados") or [] if is_ipad_entry(entry)
+                ],
+            }
+            if not any(new_ipads.values()):
+                return AgentDecision(
+                    reply=(
+                        "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
+                        "Também não encontrei iPads novos disponíveis no catálogo. "
+                        "Se quiser, posso verificar outro modelo ou capacidade."
+                    ),
+                    confidence="medium",
+                )
+
+            formatted_ipads = _format_available_products(new_ipads).removeprefix(
+                "📋 Lista completa de produtos disponíveis:\n"
+            )
+            return AgentDecision(
+                reply=(
+                    "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
+                    "Para você escolher, seguem as opções de iPads novos disponíveis:\n\n"
+                    + formatted_ipads
+                ),
+                confidence="medium",
+            )
+
         seminovos = result.get("seminovos") or []
         if not seminovos:
             return None
