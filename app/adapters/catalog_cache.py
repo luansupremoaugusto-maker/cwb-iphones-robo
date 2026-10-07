@@ -366,6 +366,34 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     return tuple(selected)
 
 
+_IPAD_MODEL_REFERENCE_PATTERN = re.compile(r"\bipad\s+(?P<model>air|pro|mini|\d{1,2})\b")
+_IPAD_SHARED_MODEL_NUMBER_PATTERN = re.compile(
+    r"\b(?:ou|e|or)(?:\s+(?:o|a|um|uma))?\s+(?P<number>\d{1,2})\b"
+)
+
+
+def _requested_ipad_model_keys(value: Any) -> tuple[str, ...]:
+    """Return explicitly named iPad base models and model families."""
+    normalized = _score_text(value)
+    matches = list(_IPAD_MODEL_REFERENCE_PATTERN.finditer(normalized))
+    selected: list[str] = []
+    for index, match in enumerate(matches):
+        model = match.group("model")
+        if model not in selected:
+            selected.append(model)
+
+        if model.isdigit():
+            next_start = (
+                matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+            )
+            between = normalized[match.end() : next_start]
+            shorthand = _IPAD_SHARED_MODEL_NUMBER_PATTERN.search(between)
+            if shorthand and shorthand.group("number") not in selected:
+                selected.append(shorthand.group("number"))
+
+    return tuple(selected)
+
+
 def _requested_iphone_model_floor(value: Any) -> tuple[int, str] | None:
     """Return the lowest iPhone model requested by an open-ended range."""
     normalized = _score_text(value)
@@ -405,9 +433,13 @@ def _matches_requested_model(query: str, item: Any) -> bool:
             )
         )
     targets = _requested_iphone_model_keys(query)
-    if not targets:
+    if targets:
+        return _is_iphone_catalog_item(item) and _model_key(getattr(item, "name", "")) in targets
+    ipad_targets = _requested_ipad_model_keys(query)
+    if not ipad_targets:
         return True
-    return _is_iphone_catalog_item(item) and _model_key(getattr(item, "name", "")) in targets
+    item_ipad_models = _requested_ipad_model_keys(getattr(item, "name", ""))
+    return bool(set(ipad_targets).intersection(item_ipad_models))
 
 
 def _capacity_key(value: Any) -> str | None:

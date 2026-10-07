@@ -252,6 +252,132 @@ jobs:
           from app.faq import FAQStore
           from app.schemas import InventoryItem
 
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class SealedCatalog:
+              def __init__(self):
+                  self.items = [
+                      InventoryItem(
+                          external_id="ipad-11-128",
+                          name="iPad 11 A16",
+                          category="Novo lacrado",
+                          capacity="128 GB",
+                          price_brl=3300,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preço confirmado",
+                          search_text="iPad 11 A16 128 GB novo lacrado",
+                      ),
+                      InventoryItem(
+                          external_id="ipad-air-128",
+                          name="iPad Air M3",
+                          category="Novo lacrado",
+                          capacity="128 GB",
+                          price_brl=4100,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preço confirmado",
+                          search_text="iPad Air M3 128 GB novo lacrado",
+                      ),
+                      InventoryItem(
+                          external_id="ipad-pro-11-256",
+                          name="iPad Pro 11",
+                          category="Novo lacrado",
+                          capacity="256 GB",
+                          price_brl=5900,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preço confirmado",
+                          search_text="iPad Pro 11 256 GB novo lacrado",
+                      ),
+                  ]
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return self.items[:limit]
+
+              async def get(self, product_id):
+                  return next((item for item in self.items if item.external_id == product_id), None)
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=True)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/ipad-11-or-air-availability-guard.json",
+              sealed_cache=SealedCatalog(),
+          )
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {
+                  "role": "user",
+                  "content": "Boa tarde tudo bem? Gostaria de saber preço de modelos de ipad",
+              },
+              {
+                  "role": "assistant",
+                  "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+              },
+          ]
+          first = asyncio.run(service.respond("O ipad 11 ou ipad air", history=history))
+          assert not first.handoff, first
+          assert set(first.product_references) == {"ipad-11-128", "ipad-air-128"}, first
+          assert "iPad 11 A16" in first.reply and "iPad Air M3" in first.reply, first.reply
+          assert "iPad Pro 11" not in first.reply, first.reply
+          assert first.image_urls == [], first
+
+          history.extend(
+              [
+                  {"role": "user", "content": "O ipad 11 ou ipad air"},
+                  {"role": "assistant", "content": first.reply},
+              ]
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="ipad-air-used",
+                  name="iPad Air 5",
+                  category="Celular",
+                  capacity="64 GB",
+                  price_brl=2100,
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  search_text="iPad Air 5 64 GB seminovo disponível",
+              ),
+              InventoryItem(
+                  external_id="ipad-11-used",
+                  name="iPad 11",
+                  category="Celular",
+                  capacity="128 GB",
+                  price_brl=2800,
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  search_text="iPad 11 128 GB seminovo disponível",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          used = asyncio.run(service.respond("Tem usado?", history=history))
+          assert not used.handoff, used
+          assert set(used.product_references) == {"ipad-air-used", "ipad-11-used"}, used
+          assert "iPad Air 5" in used.reply and "iPad 11" in used.reply, used.reply
+          assert used.image_urls == [], used
+          print("IPAD_11_OR_AIR_PRICE_AND_USED_ALTERNATIVES_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
           def sealed_item(external_id, name, capacity, price):
               return InventoryItem(
                   external_id=external_id,
