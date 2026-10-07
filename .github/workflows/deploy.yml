@@ -332,6 +332,57 @@ jobs:
               assert price in decision.reply, decision.reply
           print("IPHONE_17_PRO_AND_UP_RANGE_GUARD_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-13-pro-max-battery-availability.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-13-pro-max-128-88",
+                  name="iPhone 13 Pro Max",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="GRAFITE",
+                  condition="SEMINOVO",
+                  availability="Disponivel para venda",
+                  quantity=1,
+                  price_brl=2390,
+                  battery_health=88,
+                  source="mercado_phone",
+                  search_text="iphone 13 pro max grafite 128 gb celular seminovo",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          message = (
+              "Vocês têm iPhone 13 Pro Max 128 GB seminovo? Procuro um com bateria acima de 85%, "
+              "sem peças não originais, Face ID funcionando, nota fiscal e garantia. "
+              "Qual está disponível hoje e qual a saúde da bateria?"
+          )
+          decision = asyncio.run(service.respond(message))
+          assert not decision.handoff, decision
+          assert decision.product_references == ["iphone-13-pro-max-128-88"], decision
+          for expected in ("iPhone 13 Pro Max", "128 GB", "R$ 2.390,00", "88%"):
+              assert expected in decision.reply, decision.reply
+          assert "iPhone 85" not in decision.reply, decision.reply
+          assert "Não localizei" not in decision.reply, decision.reply
+          print("IPHONE_13_PRO_MAX_BATTERY_AVAILABILITY_OK")
+          PY
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; settings = Settings(openai_api_key=None, google_sheets_enabled=False); faq = FAQStore(settings.faq_file); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-boleto-payment-policy.json"), faq, settings, offline=True); history = [{"role": "user", "content": "Olá"}, {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"}]; decision = asyncio.run(service.respond("Você vende iPhone no boleto?", history=history)); assert decision.reply == faq.get("pagamento"), decision; assert not decision.handoff and decision.product_references == [] and decision.image_urls == []; assert "Lista completa" not in decision.reply and "iphone 13 pro max" not in decision.reply.lower(); print("IPHONE_BOLETO_PAYMENT_POLICY_OK")'
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-replaced-components.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "oi"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "user", "content": "tudo bem?"}, {"role": "assistant", "content": "Oi! Tudo bem? 😊 Como posso te ajudar?"}]; text = "queria ver\nse vocês pegam troca\no meu é o 13\nmas tem a bateria e a tela trocada..."; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 replaced battery/screen evaluation routing: ok")'
           for service in app worker; do
