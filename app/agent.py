@@ -2617,6 +2617,35 @@ def _extract_entry_amount(text: str) -> float | None:
     if "entrada" not in normalized and "sinal" not in normalized:
         return None
 
+    spoken_thousands = re.search(
+        r"\b(?:(?P<multiplier>\d+(?:[.,]\d+)?|um|uma|dois|duas|tres|quatro|"
+        r"cinco|seis|sete|oito|nove|dez)\s+)?mil\b",
+        normalized,
+    )
+    if spoken_thousands:
+        multiplier = spoken_thousands.group("multiplier")
+        word_multipliers = {
+            "um": 1,
+            "uma": 1,
+            "dois": 2,
+            "duas": 2,
+            "tres": 3,
+            "quatro": 4,
+            "cinco": 5,
+            "seis": 6,
+            "sete": 7,
+            "oito": 8,
+            "nove": 9,
+            "dez": 10,
+        }
+        numeric_multiplier = (
+            _parse_brl_amount(multiplier)
+            if multiplier and multiplier[0].isdigit()
+            else word_multipliers.get(multiplier or "", 1)
+        )
+        if numeric_multiplier is not None:
+            return numeric_multiplier * 1000
+
     amount = r"(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?"
     patterns = (
         rf"\b(?:entrada|sinal)\s*(?:(?:a|à)\s+vista\s*)?(?:de|no valor de|:)??\s*(?:r\$\s*)?({amount})",

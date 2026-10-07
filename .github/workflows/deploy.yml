@@ -679,6 +679,64 @@ jobs:
           assert "256 GB" not in decision.reply, decision.reply
           print("iPhone 16 128 GB installment routing: ok")
           '
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/spoken-thousand-entry-installment-guard.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-13-pro-max-128-blue-sierra",
+                  name="iPhone 13 Pro Max",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="AZUL SIERRA",
+                  condition="SEMINOVO",
+                  availability="Disponivel para venda",
+                  quantity=1,
+                  price_brl=2840,
+                  source="mercado_phone",
+                  search_text="iphone 13 pro max azul sierra 128 gb celular seminovo",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "user", "content": "O valor seria esse certo? Mas está disponível?"},
+              {
+                  "role": "assistant",
+                  "content": "No catálogo, o iPhone 13 Pro Max 128 GB Azul Sierra seminovo está por R$ 2.840 e consta como disponível para venda. 😊",
+              },
+          ]
+          message = "Eu dando mil de entrada, parcelando o restante no cartão ficaria quanto de 4 ou 5x?"
+          decision = asyncio.run(service.respond(message, history=history))
+          assert not decision.handoff, decision
+          assert decision.product_references == [] and decision.image_urls == [], decision
+          for expected in (
+              "Preço total: R$ 2.840,00",
+              "Entrada à vista: R$ 1.000,00",
+              "Saldo restante para parcelar: R$ 1.840,00",
+              "4x de R$ 497,62",
+              "5x de R$ 401,40",
+          ):
+              assert expected in decision.reply, decision.reply
+          assert "4x de R$ 768,07" not in decision.reply, decision.reply
+          print("SPOKEN_THOUSAND_ENTRY_INSTALLMENT_GUARD_OK")
+          PY
           docker compose --env-file .env.local exec -T app python -c '
           import asyncio
           from app.agent import AgentService, _normalize

@@ -50,8 +50,11 @@ def test_entry_equal_to_or_above_product_price_is_rejected():
 
 
 class FakeMercadoClient:
+    def __init__(self, items=None):
+        self.items = list(items) if items is not None else []
+
     async def fetch_all_inventory(self):
-        return []
+        return self.items
 
 
 class FakeSealedCache:
@@ -126,6 +129,61 @@ async def test_agent_returns_full_entry_comparison_table_when_quantity_is_reques
     assert "1x de" in decision.reply
     assert "12x de" in decision.reply
     assert "18x de" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_written_thousand_entry_uses_remaining_balance_for_customer_installment_question(tmp_path):
+    item = InventoryItem(
+        external_id="mercado:iphone-13-pro-max-blue-sierra",
+        name="iPhone 13 Pro Max",
+        capacity="128 GB",
+        price_brl=2840.0,
+        condition="seminovo",
+        availability="Disponível para venda",
+        quantity=1,
+        source="mercado_phone",
+        category="Celular",
+        search_text="iphone 13 pro max 128 gb azul sierra seminovo",
+    )
+    settings = Settings(
+        google_sheets_enabled=True,
+        mercado_cache_ttl_seconds=60,
+    )
+    cache = StoreCatalogCache(
+        FakeMercadoClient([item]),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": "O valor seria esse certo? Mas está disponível?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "No catálogo, o iPhone 13 Pro Max 128 GB Azul Sierra seminovo está "
+                "por R$ 2.840 e consta como disponível para venda. 😊"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Eu dando mil de entrada, parcelando o restante no cartão ficaria quanto de 4 ou 5x?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "Preço total: R$ 2.840,00" in decision.reply
+    assert "Entrada à vista: R$ 1.000,00" in decision.reply
+    assert "Saldo restante para parcelar: R$ 1.840,00" in decision.reply
+    assert "4x de R$ 497,62" in decision.reply
+    assert "5x de R$ 401,40" in decision.reply
+    assert "4x de R$ 768,07" not in decision.reply
 
 
 def test_faq_allows_payment_with_multiple_cards():
