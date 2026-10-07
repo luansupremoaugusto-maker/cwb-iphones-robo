@@ -82,6 +82,16 @@ def test_pro_max_conjunction_with_do_keeps_both_requested_models():
     ) == ((14, "pro max"), (15, "pro max"))
 
 
+def test_model_range_and_e_joined_base_models_keep_model_identity():
+    assert _requested_iphone_model_keys(
+        "Quais iPhones estão disponíveis do 14 até o 16?"
+    ) == ((14, ""), (15, ""), (16, ""))
+    assert _requested_iphone_model_keys(
+        "Quero saber os modelos entre o 14, 15 e 16 de 256 GB"
+    ) == ((14, ""), (15, ""), (16, ""))
+    assert _requested_iphone_model_keys("iPhone 16e") == ((16, "e"),)
+
+
 def test_past_purchase_count_is_not_treated_as_requested_quantity():
     assert _requested_device_quantity("Já comprei 2 celular com vc") is None
     assert _requested_device_quantity("Preciso de 2 aparelhos") == 2
@@ -103,6 +113,9 @@ def test_delivery_deadline_is_not_parsed_as_budget_limit():
     assert _extract_budget_limit("iPhone 17 com entrega em até 1 semana") is None
     assert _extract_budget_limit("iPhone 17 até R$ 7.200,00") == 7200
     assert _extract_budget_limit("orçamento do iPhone 15 Pro Max") is None
+    model_range = "Gostaria de ver quais iPhones têm disponível do 14 até o 16, com 256 GB"
+    assert _extract_budget_limit(model_range) is None
+    assert _extract_budget_limit(f"{model_range}, com orçamento até R$ 7.200,00") == 7200
 
 
 def test_thousands_separator_budget_is_not_parsed_as_a_bare_model():

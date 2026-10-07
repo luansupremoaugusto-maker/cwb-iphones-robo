@@ -337,6 +337,116 @@ jobs:
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _customer_product_condition_context_query, _customer_product_request_context_query, _is_pronta_entrega_only_request; history = [{"role": "user", "content": "Estou procurando um iPhone novo ou semi para compra. Quais modelos você tem a pronta entrega? 15/16/17. Novo ou semi."}]; current = "E novo?"; condition = _customer_product_condition_context_query(current, history); context = _customer_product_request_context_query(current, history); assert condition == current, condition; assert _is_pronta_entrega_only_request(context), context; print("New-condition pronta-entrega follow-up: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_contextual_pronta_entrega_followup, _is_delivery_or_pickup_request; history = [{"role": "assistant", "content": "Ouro-rosa está cadastrado para o Apple Watch Series 11 nos dois tamanhos: 42 mm por R$ 2.500 ou 46 mm por R$ 2.700. Trabalhamos por encomenda, com prazo de 1 semana. Qual tamanho você prefere?"}]; text = "Nenhum a pronta entrega?"; assert _is_contextual_pronta_entrega_followup(text, history); assert not _is_delivery_or_pickup_request(text, history); print("APPLE_WATCH_READY_STOCK_CONTEXT_GUARD_OK")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_store_hours_request; query = "até q hrs vcs ficam abertos?"; assert _is_store_hours_request(query); print("STORE_HOURS_SHORTHAND_GUARD_OK")'
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class SealedCatalog:
+              def __init__(self):
+                  self.items = []
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return self.items[:limit]
+
+              async def get(self, product_id):
+                  return next((item for item in self.items if item.external_id == product_id), None)
+
+          def seminovo(model):
+              return InventoryItem(
+                  external_id=f"iphone-{model}-256-seminovo",
+                  name=f"iPhone {model}",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="ROSA",
+                  price_brl=3000 + model * 100,
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  battery_health=99,
+                  search_text=f"iPhone {model} 256 GB rosa celular seminovo",
+              )
+
+          def lacrado(model):
+              return InventoryItem(
+                  external_id=f"iphone-{model}-256-lacrado",
+                  name=f"iPhone {model}",
+                  category="Novo lacrado",
+                  capacity="256 GB",
+                  price_brl=5000 + model * 100,
+                  source="google_sheets",
+                  condition="novo lacrado",
+                  availability="Preço confirmado",
+                  search_text=f"iPhone {model} 256 GB novo lacrado",
+              )
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=True)
+          sealed = SealedCatalog()
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-model-range-seminovo-guard.json",
+              sealed_cache=sealed,
+          )
+          cache.items = [seminovo(model) for model in (13, 14, 15, 16, 17)]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          first_message = (
+              "Gostaria de ver quais iPhones vocês têm disponível do 14 até o 16, "
+              "com 256G e o mais próximo do 100%"
+          )
+          greeting_history = [
+              {"role": "user", "content": "Olá boa noite\nTudo bemm?"},
+              {
+                  "role": "assistant",
+                  "content": "Olá, boa noite! Tudo bem por aqui 😊 E com você? Como posso ajudar?",
+              },
+          ]
+          first = asyncio.run(service.respond(first_message, history=greeting_history))
+          expected = {
+              "iphone-14-256-seminovo",
+              "iphone-15-256-seminovo",
+              "iphone-16-256-seminovo",
+          }
+          assert not first.handoff and set(first.product_references) == expected, first
+          assert "R$ 16,00" not in first.reply and first.image_urls == [], first
+
+          sealed.items = [lacrado(model) for model in (13, 14, 15, 16, 17)]
+          observed_first_reply = (
+              "Não localizei aparelhos disponíveis até R$ 16,00 256GB. "
+              "Posso procurar em uma faixa maior ou em outro modelo?"
+          )
+          second_message = (
+              "Quero saber quais modelos vcs tem disponível entre o 14, 15 e 16 "
+              "de 256GB semi-novo"
+          )
+          second = asyncio.run(
+              service.respond(
+                  second_message,
+                  history=[
+                      *greeting_history,
+                      {"role": "user", "content": first_message},
+                      {"role": "assistant", "content": observed_first_reply},
+                  ],
+              )
+          )
+          assert not second.handoff and set(second.product_references) == expected, second
+          assert "SEMINOVO" in second.reply.upper() and "LACRADO" not in second.reply.upper(), second
+          assert second.image_urls == [], second
+          print("IPHONE_MODEL_RANGE_AND_SEMINOVO_ROUTING_OK")
+          PY
           docker compose --env-file .env.local exec -T app python -c '
           import asyncio
           from datetime import datetime

@@ -2065,7 +2065,7 @@ def _has_sealed_reference(normalized: str) -> bool:
 
 
 def _is_seminovo_exclusion(normalized: str) -> bool:
-    seminovo_term = r"(?:seminov[oa]s?|semi\s+nov[oa]s?|usad[oa]s?)"
+    seminovo_term = r"(?:seminov[oa]s?|semi[\s-]+nov[oa]s?|usad[oa]s?)"
     return bool(
         re.search(
             rf"\b(?:sem\s+(?:ser\s+)?|nao\s+(?:(?:quero|aceito|procuro|busco|sendo|ser)\s+)?)"
@@ -2076,7 +2076,7 @@ def _is_seminovo_exclusion(normalized: str) -> bool:
 
 
 def _has_new_condition_reference(normalized: str) -> bool:
-    without_semi_novo = re.sub(r"\bsemi\s+nov[oa]s?\b", " ", normalized)
+    without_semi_novo = re.sub(r"\bsemi[\s-]+nov[oa]s?\b", " ", normalized)
     return bool(re.search(r"\b(?:lacrad\w*|nov[oa]s?)\b", without_semi_novo))
 
 
@@ -2530,47 +2530,62 @@ def _parse_brl_amount(raw_value: str) -> float | None:
 def _extract_budget_limit(text: str) -> float | None:
     """Extract a maximum price from a natural-language budget request."""
     normalized = _normalize(text)
-    marker = re.search(
+    marker_pattern = re.compile(
         r"\b(?:ate(?!\s+la\b)|no maximo(?: de)?|maximo(?: de)?|na faixa de|faixa de|"
         r"orcamento(?: de)?|em torno de|cerca de|por volta de)\b",
+    )
+    iphone_model_range = re.search(
+        r"\b(?P<start>1[0-9])\s+(?P<range_marker>ate)\s+"
+        r"(?:(?:o|a)\s+)?(?:iphones?\s*)?(?P<end>1[0-9])\b",
         normalized,
     )
-    if not marker:
-        return None
+    for marker in marker_pattern.finditer(normalized):
+        amount_match = re.search(
+            r"(?:r\$\s*)?(?P<value>\d+(?:[.,]\d+)?)(?:\s*(?P<scale>mil|k))?",
+            normalized[marker.end() :],
+        )
+        if not amount_match:
+            return None
+        amount_start = marker.end() + amount_match.start("value")
+        if (
+            iphone_model_range is not None
+            and re.search(r"\biphones?\b", normalized)
+            and marker.start() == iphone_model_range.start("range_marker")
+            and amount_start == iphone_model_range.start("end")
+            and amount_match.group("value") == iphone_model_range.group("end")
+            and not amount_match.group("scale")
+        ):
+            # "do 14 até o 16" names a model range; its endpoint is not a
+            # sixteen-real budget limit. Keep looking for a later price marker.
+            continue
 
-    amount_match = re.search(
-        r"(?:r\$\s*)?(?P<value>\d+(?:[.,]\d+)?)(?:\s*(?P<scale>mil|k))?",
-        normalized[marker.end() :],
-    )
-    if not amount_match:
-        return None
-    amount = _parse_brl_amount(amount_match.group("value"))
-    if amount is None:
-        return None
-    # Do not treat delivery deadlines, installment counts, or quantities as
-    # prices. This matters when a previous catalog answer is part of the
-    # follow-up context, for example: "entrega em até 1 semana".
-    amount_start = marker.end() + amount_match.start("value")
-    amount_end = marker.end() + amount_match.end()
-    prefix = normalized[:amount_start]
-    suffix = normalized[amount_end:]
-    # A model generation is commonly written immediately after "iPhone" or
-    # followed by its variant, as in "orçamento do iPhone 15 Pro Max". It is
-    # a product reference, not a fifteen-real price limit.
-    if re.search(r"\biphones?\s*$", prefix) or re.match(
-        r"\s*(?:pro(?:\s+max)?|max|plus|mini|air|e)\b", suffix
-    ):
-        return None
-    if re.match(
-        r"\s*(?:x\b|semanas?\b|dias?\b|horas?\b|mes(?:es)?\b|"
-        r"vez(?:es)?\b|parcelas?\b|unidades?\b|aparelhos?\b|"
-        r"celulares?\b|telefones?\b|iphones?\b|gb\b|tb\b|%)",
-        suffix,
-    ):
-        return None
-    if amount_match.group("scale") and amount < 1000:
-        amount *= 1000
-    return amount
+        amount = _parse_brl_amount(amount_match.group("value"))
+        if amount is None:
+            return None
+        # Do not treat delivery deadlines, installment counts, or quantities as
+        # prices. This matters when a previous catalog answer is part of the
+        # follow-up context, for example: "entrega em até 1 semana".
+        amount_end = marker.end() + amount_match.end()
+        prefix = normalized[:amount_start]
+        suffix = normalized[amount_end:]
+        # A model generation is commonly written immediately after "iPhone" or
+        # followed by its variant, as in "orçamento do iPhone 15 Pro Max". It is
+        # a product reference, not a fifteen-real price limit.
+        if re.search(r"\biphones?\s*$", prefix) or re.match(
+            r"\s*(?:pro(?:\s+max)?|max|plus|mini|air|e)\b", suffix
+        ):
+            return None
+        if re.match(
+            r"\s*(?:x\b|semanas?\b|dias?\b|horas?\b|mes(?:es)?\b|"
+            r"vez(?:es)?\b|parcelas?\b|unidades?\b|aparelhos?\b|"
+            r"celulares?\b|telefones?\b|iphones?\b|gb\b|tb\b|%)",
+            suffix,
+        ):
+            return None
+        if amount_match.group("scale") and amount < 1000:
+            amount *= 1000
+        return amount
+    return None
 
 
 def _requested_device_quantity(text: str) -> int | None:

@@ -208,6 +208,102 @@ async def test_new_or_seminovo_model_list_keeps_both_requested_conditions(tmp_pa
     assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper()
 
 
+def _model_range_seminovo_agent(tmp_path, *, include_sealed: bool):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item(
+            f"iphone-{model}-256-seminovo",
+            f"iPhone {model}",
+            "256 GB",
+            3000 + model * 100,
+        )
+        for model in (13, 14, 15, 16, 17)
+    ]
+    agent.cache.sealed_cache.items = (
+        [
+            _sealed_item(
+                f"iphone-{model}-256-lacrado",
+                f"iPhone {model}",
+                "256 GB",
+                5000 + model * 100,
+            )
+            for model in (13, 14, 15, 16, 17)
+        ]
+        if include_sealed
+        else []
+    )
+    agent.cache.last_refresh = time.time()
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_iphone_range_from_14_through_16_is_not_read_as_a_budget(tmp_path):
+    agent = _model_range_seminovo_agent(tmp_path, include_sealed=False)
+    greeting_history = [
+        {"role": "user", "content": "Olá boa noite\nTudo bemm?"},
+        {
+            "role": "assistant",
+            "content": "Olá, boa noite! Tudo bem por aqui 😊 E com você? Como posso ajudar?",
+        },
+    ]
+    first_message = (
+        "Gostaria de ver quais iPhones vocês têm disponível do 14 até o 16, "
+        "com 256G e o mais próximo do 100%"
+    )
+    first = await agent.respond(first_message, history=greeting_history)
+
+    assert first.handoff is False
+    assert set(first.product_references) == {
+        "iphone-14-256-seminovo",
+        "iphone-15-256-seminovo",
+        "iphone-16-256-seminovo",
+    }, first.reply
+    assert "R$ 16,00" not in first.reply
+    assert first.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_hyphenated_seminovo_model_list_stays_in_used_inventory(tmp_path):
+    agent = _model_range_seminovo_agent(tmp_path, include_sealed=True)
+    greeting_history = [
+        {"role": "user", "content": "Olá boa noite\nTudo bemm?"},
+        {
+            "role": "assistant",
+            "content": "Olá, boa noite! Tudo bem por aqui 😊 E com você? Como posso ajudar?",
+        },
+    ]
+    first_message = (
+        "Gostaria de ver quais iPhones vocês têm disponível do 14 até o 16, "
+        "com 256G e o mais próximo do 100%"
+    )
+    observed_first_reply = (
+        "Não localizei aparelhos disponíveis até R$ 16,00 256GB. "
+        "Posso procurar em uma faixa maior ou em outro modelo?"
+    )
+    second_message = (
+        "Quero saber quais modelos vcs tem disponível entre o 14, 15 e 16 "
+        "de 256GB semi-novo"
+    )
+    second = await agent.respond(
+        second_message,
+        history=[
+            *greeting_history,
+            {"role": "user", "content": first_message},
+            {"role": "assistant", "content": observed_first_reply},
+        ],
+    )
+
+    assert second.handoff is False
+    assert set(second.product_references) == {
+        "iphone-14-256-seminovo",
+        "iphone-15-256-seminovo",
+        "iphone-16-256-seminovo",
+    }, second.reply
+    assert "SEMINOVO" in second.reply.upper()
+    assert "LACRADO" not in second.reply.upper()
+    assert second.image_urls == []
+
+
 @pytest.mark.asyncio
 async def test_singular_new_model_followup_keeps_previous_model_scope(tmp_path):
     agent = build_agent(tmp_path)

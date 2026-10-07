@@ -52,7 +52,9 @@ _REVERSED_IPHONE_MODEL_PATTERN = re.compile(
 
 _SHARED_MODEL_VARIANT_PATTERN = re.compile(
     r"(?<!\w)(?P<numbers>1[0-9](?:\s+1[0-9]|\s*(?:[,/;]|\b(?:e|ou|or)\b)\s*1[0-9])+)"
-    r"\s+(?P<variant>pro\s+max|pro|max|plus|mini|air|e)\b",
+    r"\s+(?P<variant>pro\s+max|pro|max|plus|mini|air|"
+    r"e(?!\s+(?:(?:o|a|um|uma|do|da|dos|das|no|na)\s+)?"
+    r"(?:iphone\s*)?\d{1,2}\b))\b",
     flags=re.IGNORECASE,
 )
 
@@ -76,6 +78,7 @@ _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN = re.compile(
 
 _IPHONE_MODEL_RANGE_PATTERN = re.compile(
     r"(?<!\w)(?:iphones?\s*)?(?P<start>1[0-9])\s+(?:a|ate)\s*"
+    r"(?:(?:o|a)\s+)?"
     r"(?:iphones?\s*)?(?P<end>1[0-9])\b"
     r"(?!\s+(?:pro\s+max|pro|max|plus|mini|air|e)\b)",
     flags=re.IGNORECASE,
