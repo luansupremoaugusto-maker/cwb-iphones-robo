@@ -2131,6 +2131,115 @@ async def test_explicit_ipad_does_not_return_iphone_or_macbook(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ipad_price_alternatives_return_each_requested_model(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("ipad-11-128", "iPad 11 A16", "128 GB", 3300),
+        _sealed_item("ipad-air-128", "iPad Air M3", "128 GB", 4100),
+        _sealed_item("ipad-pro-11-256", "iPad Pro 11", "256 GB", 5900),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": "Boa tarde tudo bem? Gostaria de saber preço de modelos de ipad",
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+
+    assert not _is_product_availability_request("O ipad 11 ou ipad air")
+    decision = await agent.respond("O ipad 11 ou ipad air", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"ipad-11-128", "ipad-air-128"}
+    assert "iPad 11 A16" in decision.reply
+    assert "iPad Air M3" in decision.reply
+    assert "iPad Pro 11" not in decision.reply
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_ipad_price_alternatives_name_a_model_missing_from_catalog(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("ipad-11-128", "iPad 11 A16", "128 GB", 3300),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": "Boa tarde tudo bem? Gostaria de saber preço de modelos de ipad",
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+
+    decision = await agent.respond("O ipad 11 ou ipad air", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["ipad-11-128"]
+    assert "iPad 11 A16" in decision.reply
+    assert "Não localizei opção disponível para iPad Air" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_ipad_used_followup_keeps_both_requested_alternatives(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="ipad-air-used",
+            name="iPad Air 5",
+            category="Celular",
+            capacity="64 GB",
+            price_brl=2100,
+            source="mercado_phone",
+            condition="seminovo",
+            availability="Disponível",
+            search_text="iPad Air 5 64 GB seminovo disponível",
+        ),
+        InventoryItem(
+            external_id="ipad-11-used",
+            name="iPad 11",
+            category="Celular",
+            capacity="128 GB",
+            price_brl=2800,
+            source="mercado_phone",
+            condition="seminovo",
+            availability="Disponível",
+            search_text="iPad 11 128 GB seminovo disponível",
+        ),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": "Boa tarde tudo bem? Gostaria de saber preço de modelos de ipad",
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {"role": "user", "content": "O ipad 11 ou ipad air"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPad 11 disponíveis: "
+                "Novos lacrados por encomenda: iPad 11 — 128 GB — R$ 3.300,00"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Tem usado?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"ipad-air-used", "ipad-11-used"}
+    assert "iPad Air 5" in decision.reply
+    assert "iPad 11" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_ipad_11_price_followups_ignore_unrelated_old_photo_and_condition_history(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
 

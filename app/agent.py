@@ -23,6 +23,7 @@ from app.adapters.catalog_cache import (
     _matches_requested_model,
     _model_key,
     _requested_battery_health,
+    _requested_ipad_model_keys,
     _requested_iphone_model_floor,
     _requested_iphone_model_keys,
     _requested_photo_condition,
@@ -647,6 +648,16 @@ def _is_explicit_catalog_price_request(text: str) -> bool:
     )
 
 
+def _is_ipad_model_alternative_price_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if len(_requested_ipad_model_keys(text)) <= 1:
+        return False
+    request_context = _customer_product_request_context_query(text, history)
+    return _is_explicit_catalog_price_request(request_context)
+
+
 def _is_independent_payment_methods_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -674,6 +685,10 @@ def _is_product_availability_request(
     bare_model_request = _is_bare_model_availability_request(text)
     catalog_followup = _is_bare_model_catalog_followup(text, history)
     contextual_ready_stock_followup = _is_contextual_pronta_entrega_followup(text, history)
+    ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
+        text,
+        history,
+    )
     generic_phone_budget_request = bool(
         re.search(r"\bcelulares?\b", normalized)
         and _extract_budget_limit(text) is not None
@@ -718,6 +733,8 @@ def _is_product_availability_request(
         return False
     if "pagamento" in normalized and not explicit_catalog_price_request:
         return False
+    if ipad_model_alternative_price_followup:
+        return True
     if catalog_followup or contextual_ready_stock_followup:
         return True
     if accessory_request:
@@ -4843,6 +4860,10 @@ class AgentService:
         *,
         image_description: str | None = None,
     ) -> AgentDecision | None:
+        ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
+            text,
+            history,
+        )
         # A short clarification after a photo request is still a photo
         # selection, even when it contains availability wording such as
         # "tem um 11 verde". Let the photo resolver preserve that context.
@@ -4903,6 +4924,8 @@ class AgentService:
                 history,
                 strip_assistant_constraints=True,
             )
+        if ipad_model_alternative_price_followup:
+            query = _customer_product_request_context_query(text, history)
         if capacity_availability_followup:
             # Photo metadata from the previous turn must not veto the current
             # stock question or remain an active intent marker.
@@ -4967,6 +4990,7 @@ class AgentService:
 
         requested_capacities = _requested_capacity_keys(text) or _requested_capacity_keys(query)
         requested_families = _catalog_families(query)
+        requested_ipad_models = _requested_ipad_model_keys(query)
         requested_models = _requested_iphone_model_keys(query)
         scoped_capacity = _trailing_model_capacity_scope(
             text,
@@ -5067,6 +5091,7 @@ class AgentService:
             or requested_quantity is not None
             or _is_broad_airpods_request(query)
             or len(requested_families) > 1
+            or len(requested_ipad_models) > 1
             or _requested_iphone_model_floor(query) is not None
         )
         def price_sort_key(item: Any) -> tuple[float, str, str, str]:
@@ -5271,6 +5296,35 @@ class AgentService:
                         unavailable_labels.append(f"iPhone {number} {variant.title()}")
                 reply += (
                     "\n\nNão localizei opção disponível para "
+                    + " e ".join(unavailable_labels)
+                    + "."
+                )
+        if len(requested_ipad_models) > 1 and selected:
+            selected_ipad_models = {
+                model
+                for item in selected
+                for model in _requested_ipad_model_keys(getattr(item, "name", ""))
+                if model in requested_ipad_models
+            }
+            unavailable_ipad_models = [
+                model for model in requested_ipad_models if model not in selected_ipad_models
+            ]
+            if unavailable_ipad_models:
+                unavailable_labels = []
+                for model in unavailable_ipad_models:
+                    model_label = model.title() if model in {"air", "pro", "mini"} else model
+                    unavailable_labels.append(f"iPad {model_label}")
+                condition_label = (
+                    " seminova"
+                    if requested_conditions == {"seminovo"}
+                    else " nova/lacrada"
+                    if requested_conditions == {"lacrado"}
+                    else ""
+                )
+                reply += (
+                    "\n\nNão localizei opção"
+                    + condition_label
+                    + " disponível para "
                     + " e ".join(unavailable_labels)
                     + "."
                 )
