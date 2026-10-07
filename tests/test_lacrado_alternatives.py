@@ -180,6 +180,8 @@ async def test_missing_ipad_seminovo_offers_new_ipads_instead_of_iphone_seminovo
     assert "iPad 10" in decision.reply
     assert "iPad 11 A16" in decision.reply
     assert "NOVO LACRADO" in decision.reply.upper()
+    assert "LACRADOS DISPONÍVEIS PARA PRONTA ENTREGA" in decision.reply.upper()
+    assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper()
     assert "IPHONE" not in decision.reply.upper()
     assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
 
@@ -205,7 +207,9 @@ async def test_missing_ipad_seminovo_without_new_ipad_does_not_offer_iphone_semi
     assert decision.product_references == []
     assert decision.image_urls == []
     assert "IPHONE" not in decision.reply.upper()
-    assert "iPads novos" in decision.reply
+    normalized = _normalize(decision.reply)
+    assert "tambem nao encontrei ipads novos disponiveis no catalogo" in normalized
+    assert "seminovos disponiveis para venda" not in normalized
 
 
 @pytest.mark.asyncio
