@@ -4935,7 +4935,7 @@ async def test_interest_in_product_ad_sends_catalog_details_instead_of_trade_in_
     )
     cache.items = [
         InventoryItem(
-            external_id="iphone-15-pro-max-256",
+            external_id="iphone-15-pro-max-256-white-86",
             name="iPhone 15 Pro Max",
             category="Celular",
             capacity="256 GB",
@@ -4944,13 +4944,41 @@ async def test_interest_in_product_ad_sends_catalog_details_instead_of_trade_in_
             availability="Disponível para venda",
             quantity=1,
             price_brl=4070,
-            battery_health=87,
+            battery_health=86,
             source="mercado_phone",
             search_text=(
                 "iPhone 15 Pro Max 256 GB Titânio Branco seminovo "
-                "bateria 87% celular em estoque"
+                "bateria 86% celular em estoque"
             ),
-        )
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-512-white-88",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="512 GB",
+            color="Titânio Branco",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4900,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iPhone 15 Pro Max 512 GB Titânio Branco seminovo celular em estoque",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-256-blue-87",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="Titânio Azul",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3990,
+            battery_health=87,
+            source="mercado_phone",
+            search_text="iPhone 15 Pro Max 256 GB Titânio Azul seminovo bateria 87% celular em estoque",
+        ),
     ]
     cache.last_refresh = time.time()
     service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
@@ -4973,8 +5001,8 @@ async def test_interest_in_product_ad_sends_catalog_details_instead_of_trade_in_
     text = "Fiquei interessada nesse celular"
     image_description = (
         "Imagem do anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
-        "em estoque, preço à vista R$ 4.070,00 ou 18x de R$ 279,84, bateria 87%, "
-        "3 meses de garantia da loja."
+        "disponível para venda, preço à vista R$ 4.070,00 ou 18x de R$ 512,00, "
+        "bateria 87%, 3 meses de garantia da loja."
     )
 
     decision = await service.respond(
@@ -4988,11 +5016,83 @@ async def test_interest_in_product_ad_sends_catalog_details_instead_of_trade_in_
 
     assert runner_calls == []
     assert decision.handoff is False
-    assert decision.product_references == ["iphone-15-pro-max-256"]
+    assert decision.product_references == ["iphone-15-pro-max-256-white-86"]
     assert "iPhone 15 Pro Max" in decision.reply
     assert "256 GB" in decision.reply
     assert "R$ 4.070,00" in decision.reply
     assert "lista de avaliação" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_explicit_device_sale_with_catalog_photo_still_sends_trade_in_form(tmp_path):
+    service = build_agent(tmp_path)
+
+    decision = await service.respond(
+        "Fiquei interessada em vender meu iPhone 13, 128 GB, com bateria 87%",
+        image_description=(
+            "Anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
+            "disponível para venda, preço R$ 4.070,00."
+        ),
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_catalog_photo_interest_hands_off_without_search(tmp_path):
+    settings = Settings(google_sheets_enabled=False)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-ambiguous-product-ad.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-max-256-white-86",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="Titânio Branco",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4070,
+            battery_health=86,
+            source="mercado_phone",
+            search_text="iPhone 15 Pro Max 256 GB Titânio Branco seminovo bateria 86%",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-128-black-88",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="128 GB",
+            color="Preto",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3200,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iPhone 14 Pro Max 128 GB Preto seminovo bateria 88%",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await service.respond(
+        "Fiquei interessada nesse celular",
+        image_description=(
+            "Anúncio com dois cartões: iPhone 15 Pro Max 256 GB Titânio Branco, "
+            "R$ 4.070,00, bateria 86%; e iPhone 14 Pro Max 128 GB Preto, "
+            "R$ 3.200,00, bateria 88%."
+        ),
+    )
+
+    assert decision.reply == CATALOG_BUYER_DETAILS_REPLY
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
 
 
 @pytest.mark.asyncio

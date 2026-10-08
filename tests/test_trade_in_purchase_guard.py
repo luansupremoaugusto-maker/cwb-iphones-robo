@@ -58,7 +58,8 @@ def test_catalog_interest_in_an_image_cannot_be_rewritten_as_trade_in_form():
         [],
         image_description=(
             "Anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
-            "em estoque, preço R$ 4.070,00, bateria 87%, garantia de 3 meses."
+            "disponível para venda, preço R$ 4.070,00, bateria 87%, "
+            "garantia de 3 meses."
         ),
     )
 

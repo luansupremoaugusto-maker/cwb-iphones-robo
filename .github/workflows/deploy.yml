@@ -945,6 +945,106 @@ jobs:
           assert not question_about_city.handoff, question_about_city
           print("DELIVERY_PAYMENT_AND_ADDRESS_HANDOFF_OK")
           '
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService, CATALOG_BUYER_DETAILS_REPLY, _normalize
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/catalog-photo-buyer-interest-guard.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-15-pro-max-256-white-86",
+                  name="iPhone 15 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="Titânio Branco",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=4070,
+                  battery_health=86,
+                  source="mercado_phone",
+                  search_text="iPhone 15 Pro Max 256 GB Titânio Branco seminovo bateria 86% celular em estoque",
+              ),
+              InventoryItem(
+                  external_id="iphone-15-pro-max-512-white-88",
+                  name="iPhone 15 Pro Max",
+                  category="Celular",
+                  capacity="512 GB",
+                  color="Titânio Branco",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=4900,
+                  battery_health=88,
+                  source="mercado_phone",
+                  search_text="iPhone 15 Pro Max 512 GB Titânio Branco seminovo celular em estoque",
+              ),
+              InventoryItem(
+                  external_id="iphone-15-pro-max-256-blue-87",
+                  name="iPhone 15 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="Titânio Azul",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=3990,
+                  battery_health=87,
+                  source="mercado_phone",
+                  search_text="iPhone 15 Pro Max 256 GB Titânio Azul seminovo bateria 87% celular em estoque",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          decision = asyncio.run(
+              service.respond(
+                  "Fiquei interessada nesse celular",
+                  history=[
+                      {"role": "user", "content": "Oii"},
+                      {"role": "assistant", "content": "Oii! Como posso te ajudar?"},
+                  ],
+                  image_description=(
+                      "Imagem do anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
+                      "disponível para venda, preço à vista R$ 4.070,00 ou 18x de R$ 512,00, "
+                      "bateria 87%, 3 meses de garantia da loja."
+                  ),
+              )
+          )
+          assert not decision.handoff, decision
+          assert decision.product_references == ["iphone-15-pro-max-256-white-86"], decision
+          assert "R$ 4.070,00" in decision.reply, decision.reply
+          assert "lista de avaliação" not in _normalize(decision.reply), decision.reply
+          print("CATALOG_PHOTO_BUYER_INTEREST_ROUTING_OK")
+
+          ambiguous = asyncio.run(
+              service.respond(
+                  "Fiquei interessada nesse celular",
+                  image_description=(
+                      "Anúncio com dois cartões: iPhone 15 Pro Max 256 GB Titânio Branco, "
+                      "R$ 4.070,00, bateria 86%; e iPhone 14 Pro Max 128 GB Preto, "
+                      "R$ 3.200,00, bateria 88%."
+                  ),
+              )
+          )
+          assert ambiguous.reply == CATALOG_BUYER_DETAILS_REPLY, ambiguous
+          assert ambiguous.handoff, ambiguous
+          assert ambiguous.product_references == [] and ambiguous.image_urls == [], ambiguous
+          print("AMBIGUOUS_CATALOG_PHOTO_HANDS_OFF_WITHOUT_SEARCH_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE
