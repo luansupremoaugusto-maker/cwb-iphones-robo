@@ -171,11 +171,13 @@ _NON_APPLE_EXCHANGE_RE = re.compile(
 _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"\b(?:caixa|caixinha|mes(?:es)?\s+de\s+uso|uso|impecavel|perfeito|"
     r"estado|saude\s+(?:da\s+)?bateria)\b"
+    r"|\bperfeit[oa]s?\s+condi(?:cao|coes)\b"
     r"|\b\d{1,3}\s*%\s*(?:de\s*)?bateria\b"
     r"|\b\d{1,3}\s*%\s*(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?bateria\b"
     r"|\bbateria\s*(?:de|em|com)?\s*(?:\d{1,3}\s*%(?![\w%])|\b(?:boa|ruim)\b)"
+    r"|\bbateria\b.{0,20}\b(?:esta|ta)\s+\d{1,3}\s*%(?!\d)"
     r"|\b(?:em|com)\s+\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
@@ -922,6 +924,10 @@ def is_trade_in_request(text: str | None) -> bool:
         _has_implicit_device_upgrade_offer(normalized)
         or _has_complete_owned_device_buyback_offer(normalized)
         or _has_complete_device_buyback_context(normalized)
+        or (
+            _has_complete_owned_device_profile(normalized)
+            and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        )
     ):
         return False
     if _NEGATION_RE.search(normalized):

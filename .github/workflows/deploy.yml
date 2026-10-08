@@ -1045,6 +1045,68 @@ jobs:
           assert ambiguous.product_references == [] and ambiguous.image_urls == [], ambiguous
           print("AMBIGUOUS_CATALOG_PHOTO_HANDS_OFF_WITHOUT_SEARCH_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.trade_in import (
+              TRADE_IN_FORM,
+              is_parts_buyback_request,
+              is_trade_in_context_request,
+              is_trade_in_request,
+          )
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/iphone-14-pro-evaluation-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          text = (
+              "Tenho um iPhone 14 Pro 128gb dourado, bateria está 100% troquei faz uns dois "
+              "meses, a tela foi trocado mas coloquei tela OLED do mesmo padrão da original, "
+              "está em perfeita condição não tem arranhado, quebrado nada, somente aparece "
+              "no histórico de peças e serviço do aparelho que foi trocado a tela e bateria"
+          )
+          history = [
+              {"role": "user", "content": "Está disponível ainda?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Boa tarde! Tudo bem 😊 O iPhone 14 Pro Max 128 GB Preto Espacial "
+                      "seminovo aparece disponível para venda no momento. Está por R$ 3.080 "
+                      "e tem 82% de saúde da bateria. O estoque pode mudar. Quer saber mais "
+                      "alguma coisa?"
+                  ),
+              },
+          ]
+          decision = asyncio.run(service.respond(text, history=history))
+          assert decision.reply == TRADE_IN_FORM, decision
+          assert decision.handoff, decision
+          assert decision.product_references == [] and decision.image_urls == [], decision
+          assert is_trade_in_request(text), text
+          assert is_trade_in_context_request(text, history), text
+          assert not is_parts_buyback_request(text), text
+          print("IPHONE_14_PRO_REPLACED_SCREEN_BATTERY_EVALUATION_OK")
+
+          repair_text = text + ". Preciso trocar a bateria."
+          repair = asyncio.run(service.respond(repair_text, history=history))
+          assert repair.handoff and repair.reply != TRADE_IN_FORM, repair
+          assert not is_trade_in_request(repair_text), repair_text
+          assert not is_trade_in_context_request(repair_text, history), repair_text
+          print("IPHONE_14_PRO_EXPLICIT_REPAIR_REMAINS_OUT_OF_EVALUATION_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE
