@@ -5,7 +5,11 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService, _installment_context_query
+from app.agent import (
+    AgentService,
+    _extract_installment_budget,
+    _installment_context_query,
+)
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -78,6 +82,145 @@ def build_cache(tmp_path):
     )
     cache.last_refresh = time.time()
     return cache, settings
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Queria um iPhone de uma parcela de até uns 12x 230", (12, 230.0)),
+        ("12x de R$ 230,00", (12, 230.0)),
+        ("12 parcelas de até R$ 230,00", (12, 230.0)),
+        ("parcela de até R$ 230 em 12x", (12, 230.0)),
+        ("Simula o iPhone em 12x", None),
+    ],
+)
+def test_installment_budget_parser_extracts_monthly_ceiling(text, expected):
+    assert _extract_installment_budget(text) == expected
+
+
+@pytest.mark.asyncio
+async def test_options_followup_filters_models_by_the_requested_monthly_installment(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-under-payment-limit",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2300,
+            battery_health=88,
+            search_text="iphone 13 128 gb celular seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-14-over-payment-limit",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2400,
+            battery_health=90,
+            search_text="iphone 14 128 gb celular seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-16-over-payment-limit",
+            name="iPhone 16",
+            category="Novo lacrado",
+            capacity="128 GB",
+            condition="novo lacrado",
+            source="google_sheets",
+            price_brl=4900,
+            search_text="iphone 16 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="iphone-18-pro-max-512-over-payment-limit",
+            name="iPhone 18 Pro Max",
+            category="Novo lacrado",
+            capacity="512 GB",
+            condition="novo lacrado",
+            source="google_sheets",
+            price_brl=11600,
+            search_text="iphone 18 pro max 512 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="iphone-18-pro-max-256-over-payment-limit",
+            name="iPhone 18 Pro Max",
+            category="Novo lacrado",
+            capacity="256 GB",
+            condition="novo lacrado",
+            source="google_sheets",
+            price_brl=10300,
+            search_text="iphone 18 pro max 256 gb novo lacrado",
+        ),
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Qual opção vcs teriam?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim, temos loja física. Posso marcar uma visita para hoje? "
+                    "Qual horário fica melhor para você?"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "Queria um iPhone de uma parcela de até uns 12x 230",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-under-payment-limit"]
+    assert "iPhone 13" in decision.reply
+    assert "12x de R$ 223,00" in decision.reply
+    assert "iPhone 14" not in decision.reply
+    assert "iPhone 16" not in decision.reply
+    assert "iPhone 18 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_monthly_budget_without_matching_devices_does_not_show_expensive_options(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-over-payment-limit",
+            name="iPhone 16",
+            category="Novo lacrado",
+            capacity="128 GB",
+            condition="novo lacrado",
+            source="google_sheets",
+            price_brl=4900,
+            search_text="iphone 16 128 gb novo lacrado",
+        )
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Qual opção vcs teriam?",
+        history=[
+            {
+                "role": "user",
+                "content": "Queria um iPhone de uma parcela de até uns 12x 230",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "Não encontrei aparelhos" in decision.reply
+    assert "12x de até R$ 230,00" in decision.reply
+    assert "iPhone 16" not in decision.reply
 
 
 @pytest.mark.asyncio
