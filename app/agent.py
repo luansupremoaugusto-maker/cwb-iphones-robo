@@ -2769,8 +2769,8 @@ def _extract_installment_budget(text: str) -> tuple[int, float] | None:
     normalized = _normalize(text)
     amount_pattern = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,]\d{1,2})?"
     count_pattern = r"(?P<count>1[0-8]|[1-9])\s*(?:x|parcelas?|vezes)\b"
-    count_match = re.search(count_pattern, normalized)
-    if count_match:
+    candidates: list[tuple[int, int, float]] = []
+    for count_match in re.finditer(count_pattern, normalized):
         amount_match = re.match(
             rf"\s*(?:(?:de|por)\s*)?(?:(?:ate|no\s+maximo|maximo)\s*)?"
             rf"(?:(?:uns?|mais\s+ou\s+menos)\s*)?(?:r\$\s*)?"
@@ -2780,20 +2780,30 @@ def _extract_installment_budget(text: str) -> tuple[int, float] | None:
         if amount_match:
             amount = _parse_brl_amount(amount_match.group("amount"))
             if amount is not None:
-                return int(count_match.group("count")), amount
+                candidates.append(
+                    (count_match.start(), int(count_match.group("count")), amount)
+                )
 
-    reverse_match = re.search(
+    reverse_pattern = re.compile(
         rf"\b(?:ate|no\s+maximo|maximo)\s*"
         rf"(?:(?:uns?|mais\s+ou\s+menos)\s*)?(?:r\$\s*)?"
         rf"(?P<amount>{amount_pattern})\s*(?:reais?\s*)?(?:em|no)?\s*"
         rf"{count_pattern}",
-        normalized,
     )
-    if reverse_match:
+    for reverse_match in reverse_pattern.finditer(normalized):
         amount = _parse_brl_amount(reverse_match.group("amount"))
         if amount is not None:
-            return int(reverse_match.group("count")), amount
-    return None
+            candidates.append(
+                (
+                    reverse_match.start(),
+                    int(reverse_match.group("count")),
+                    amount,
+                )
+            )
+    if not candidates:
+        return None
+    _position, count, amount = max(candidates, key=lambda candidate: candidate[0])
+    return count, amount
 
 
 def _is_installment_budget_options_request(
@@ -5410,9 +5420,16 @@ class AgentService:
             )
 
         cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
+        has_explicit_catalog_attributes = (
+            _requested_battery_health(catalog_filter_query) is not None
+            or _has_requested_catalog_color(catalog_filter_query, public_candidates)
+        )
         broad_request = (
             requested_budget is not None
-            or installment_budget is not None
+            or (
+                installment_budget is not None
+                and not has_explicit_catalog_attributes
+            )
             or requested_quantity is not None
             or _is_broad_airpods_request(catalog_filter_query)
             or len(requested_families) > 1
@@ -5484,23 +5501,24 @@ class AgentService:
                 and not requested_capacities
             )
             return_all_matching_units = (
-                installment_budget is not None
-                or (
-                    (
-                        len(requested_models) == 1
-                        and (bool(requested_conditions) or len(requested_capacities) <= 1)
-                    )
-                    or multiple_model_request_without_capacity
-                    or scoped_capacity is not None
+                (
+                    installment_budget is not None
                     or (
-                        len(requested_models) == 1
-                        and not requested_capacities
-                        and "possibilidade de comprar" in _normalize(text)
+                        (
+                            len(requested_models) == 1
+                            and (bool(requested_conditions) or len(requested_capacities) <= 1)
+                        )
+                        or multiple_model_request_without_capacity
+                        or scoped_capacity is not None
+                        or (
+                            len(requested_models) == 1
+                            and not requested_capacities
+                            and "possibilidade de comprar" in _normalize(text)
+                        )
                     )
                 )
                 and requested_quantity is None
-                and _requested_battery_health(catalog_filter_query) is None
-                and not _has_requested_catalog_color(catalog_filter_query, public_candidates)
+                and not has_explicit_catalog_attributes
             )
 
             def condition_matches(item: Any) -> bool:
