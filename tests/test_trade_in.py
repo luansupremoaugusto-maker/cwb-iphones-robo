@@ -1810,6 +1810,82 @@ async def test_detailed_owned_iphone_profile_without_exchange_words_sends_evalua
 
 
 @pytest.mark.asyncio
+async def test_detailed_owned_iphone_with_replaced_screen_and_battery_after_catalog_sends_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Tenho um iPhone 14 Pro 128gb dourado, bateria está 100% troquei faz uns dois "
+        "meses, a tela foi trocado mas coloquei tela OLED do mesmo padrão da original, "
+        "está em perfeita condição não tem arranhado, quebrado nada, somente aparece "
+        "no histórico de peças e serviço do aparelho que foi trocado a tela e bateria"
+    )
+    history = [
+        {"role": "user", "content": "Está disponível ainda?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Boa tarde! Tudo bem 😊 O iPhone 14 Pro Max 128 GB Preto Espacial "
+                "seminovo aparece disponível para venda no momento. Está por R$ 3.080 "
+                "e tem 82% de saúde da bateria. O estoque pode mudar. Quer saber mais "
+                "alguma coisa?"
+            ),
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(text) is True
+    assert is_trade_in_context_request(text, history) is True
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
+async def test_complete_iphone_profile_with_explicit_repair_request_after_catalog_stays_out_of_evaluation(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Tenho um iPhone 14 Pro 128gb dourado, bateria está 100% troquei faz uns dois "
+        "meses, a tela foi trocado mas coloquei tela OLED do mesmo padrão da original, "
+        "está em perfeita condição não tem arranhado, quebrado nada. Preciso trocar "
+        "a bateria."
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone 14 Pro Max 128 GB Preto Espacial seminovo está disponível "
+                "por R$ 3.080 e tem 82% de saúde da bateria."
+            ),
+        }
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.handoff is True
+    assert decision.reply != TRADE_IN_FORM
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+
+@pytest.mark.asyncio
 async def test_store_purchased_iphone_12_with_trade_intent_and_battery_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
