@@ -38,6 +38,8 @@ from app.installments import (
     format_installment_rates,
     format_installment_result,
     format_installment_table,
+    simulate_installment,
+    simulate_installment_with_entry,
 )
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision
@@ -737,6 +739,7 @@ def _is_product_availability_request(
         text,
         history,
     )
+    installment_budget_request = _is_installment_budget_options_request(text, history)
     generic_phone_budget_request = bool(
         re.search(r"\bcelulares?\b", normalized)
         and _extract_budget_limit(text) is not None
@@ -744,13 +747,16 @@ def _is_product_availability_request(
     if not normalized or (
         not _has_product_reference(normalized)
         and not generic_phone_budget_request
+        and not installment_budget_request
         and not accessory_request
         and not bare_model_request
         and not catalog_followup
         and not contextual_ready_stock_followup
     ):
         return False
-    if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
+    if (
+        _is_available_list_request(text) or _is_sealed_catalog_list_request(text)
+    ) and not installment_budget_request:
         return False
     if (
         allow_buyer_interest_with_image
@@ -781,13 +787,19 @@ def _is_product_availability_request(
         )
     )
     if (
-        (has_specialized_detail and not explicit_availability_question)
+        (
+            has_specialized_detail
+            and not explicit_availability_question
+            and not installment_budget_request
+        )
         or ("entrega" in normalized and not _has_pronta_entrega_reference(text))
     ):
         return False
     if "pagamento" in normalized and not explicit_catalog_price_request:
         return False
     if ipad_model_alternative_price_followup:
+        return True
+    if installment_budget_request:
         return True
     if catalog_followup or contextual_ready_stock_followup:
         return True
@@ -2752,6 +2764,70 @@ def _requested_installments(text: str) -> int | None:
     return None
 
 
+def _extract_installment_budget(text: str) -> tuple[int, float] | None:
+    """Extract a maximum monthly payment paired with an installment count."""
+    normalized = _normalize(text)
+    amount_pattern = r"(?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,]\d{1,2})?"
+    count_pattern = r"(?P<count>1[0-8]|[1-9])\s*(?:x|parcelas?|vezes)\b"
+    count_match = re.search(count_pattern, normalized)
+    if count_match:
+        amount_match = re.match(
+            rf"\s*(?:(?:de|por)\s*)?(?:(?:ate|no\s+maximo|maximo)\s*)?"
+            rf"(?:(?:uns?|mais\s+ou\s+menos)\s*)?(?:r\$\s*)?"
+            rf"(?P<amount>{amount_pattern})\b",
+            normalized[count_match.end() :],
+        )
+        if amount_match:
+            amount = _parse_brl_amount(amount_match.group("amount"))
+            if amount is not None:
+                return int(count_match.group("count")), amount
+
+    reverse_match = re.search(
+        rf"\b(?:ate|no\s+maximo|maximo)\s*"
+        rf"(?:(?:uns?|mais\s+ou\s+menos)\s*)?(?:r\$\s*)?"
+        rf"(?P<amount>{amount_pattern})\s*(?:reais?\s*)?(?:em|no)?\s*"
+        rf"{count_pattern}",
+        normalized,
+    )
+    if reverse_match:
+        amount = _parse_brl_amount(reverse_match.group("amount"))
+        if amount is not None:
+            return int(reverse_match.group("count")), amount
+    return None
+
+
+def _is_installment_budget_options_request(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a product-selection request constrained by a monthly ceiling."""
+    request_context = _customer_product_request_context_query(text, history)
+    if _extract_installment_budget(request_context) is None:
+        return False
+    normalized_context = _normalize(request_context)
+    normalized_current = _normalize(text)
+    if not _has_product_reference(normalized_context):
+        return False
+
+    asks_for_options = bool(
+        re.search(
+            r"\b(?:qual|quais)\s+(?:(?:sao|as?)\s+)?"
+            r"(?:opcoes?|alternativas?|modelos?|aparelhos?)\b",
+            normalized_current,
+        )
+    )
+    has_monthly_ceiling = bool(
+        re.search(r"\b(?:ate|no\s+maximo|maximo|limite|orcamento|teto)\b", normalized_context)
+    )
+    has_purchase_intent = bool(
+        re.search(r"\b(?:quero|queria|procuro|procurando|busco|buscando)\b", normalized_context)
+    )
+    asks_to_calculate = bool(
+        re.search(r"\b(?:simula\w*|calcula\w*|quanto\s+(?:fica|custa))\b", normalized_current)
+    )
+    return asks_for_options or (has_monthly_ceiling and has_purchase_intent and not asks_to_calculate)
+
+
 def _last_requested_installments(history: list[dict[str, str]] | None) -> int | None:
     for item in reversed(history or []):
         if item.get("role") != "user":
@@ -3636,7 +3712,13 @@ def _sort_product_availability_items(items: list[Any]) -> list[Any]:
     return [*seminovos, *pronta_entrega, *por_encomenda]
 
 
-def _format_product_availability(items: list[Any]) -> str:
+def _format_product_availability(
+    items: list[Any],
+    *,
+    installment_budget: tuple[int, float] | None = None,
+    installment_quotes: dict[int, dict[str, Any]] | None = None,
+    entry_amount: float | None = None,
+) -> str:
     if not items:
         return "No momento não localizei esse produto no catálogo."
     items = _sort_product_availability_items(items)
@@ -3653,7 +3735,19 @@ def _format_product_availability(items: list[Any]) -> str:
         model = "iPhone"
     else:
         model = "produto"
-    header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
+    if installment_budget is not None:
+        installment_count, monthly_limit = installment_budget
+        entry_text = (
+            f" e entrada de {format_brl(entry_amount)}"
+            if entry_amount is not None
+            else " sem entrada"
+        )
+        header = (
+            f"Sim 😊 Encontrei estas opções que cabem em até "
+            f"{installment_count}x de {format_brl(monthly_limit)}{entry_text}:"
+        )
+    else:
+        header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
 
     def item_line(item: Any) -> str:
         color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
@@ -3675,7 +3769,18 @@ def _format_product_availability(items: list[Any]) -> str:
         price = getattr(item, "price_brl", None)
         price_text = format_brl(float(price)) if price is not None else "preço a confirmar"
         item_name = str(getattr(item, "name", None) or "produto").strip()
-        return f"• {item_name} — {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}"
+        line = f"• {item_name} — {color} — {capacity} — {condition} — {price_text} | Bat: {battery_text}"
+        quote = (installment_quotes or {}).get(id(item))
+        if quote:
+            line += (
+                f" — {quote['vezes']}x de "
+                f"{format_brl(float(quote['valor_parcela_brl']))}"
+            )
+            if entry_amount is None:
+                line += f" (total no cartão {format_brl(float(quote['valor_total_brl']))})"
+            else:
+                line += f" + entrada de {format_brl(entry_amount)}"
+        return line
 
     groups = (
         ("📱 Seminovos disponíveis para pronta entrega:", [item for item in items if not _is_sealed_item(item)]),
@@ -3706,11 +3811,25 @@ def _format_product_availability(items: list[Any]) -> str:
                     "despacho; na retirada na loja, o pagamento é feito na hora.",
                 ]
             )
+        if installment_budget is not None:
+            formatted_lines.extend(
+                [
+                    "",
+                    "Parcelas calculadas para pagamento no cartão de crédito na máquina física.",
+                ]
+            )
         return "\n".join(formatted_lines)
 
     lines = [header]
     for item in items:
         lines.append(item_line(item))
+    if installment_budget is not None:
+        lines.extend(
+            [
+                "",
+                "Parcelas calculadas para pagamento no cartão de crédito na máquina física.",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -4076,6 +4195,15 @@ class AgentService:
                 ),
                 confidence="high",
             )
+
+        if _is_installment_budget_options_request(text, history):
+            installment_budget_decision = await self._try_product_availability(
+                text,
+                history=history,
+                image_description=image_description,
+            )
+            if installment_budget_decision is not None:
+                return protect_customer_decision(installment_budget_decision)
 
         combined_catalog_installment_decision = await self._try_combined_catalog_installment(
             text,
@@ -4979,6 +5107,11 @@ class AgentService:
         if _is_photo_context_followup(text, history) and not capacity_availability_followup:
             return None
         current_query = _current_catalog_context(text, image_description)
+        installment_budget_context = (
+            _customer_product_request_context_query(text, history)
+            if _is_installment_budget_options_request(text, history)
+            else None
+        )
         product_interest_context = _product_interest_model_context(text, history)
         selected_model = product_interest_context[0] if product_interest_context else None
         default_condition = product_interest_context[1] if product_interest_context else None
@@ -5014,7 +5147,9 @@ class AgentService:
             if bare_model:
                 current_query = f"{bare_model} {current_query}".strip()
         query = current_query
-        if (
+        if installment_budget_context:
+            query = installment_budget_context
+        elif (
             history
             and not _has_product_reference(_normalize(current_query))
             and not _is_accessory_catalog_request(current_query)
@@ -5066,13 +5201,18 @@ class AgentService:
         ):
             return None
 
-        requested_budget = _extract_budget_limit(
-            text if allow_buyer_interest_with_image else query
+        requested_budget = (
+            None
+            if installment_budget_context
+            else _extract_budget_limit(text if allow_buyer_interest_with_image else query)
         )
         requested_quantity = _requested_device_quantity(
             text if allow_buyer_interest_with_image else query
         )
-        customer_request_context = _customer_product_request_context_query(text, history)
+        customer_request_context = installment_budget_context or _customer_product_request_context_query(
+            text,
+            history,
+        )
         customer_condition_context = _customer_product_condition_context_query(text, history)
         pronta_entrega_only = _is_pronta_entrega_only_request(
             text
@@ -5175,7 +5315,47 @@ class AgentService:
                 if ("lacrado" if _is_sealed_item(item) else "seminovo") in requested_conditions
             ]
 
+        installment_budget = (
+            _extract_installment_budget(customer_request_context)
+            if installment_budget_context
+            else None
+        )
+        entry_amount = _extract_entry_amount(customer_request_context) if installment_budget else None
+        installment_quotes: dict[int, dict[str, Any]] = {}
+        if installment_budget is not None:
+            installment_count, monthly_limit = installment_budget
+            matching_installments: list[Any] = []
+            for item in public_candidates:
+                try:
+                    result = (
+                        simulate_installment_with_entry(item, entry_amount, installment_count)
+                        if entry_amount is not None
+                        else simulate_installment(item, installment_count)
+                    )
+                    monthly_payment = float(result.get("valor_parcela_brl"))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if result.get("encontrado") and monthly_payment <= monthly_limit:
+                    matching_installments.append(item)
+                    installment_quotes[id(item)] = result
+            public_candidates = matching_installments
+
         if not public_candidates:
+            if installment_budget is not None:
+                installment_count, monthly_limit = installment_budget
+                entry_text = (
+                    f" e entrada de {format_brl(entry_amount)}"
+                    if entry_amount is not None
+                    else " sem entrada"
+                )
+                return AgentDecision(
+                    reply=(
+                        f"Não encontrei aparelhos com preço confirmado que caibam em "
+                        f"{installment_count}x de até {format_brl(monthly_limit)}{entry_text}. "
+                        "Posso procurar opções com uma entrada ou com uma parcela mensal maior?"
+                    ),
+                    confidence="medium",
+                )
             if _is_bare_model_catalog_followup(text, history):
                 requested_label = _extract_bare_catalog_model_reference(text)
                 if requested_label:
@@ -5232,6 +5412,7 @@ class AgentService:
         cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
         broad_request = (
             requested_budget is not None
+            or installment_budget is not None
             or requested_quantity is not None
             or _is_broad_airpods_request(catalog_filter_query)
             or len(requested_families) > 1
@@ -5303,7 +5484,8 @@ class AgentService:
                 and not requested_capacities
             )
             return_all_matching_units = (
-                (
+                installment_budget is not None
+                or (
                     (
                         len(requested_models) == 1
                         and (bool(requested_conditions) or len(requested_capacities) <= 1)
@@ -5414,7 +5596,12 @@ class AgentService:
                 selected = select_requested_model_matches(scored)
 
         selected = _sort_product_availability_items(selected)
-        reply = _format_product_availability(selected)
+        reply = _format_product_availability(
+            selected,
+            installment_budget=installment_budget,
+            installment_quotes=installment_quotes,
+            entry_amount=entry_amount,
+        )
         bare_model_price_request = (
             not re.search(r"\biphones?\b", _normalize(catalog_filter_query))
             and bool(
