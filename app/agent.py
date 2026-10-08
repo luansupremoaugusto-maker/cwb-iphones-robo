@@ -53,6 +53,7 @@ from app.trade_in import (
     is_trade_in_negotiation,
     is_completed_trade_in_form,
     is_trade_in_context_request,
+    is_trade_in_request,
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
@@ -311,6 +312,23 @@ def _current_catalog_context(text: str, image_description: str | None = None) ->
     """Put visual context before explicit text so explicit text wins on conflict."""
     parts = [part.strip() for part in (image_description, text) if part and part.strip()]
     return "\n".join(parts).strip()
+
+
+def _visual_catalog_search_query(image_description: str | None) -> str | None:
+    """Reduce OCR from a product card to its model and any clear capacity."""
+    if not image_description:
+        return None
+    models = _requested_iphone_model_keys(image_description)
+    if len(models) != 1:
+        return None
+    number, variant = models[0]
+    parts = ["iPhone", str(number), variant]
+    capacities = _requested_capacity_keys(image_description)
+    if len(capacities) == 1:
+        match = re.fullmatch(r"(?P<number>\d+(?:\.\d+)?)(?P<unit>gb|tb)", capacities[0])
+        if match:
+            parts.extend((match.group("number"), match.group("unit").upper()))
+    return " ".join(part for part in parts if part)
 
 
 def _is_catalog_followup(text: str) -> bool:
@@ -678,6 +696,8 @@ def _is_independent_payment_methods_request(text: str) -> bool:
 def _is_product_availability_request(
     text: str,
     history: list[dict[str, str]] | None = None,
+    *,
+    allow_buyer_interest_with_image: bool = False,
 ) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
@@ -704,6 +724,12 @@ def _is_product_availability_request(
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
+    if (
+        allow_buyer_interest_with_image
+        and _is_catalog_buyer_interest(text)
+        and _has_product_reference(normalized)
+    ):
+        return True
     explicit_catalog_price_request = _is_explicit_catalog_price_request(text)
     explicit_availability_question = bool(
         _has_product_reference(normalized)
@@ -804,6 +830,7 @@ def _is_product_availability_request(
             r"\bnao\s+(?:me\s+interessei|tenho\s+(?:o\s+)?interesse)\b",
             normalized,
         )
+        or _is_catalog_buyer_interest(normalized)
     )
     has_catalog_model_correction = bool(
         re.search(r"\b(?:na\s+verdade\s+)?(?:eu\s+)?queria\s+(?:o|a|um|uma)\b", normalized)
@@ -3276,6 +3303,35 @@ def _is_product_interest_prompt(text: str) -> bool:
     return asks_interest or asks_model or asks_specific
 
 
+_CATALOG_BUYER_INTEREST_RE = re.compile(
+    r"\b(?:fiquei|estou|to|tô)\s+interessad[oa]\b"
+    r"|\bme\s+interessei\s+(?:no|na|em|nesse|nessa|neste|nesta)\b"
+    r"|\btenho\s+(?:o\s+)?interesse\s+(?:no|na|em|nesse|nessa|neste|nesta)\b",
+    re.IGNORECASE,
+)
+_CATALOG_BUYER_INTEREST_NEGATION_RE = re.compile(
+    r"\b(?:nao|nunca)\s+(?:fiquei|estou|to|tô|me\s+interessei|"
+    r"tenho\s+(?:o\s+)?interesse)\b",
+    re.IGNORECASE,
+)
+_CATALOG_BUYER_TRADE_IN_SIGNAL_RE = re.compile(
+    r"\b(?:troca|trocar|troco|entrada|vender|venda|avaliar|avaliacao|"
+    r"meu|minha|meus|minhas|parte\s+do\s+pagamento)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_catalog_buyer_interest(text: str | None) -> bool:
+    normalized = _normalize(text or "")
+    return bool(
+        normalized
+        and _CATALOG_BUYER_INTEREST_RE.search(normalized)
+        and not _CATALOG_BUYER_INTEREST_NEGATION_RE.search(normalized)
+        and not _CATALOG_BUYER_TRADE_IN_SIGNAL_RE.search(normalized)
+        and not is_trade_in_request(normalized)
+    )
+
+
 def _product_interest_default_condition(text: str) -> str | None:
     normalized = _normalize(text)
     has_seminovo = _has_seminovo_reference(normalized)
@@ -3852,6 +3908,29 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        if (
+            image_description
+            and _has_product_reference(_normalize(image_description))
+            and _is_catalog_buyer_interest(text)
+            and not trade_in_em_andamento(history)
+        ):
+            catalog_interest_decision = await self._try_product_availability(
+                text,
+                history=history,
+                image_description=image_description,
+                allow_buyer_interest_with_image=True,
+            )
+            if catalog_interest_decision is not None:
+                return protect_customer_decision(catalog_interest_decision)
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CATALOG_BUYER_DETAILS_REPLY,
+                    handoff=True,
+                    handoff_reason=CATALOG_BUYER_DETAILS_REASON,
+                    confidence="high",
+                )
+            )
+
         combined_request = " ".join(part for part in (text, image_description) if part)
         if is_parts_buyback_request(combined_request):
             # Recent Apple catalog context can disambiguate a bare model number
@@ -4859,6 +4938,7 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         *,
         image_description: str | None = None,
+        allow_buyer_interest_with_image: bool = False,
     ) -> AgentDecision | None:
         ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
             text,
@@ -4931,8 +5011,17 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
+        catalog_search_query = (
+            _visual_catalog_search_query(image_description)
+            if allow_buyer_interest_with_image
+            else None
+        ) or query
         if not (
-            _is_product_availability_request(query, history=history)
+            _is_product_availability_request(
+                query,
+                history=history,
+                allow_buyer_interest_with_image=allow_buyer_interest_with_image,
+            )
             or _is_contextual_pronta_entrega_followup(text, history)
         ):
             return None
@@ -4949,7 +5038,10 @@ class AgentService:
         else:
             condition_query = customer_condition_context
         try:
-            candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
+            candidates = await self.cache.search(
+                _availability_catalog_query(catalog_search_query),
+                limit=300,
+            )
         except Exception:
             alternative = await self._try_unavailable_lacrado_alternative(
                 query,
@@ -5121,7 +5213,10 @@ class AgentService:
         elif broad_request:
             selected = sorted(public_candidates, key=price_sort_key)
         else:
-            scored = [(_catalog_score(query, item), item) for item in public_candidates]
+            scored = [
+                (_catalog_score(catalog_search_query, item), item)
+                for item in public_candidates
+            ]
             best_score = max(score for score, _item in scored)
             if best_score <= 0:
                 if not pronta_entrega_only:
@@ -6325,6 +6420,21 @@ def _ensure_trade_in_form_before_handoff(
                 "reply": NON_APPLE_TRADE_IN_REPLY,
                 "handoff": False,
                 "handoff_reason": None,
+                "confidence": "high",
+            }
+        )
+
+    if (
+        not trade_in_em_andamento(history)
+        and _is_catalog_buyer_interest(request_context)
+        and _has_product_reference(_normalize(request_context))
+        and _looks_like_trade_in_handoff(decision)
+    ):
+        return decision.model_copy(
+            update={
+                "reply": CATALOG_BUYER_DETAILS_REPLY,
+                "handoff": True,
+                "handoff_reason": CATALOG_BUYER_DETAILS_REASON,
                 "confidence": "high",
             }
         )

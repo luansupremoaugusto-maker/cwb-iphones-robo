@@ -47,6 +47,46 @@ def test_purchase_context_cannot_be_rewritten_as_trade_in_handoff():
     assert decision.handoff is False
 
 
+def test_catalog_interest_in_an_image_cannot_be_rewritten_as_trade_in_form():
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        "Fiquei interessada nesse celular",
+        [],
+        image_description=(
+            "Anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
+            "em estoque, preço R$ 4.070,00, bateria 87%, garantia de 3 meses."
+        ),
+    )
+
+    assert decision.reply == CATALOG_BUYER_DETAILS_REPLY
+    assert decision.handoff is True
+    assert "lista de avaliação" not in decision.reply.lower()
+
+
+def test_catalog_photo_does_not_override_an_explicit_iphone_sale_offer():
+    text = "Fiquei interessada em vender meu iPhone 13, 128 GB, com bateria 87%"
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply="Vou encaminhar a avaliação do seu iPhone para um atendente.",
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        [],
+        image_description=(
+            "Anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
+            "em estoque, preço R$ 4.070,00."
+        ),
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+
+
 def test_pix_pickup_price_offer_cannot_be_rewritten_as_trade_in_handoff():
     text = "Faz 3mil no Pix pra buscar?"
     image_description = "Imagem de um iPhone 14 Pro Max 128 GB anunciado pela loja"

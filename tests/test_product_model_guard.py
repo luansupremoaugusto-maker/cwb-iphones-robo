@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,7 @@ from app.adapters.catalog_cache import StoreCatalogCache, _requested_iphone_mode
 from app.agent import (
     AgentService,
     CATALOG_BUYER_DETAILS_REPLY,
+    Runner,
     _extract_budget_limit,
     _extract_bare_catalog_model_reference,
     _format_product_availability,
@@ -20,8 +22,13 @@ from app.agent import (
 )
 from app.config import Settings
 from app.faq import FAQStore
-from app.schemas import InventoryItem
-from app.trade_in import is_trade_in_context_request, is_trade_in_request
+from app.schemas import AgentDecision, InventoryItem
+from app.trade_in import (
+    TRADE_IN_FORM,
+    TRADE_IN_REASON,
+    is_trade_in_context_request,
+    is_trade_in_request,
+)
 
 
 class EmptyMercadoClient:
@@ -4910,6 +4917,82 @@ async def test_price_increase_followup_does_not_turn_delivery_deadline_into_budg
     assert "os precos podem ser alterados sem aviso previo" in reply
     assert "ate r$ 1,00" not in reply
     assert "nao localizei aparelhos" not in reply
+
+
+@pytest.mark.asyncio
+async def test_interest_in_product_ad_sends_catalog_details_instead_of_trade_in_form(
+    tmp_path, monkeypatch
+):
+    settings = Settings(
+        openai_api_key="test-key",
+        google_sheets_enabled=False,
+        faq_path=str(tmp_path / "faq.yaml"),
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-product-ad.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-max-256",
+            name="iPhone 15 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="Titânio Branco",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4070,
+            battery_health=87,
+            source="mercado_phone",
+            search_text=(
+                "iPhone 15 Pro Max 256 GB Titânio Branco seminovo "
+                "bateria 87% celular em estoque"
+            ),
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    service.offline = False
+    service.agent = object()
+    runner_calls = []
+
+    async def fake_model_response(_agent, prompt, *, max_turns):
+        runner_calls.append((prompt, max_turns))
+        return SimpleNamespace(
+            final_output=AgentDecision(
+                reply=TRADE_IN_FORM,
+                handoff=True,
+                handoff_reason=TRADE_IN_REASON,
+                confidence="high",
+            )
+        )
+
+    monkeypatch.setattr(Runner, "run", fake_model_response)
+    text = "Fiquei interessada nesse celular"
+    image_description = (
+        "Imagem do anúncio da loja: iPhone 15 Pro Max, 256 GB, Titânio Branco, "
+        "em estoque, preço à vista R$ 4.070,00 ou 18x de R$ 279,84, bateria 87%, "
+        "3 meses de garantia da loja."
+    )
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Oii"},
+            {"role": "assistant", "content": "Oii! Como posso te ajudar?"},
+        ],
+        image_description=image_description,
+    )
+
+    assert runner_calls == []
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-pro-max-256"]
+    assert "iPhone 15 Pro Max" in decision.reply
+    assert "256 GB" in decision.reply
+    assert "R$ 4.070,00" in decision.reply
+    assert "lista de avaliação" not in decision.reply.lower()
 
 
 @pytest.mark.asyncio
