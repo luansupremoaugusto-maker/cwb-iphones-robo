@@ -98,6 +98,15 @@ def test_installment_budget_parser_extracts_monthly_ceiling(text, expected):
     assert _extract_installment_budget(text) == expected
 
 
+def test_installment_budget_parser_uses_latest_revised_ceiling():
+    text = (
+        "Queria um iPhone de uma parcela de até uns 12x 230. "
+        "Pode ser até 12x de R$ 300,00."
+    )
+
+    assert _extract_installment_budget(text) == (12, 300.0)
+
+
 @pytest.mark.asyncio
 async def test_options_followup_filters_models_by_the_requested_monthly_installment(tmp_path):
     cache, settings = build_cache(tmp_path)
@@ -185,6 +194,117 @@ async def test_options_followup_filters_models_by_the_requested_monthly_installm
     assert "iPhone 14" not in decision.reply
     assert "iPhone 16" not in decision.reply
     assert "iPhone 18 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_revised_monthly_ceiling_uses_the_latest_followup_amount(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-under-original-limit",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2300,
+            battery_health=88,
+            search_text="iphone 13 128 gb celular seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-14-under-revised-limit",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2400,
+            battery_health=90,
+            search_text="iphone 14 128 gb celular seminovo disponível para venda",
+        ),
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Pode ser até 12x de R$ 300,00. Quais opções vocês teriam?",
+        history=[
+            {
+                "role": "user",
+                "content": "Queria um iPhone de uma parcela de até uns 12x 230",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == [
+        "iphone-13-under-original-limit",
+        "iphone-14-under-revised-limit",
+    ]
+    assert "12x de R$ 232,69" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_options_keep_requested_color_and_battery_health(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-blue-90",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2600,
+            battery_health=90,
+            search_text="iphone 13 azul 128 gb celular seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-13-red-90",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="VERMELHO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2600,
+            battery_health=90,
+            search_text="iphone 13 vermelho 128 gb celular seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-13-blue-88",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2600,
+            battery_health=88,
+            search_text="iphone 13 azul 128 gb celular seminovo disponível para venda",
+        ),
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quero um iPhone 13 azul, bateria 90%, até 12x de R$ 300. Quais opções?"
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-blue-90"]
+    assert "AZUL" in decision.reply
+    assert "90%" in decision.reply
+    assert "VERMELHO" not in decision.reply
+    assert "88%" not in decision.reply
 
 
 @pytest.mark.asyncio
