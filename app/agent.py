@@ -53,6 +53,7 @@ from app.trade_in import (
     is_trade_in_negotiation,
     is_completed_trade_in_form,
     is_trade_in_context_request,
+    is_trade_in_request,
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
@@ -311,6 +312,50 @@ def _current_catalog_context(text: str, image_description: str | None = None) ->
     """Put visual context before explicit text so explicit text wins on conflict."""
     parts = [part.strip() for part in (image_description, text) if part and part.strip()]
     return "\n".join(parts).strip()
+
+
+def _visual_catalog_search_query(
+    image_description: str | None,
+    items: list[Any] | None = None,
+) -> str | None:
+    """Reduce OCR from a product card to its model, capacity, and color."""
+    if not image_description:
+        return None
+    normalized = _normalize(image_description)
+    explicit_models: set[tuple[int | str, str]] = set()
+    for match in _MODEL_PATTERN.finditer(normalized):
+        if not match.group(0).lower().startswith("iphone"):
+            continue
+        legacy = match.group("legacy")
+        if legacy:
+            explicit_models.add((legacy.lower(), ""))
+        elif match.group("number") is not None:
+            explicit_models.add(
+                (
+                    int(match.group("number")),
+                    " ".join((match.group("variant") or "").split()).lower(),
+                )
+            )
+    if len(explicit_models) > 1:
+        return None
+    models = _requested_iphone_model_keys(image_description)
+    if len(models) != 1:
+        return None
+    number, variant = models[0]
+    parts = ["iPhone", str(number), variant]
+    capacities: list[str] = []
+    for match in re.finditer(r"\b\d+(?:[.,]\d+)?\s*(?:gb|tb)\b", normalized):
+        for capacity in _requested_capacity_keys(match.group(0)):
+            if capacity not in capacities:
+                capacities.append(capacity)
+    if len(capacities) == 1:
+        match = re.fullmatch(r"(?P<number>\d+(?:\.\d+)?)(?P<unit>gb|tb)", capacities[0])
+        if match:
+            parts.extend((match.group("number"), match.group("unit").upper()))
+    color = _current_catalog_color(image_description, items or [])
+    if color:
+        parts.append(color)
+    return " ".join(part for part in parts if part)
 
 
 def _is_catalog_followup(text: str) -> bool:
@@ -678,6 +723,9 @@ def _is_independent_payment_methods_request(text: str) -> bool:
 def _is_product_availability_request(
     text: str,
     history: list[dict[str, str]] | None = None,
+    *,
+    allow_buyer_interest_with_image: bool = False,
+    buyer_interest_text: str | None = None,
 ) -> bool:
     """Route a product-specific availability question without an LLM guess."""
     normalized = _normalize(text)
@@ -704,6 +752,12 @@ def _is_product_availability_request(
         return False
     if _is_available_list_request(text) or _is_sealed_catalog_list_request(text):
         return False
+    if (
+        allow_buyer_interest_with_image
+        and _is_catalog_buyer_interest(buyer_interest_text)
+        and _has_product_reference(normalized)
+    ):
+        return True
     explicit_catalog_price_request = _is_explicit_catalog_price_request(text)
     explicit_availability_question = bool(
         _has_product_reference(normalized)
@@ -804,6 +858,7 @@ def _is_product_availability_request(
             r"\bnao\s+(?:me\s+interessei|tenho\s+(?:o\s+)?interesse)\b",
             normalized,
         )
+        or _is_catalog_buyer_interest(normalized)
     )
     has_catalog_model_correction = bool(
         re.search(r"\b(?:na\s+verdade\s+)?(?:eu\s+)?queria\s+(?:o|a|um|uma)\b", normalized)
@@ -3276,6 +3331,35 @@ def _is_product_interest_prompt(text: str) -> bool:
     return asks_interest or asks_model or asks_specific
 
 
+_CATALOG_BUYER_INTEREST_RE = re.compile(
+    r"\b(?:fiquei|estou|to|tô)\s+interessad[oa]\b"
+    r"|\bme\s+interessei\s+(?:no|na|em|nesse|nessa|neste|nesta)\b"
+    r"|\btenho\s+(?:o\s+)?interesse\s+(?:no|na|em|nesse|nessa|neste|nesta)\b",
+    re.IGNORECASE,
+)
+_CATALOG_BUYER_INTEREST_NEGATION_RE = re.compile(
+    r"\b(?:nao|nunca)\s+(?:fiquei|estou|to|tô|me\s+interessei|"
+    r"tenho\s+(?:o\s+)?interesse)\b",
+    re.IGNORECASE,
+)
+_CATALOG_BUYER_TRADE_IN_SIGNAL_RE = re.compile(
+    r"\b(?:troca|trocar|troco|vender|avaliar|avaliacao|"
+    r"parte\s+do\s+pagamento)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_catalog_buyer_interest(text: str | None) -> bool:
+    normalized = _normalize(text or "")
+    return bool(
+        normalized
+        and _CATALOG_BUYER_INTEREST_RE.search(normalized)
+        and not _CATALOG_BUYER_INTEREST_NEGATION_RE.search(normalized)
+        and not _CATALOG_BUYER_TRADE_IN_SIGNAL_RE.search(normalized)
+        and not is_trade_in_request(normalized)
+    )
+
+
 def _product_interest_default_condition(text: str) -> str | None:
     normalized = _normalize(text)
     has_seminovo = _has_seminovo_reference(normalized)
@@ -3852,6 +3936,29 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        if (
+            image_description
+            and _has_product_reference(_normalize(image_description))
+            and _is_catalog_buyer_interest(text)
+            and not trade_in_em_andamento(history)
+        ):
+            catalog_interest_decision = await self._try_product_availability(
+                text,
+                history=history,
+                image_description=image_description,
+                allow_buyer_interest_with_image=True,
+            )
+            if catalog_interest_decision is not None:
+                return protect_customer_decision(catalog_interest_decision)
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CATALOG_BUYER_DETAILS_REPLY,
+                    handoff=True,
+                    handoff_reason=CATALOG_BUYER_DETAILS_REASON,
+                    confidence="high",
+                )
+            )
+
         combined_request = " ".join(part for part in (text, image_description) if part)
         if is_parts_buyback_request(combined_request):
             # Recent Apple catalog context can disambiguate a bare model number
@@ -4859,6 +4966,7 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         *,
         image_description: str | None = None,
+        allow_buyer_interest_with_image: bool = False,
     ) -> AgentDecision | None:
         ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
             text,
@@ -4931,14 +5039,39 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
+        visual_search_query = (
+            _visual_catalog_search_query(
+                image_description,
+                list(getattr(self.cache, "items", []) or []),
+            )
+            if allow_buyer_interest_with_image
+            else None
+        )
+        if allow_buyer_interest_with_image and visual_search_query is None:
+            return None
+        catalog_search_query = visual_search_query or query
+        catalog_filter_query = (
+            _current_catalog_context(text, visual_search_query)
+            if visual_search_query
+            else query
+        )
         if not (
-            _is_product_availability_request(query, history=history)
+            _is_product_availability_request(
+                query,
+                history=history,
+                allow_buyer_interest_with_image=allow_buyer_interest_with_image,
+                buyer_interest_text=text,
+            )
             or _is_contextual_pronta_entrega_followup(text, history)
         ):
             return None
 
-        requested_budget = _extract_budget_limit(query)
-        requested_quantity = _requested_device_quantity(query)
+        requested_budget = _extract_budget_limit(
+            text if allow_buyer_interest_with_image else query
+        )
+        requested_quantity = _requested_device_quantity(
+            text if allow_buyer_interest_with_image else query
+        )
         customer_request_context = _customer_product_request_context_query(text, history)
         customer_condition_context = _customer_product_condition_context_query(text, history)
         pronta_entrega_only = _is_pronta_entrega_only_request(
@@ -4949,10 +5082,13 @@ class AgentService:
         else:
             condition_query = customer_condition_context
         try:
-            candidates = await self.cache.search(_availability_catalog_query(query), limit=300)
+            candidates = await self.cache.search(
+                _availability_catalog_query(catalog_search_query),
+                limit=300,
+            )
         except Exception:
             alternative = await self._try_unavailable_lacrado_alternative(
-                query,
+                catalog_filter_query,
                 requested_budget=requested_budget,
                 condition_query=condition_query,
             )
@@ -4965,12 +5101,16 @@ class AgentService:
             for item in candidates
             if (
                 _is_sealed_accessory_item(item)
-                if _is_accessory_catalog_request(query)
+                if _is_accessory_catalog_request(catalog_filter_query)
                 else _is_device_item(item)
             )
             and (getattr(item, "source", None) != "mercado_phone" or _is_available_item(item))
         ]
-        public_candidates = [item for item in public_candidates if _matches_requested_model(query, item)]
+        public_candidates = [
+            item
+            for item in public_candidates
+            if _matches_requested_model(catalog_filter_query, item)
+        ]
         if pronta_entrega_only:
             public_candidates = [
                 item
@@ -4988,17 +5128,19 @@ class AgentService:
                     continue
             public_candidates = within_budget
 
-        requested_capacities = _requested_capacity_keys(text) or _requested_capacity_keys(query)
-        requested_families = _catalog_families(query)
-        requested_ipad_models = _requested_ipad_model_keys(query)
-        requested_models = _requested_iphone_model_keys(query)
+        requested_capacities = _requested_capacity_keys(text) or _requested_capacity_keys(
+            catalog_filter_query
+        )
+        requested_families = _catalog_families(catalog_filter_query)
+        requested_ipad_models = _requested_ipad_model_keys(catalog_filter_query)
+        requested_models = _requested_iphone_model_keys(catalog_filter_query)
         scoped_capacity = _trailing_model_capacity_scope(
             text,
             _requested_iphone_model_keys(text),
         )
         if scoped_capacity is None and not _requested_capacity_keys(text):
             scoped_capacity = _trailing_model_capacity_scope(
-                query,
+                catalog_filter_query,
                 requested_models,
             )
         if scoped_capacity is not None:
@@ -5046,14 +5188,16 @@ class AgentService:
                     )
             if not pronta_entrega_only:
                 alternative = await self._try_unavailable_lacrado_alternative(
-                    query,
+                    catalog_filter_query,
                     requested_budget=requested_budget,
                     condition_query=condition_query,
                 )
                 if alternative is not None:
                     return alternative
                 if requested_budget is None:
-                    alternative = await self._try_unavailable_seminew_alternative(query)
+                    alternative = await self._try_unavailable_seminew_alternative(
+                        catalog_filter_query
+                    )
                     if alternative is not None:
                         return alternative
             capacity_text = (
@@ -5085,14 +5229,14 @@ class AgentService:
                 confidence="medium",
             )
 
-        cheapest_request = _is_cheapest_catalog_request(query)
+        cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
         broad_request = (
             requested_budget is not None
             or requested_quantity is not None
-            or _is_broad_airpods_request(query)
+            or _is_broad_airpods_request(catalog_filter_query)
             or len(requested_families) > 1
             or len(requested_ipad_models) > 1
-            or _requested_iphone_model_floor(query) is not None
+            or _requested_iphone_model_floor(catalog_filter_query) is not None
         )
         def price_sort_key(item: Any) -> tuple[float, str, str, str]:
             numeric_price = _confirmed_catalog_price(item)
@@ -5121,19 +5265,24 @@ class AgentService:
         elif broad_request:
             selected = sorted(public_candidates, key=price_sort_key)
         else:
-            scored = [(_catalog_score(query, item), item) for item in public_candidates]
+            scored = [
+                (_catalog_score(catalog_search_query, item), item)
+                for item in public_candidates
+            ]
             best_score = max(score for score, _item in scored)
             if best_score <= 0:
                 if not pronta_entrega_only:
                     alternative = await self._try_unavailable_lacrado_alternative(
-                        query,
+                        catalog_filter_query,
                         requested_budget=requested_budget,
                         condition_query=condition_query,
                     )
                     if alternative is not None:
                         return alternative
                     if requested_budget is None:
-                        alternative = await self._try_unavailable_seminew_alternative(query)
+                        alternative = await self._try_unavailable_seminew_alternative(
+                            catalog_filter_query
+                        )
                         if alternative is not None:
                             return alternative
                 if pronta_entrega_only:
@@ -5168,8 +5317,8 @@ class AgentService:
                     )
                 )
                 and requested_quantity is None
-                and _requested_battery_health(query) is None
-                and not _has_requested_catalog_color(query, public_candidates)
+                and _requested_battery_health(catalog_filter_query) is None
+                and not _has_requested_catalog_color(catalog_filter_query, public_candidates)
             )
 
             def condition_matches(item: Any) -> bool:
@@ -5193,8 +5342,8 @@ class AgentService:
                 if (
                     "seminovo" in requested_conditions
                     or requested_quantity is not None
-                    or _requested_battery_health(query) is not None
-                    or _has_requested_catalog_color(query, public_candidates)
+                    or _requested_battery_health(catalog_filter_query) is not None
+                    or _has_requested_catalog_color(catalog_filter_query, public_candidates)
                 ):
                     return selected_items
 
@@ -5267,9 +5416,12 @@ class AgentService:
         selected = _sort_product_availability_items(selected)
         reply = _format_product_availability(selected)
         bare_model_price_request = (
-            not re.search(r"\biphones?\b", _normalize(query))
+            not re.search(r"\biphones?\b", _normalize(catalog_filter_query))
             and bool(
-                re.search(r"\b(?:orcamento|valor(?:es)?|preco(?:s)?)\b", _normalize(query))
+                re.search(
+                    r"\b(?:orcamento|valor(?:es)?|preco(?:s)?)\b",
+                    _normalize(catalog_filter_query),
+                )
             )
         )
         if (
@@ -6325,6 +6477,21 @@ def _ensure_trade_in_form_before_handoff(
                 "reply": NON_APPLE_TRADE_IN_REPLY,
                 "handoff": False,
                 "handoff_reason": None,
+                "confidence": "high",
+            }
+        )
+
+    if (
+        not trade_in_em_andamento(history)
+        and _is_catalog_buyer_interest(text)
+        and _has_product_reference(_normalize(request_context))
+        and _looks_like_trade_in_handoff(decision)
+    ):
+        return decision.model_copy(
+            update={
+                "reply": CATALOG_BUYER_DETAILS_REPLY,
+                "handoff": True,
+                "handoff_reason": CATALOG_BUYER_DETAILS_REASON,
                 "confidence": "high",
             }
         )
