@@ -3128,3 +3128,27 @@ async def test_complete_bare_iphone_profile_sends_evaluation_form(tmp_path):
     assert decision.handoff is True
     assert decision.product_references == []
     assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_age_and_catalog_model_do_not_combine_into_owned_iphone_profile(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Tenho 16 anos. Quanto custa um 16 Plus em perfeito estado?"
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is False
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM

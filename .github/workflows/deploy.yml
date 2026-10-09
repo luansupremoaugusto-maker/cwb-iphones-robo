@@ -1314,6 +1314,59 @@ jobs:
           assert "iPhone 16" not in no_match.reply, no_match.reply
           print("INSTALLMENT_MONTHLY_BUDGET_FILTER_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.trade_in import TRADE_IN_FORM
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/bare-iphone-profile-evaluation-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          profile = "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa"
+          profile_decision = asyncio.run(service.respond(profile))
+          assert profile_decision.reply == TRADE_IN_FORM, profile_decision
+          assert profile_decision.handoff, profile_decision
+          assert not profile_decision.product_references and not profile_decision.image_urls
+
+          history = [
+              {"role": "user", "content": profile},
+              {
+                  "role": "assistant",
+                  "content": "Encontrei estas opções de IPHONE 16 PLUS disponíveis.",
+              },
+          ]
+          exchange = asyncio.run(
+              service.respond(
+                  "gostaria de saber quanto fica na troca p um 17 pro max",
+                  history=history,
+              )
+          )
+          assert exchange.reply == TRADE_IN_FORM, exchange
+          assert exchange.handoff, exchange
+          assert not exchange.product_references and not exchange.image_urls
+
+          catalog = asyncio.run(
+              service.respond("Quanto custa o iPhone 17 Pro Max?", history=history)
+          )
+          assert not catalog.handoff, catalog
+          assert catalog.reply != TRADE_IN_FORM, catalog
+          print("BARE_IPHONE_PROFILE_TRADE_EVALUATION_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

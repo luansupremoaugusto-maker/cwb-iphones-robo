@@ -261,6 +261,12 @@ _OWNED_NUMBERED_IPHONE_RE = re.compile(
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+_OWNED_BARE_IPHONE_VARIANT_RE = re.compile(
+    r"\b(?:(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma|o|a)?\s*"
+    r"|(?:meu|minha)\s+)(?:iphone\s*)?\d{1,2}\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
 _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
     r"\b(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma|o|a)?\s*"
     r"(?:iphone\s*)?\d{1,2}\b.{0,45}\b"
@@ -962,11 +968,10 @@ def is_trade_in_request(text: str | None) -> bool:
         return False
 
     # Customers sometimes omit "iPhone" before a distinctive numbered model
-    # variant (for example, "tenho um 16 Plus"). Treat it as an owned Apple
-    # device only when the message also contains enough condition details.
+    # variant (for example, "tenho um 16 Plus"). Keep the model suffix inside
+    # the ownership match so an age and a separate catalog model cannot combine.
     if (
-        _OWNED_NUMBERED_IPHONE_RE.search(normalized)
-        and _BARE_IPHONE_MODEL_RE.search(normalized)
+        _OWNED_BARE_IPHONE_VARIANT_RE.search(normalized)
         and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
         and not _NON_APPLE_RE.search(normalized)
     ):
