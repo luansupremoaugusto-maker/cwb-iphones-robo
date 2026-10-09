@@ -407,6 +407,15 @@ def _is_other_color_request(text: str) -> bool:
     return bool(re.search(r"\boutra(?:s)?\s+cor(?:es)?\b", _normalize(text)))
 
 
+def _is_catalog_color_list_request(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:quais|todas|lista(?:r)?)\s+(?:(?:sao|seriam)\s+)?(?:as\s+)?cores\b",
+            _normalize(text),
+        )
+    )
+
+
 def _is_battery_detail_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or "bateria" not in normalized:
@@ -531,6 +540,8 @@ def _is_variant_catalog_list_request(text: str) -> bool:
         return False
     if _requested_iphone_model_keys(text):
         return False
+    if _requested_catalog_colors(text, []):
+        return False
     return bool(
         re.search(
             r"\b(?:quais?|opcoes?|modelos?|lista|tem|teria|disponivel|"
@@ -568,6 +579,8 @@ def _is_generic_iphone_list_request(text: str) -> bool:
     if _requested_iphone_model_keys(text) and not all_line_request:
         return False
     if _is_accessory_catalog_request(normalized):
+        return False
+    if _requested_catalog_colors(text, []):
         return False
     if (
         re.search(r"\bate\b", normalized)
@@ -1069,6 +1082,246 @@ def _catalog_color_map(items: list[Any]) -> dict[str, str]:
             if normalized_color:
                 colors.setdefault(normalized_color, color)
     return colors
+
+
+_COMMON_CATALOG_COLOR_NAMES = (
+    "azul claro",
+    "azul escuro",
+    "azul intenso",
+    "azul ultramarino",
+    "roxo profundo",
+    "preto espacial",
+    "titânio natural",
+    "titânio deserto",
+    "titânio branco",
+    "titânio preto",
+    "meia noite",
+    "ultramarino",
+    "estelar",
+    "roxo",
+    "roxa",
+    "azul",
+    "preto",
+    "preta",
+    "branco",
+    "branca",
+    "verde",
+    "rosa",
+    "amarelo",
+    "amarela",
+    "vermelho",
+    "vermelha",
+    "laranja",
+    "dourado",
+    "dourada",
+    "prateado",
+    "prateada",
+    "cinza",
+    "grafite",
+    "bege",
+    "marrom",
+    "purple",
+    "blue",
+    "black",
+    "white",
+    "green",
+    "pink",
+    "midnight",
+    "starlight",
+    "ultramarine",
+)
+
+
+def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
+    """Find color names in a customer request, even when none are in stock."""
+    normalized = _normalize(text)
+    if not normalized:
+        return ()
+
+    known_colors = {
+        *_COMMON_CATALOG_COLOR_NAMES,
+        *_catalog_color_map(items).keys(),
+    }
+    matches: list[tuple[int, int, str]] = []
+    for color in known_colors:
+        normalized_color = _normalize(color).strip()
+        if not normalized_color:
+            continue
+        match = re.search(
+            rf"(?<!\w){re.escape(normalized_color)}(?!\w)",
+            normalized,
+        )
+        if match:
+            matches.append((match.start(), match.end(), normalized_color))
+
+    selected: list[tuple[int, int, str]] = []
+    for candidate in sorted(matches, key=lambda item: (item[0], -(item[1] - item[0]))):
+        start, end, _color = candidate
+        if any(start < selected_end and selected_start < end for selected_start, selected_end, _ in selected):
+            continue
+        selected.append(candidate)
+
+    negated_color_spans: set[tuple[int, int]] = set()
+    for negation in re.finditer(r"\b(?:nao|sem|exceto)\b", normalized):
+        scope_start = negation.end()
+        remainder = normalized[scope_start:]
+        if negation.group() == "sem" and re.match(r"\s+duvida\b", remainder):
+            continue
+        if negation.group() == "nao" and re.match(r"\s+apenas\b", remainder):
+            continue
+        clause_break = re.search(
+            r"[,;.!?]|\b(?:mas|porem|e\s+sim|so\s+que)\b",
+            remainder,
+        )
+        scope_end = (
+            scope_start + clause_break.start()
+            if clause_break
+            else len(normalized)
+        )
+        scoped_colors = [
+            (start, end)
+            for start, end, _color in selected
+            if scope_start <= start < scope_end
+        ]
+        if negation.group() == "nao" and scoped_colors:
+            first_color_start = min(start for start, _end in scoped_colors)
+            prefix = normalized[scope_start:first_color_start].strip()
+            preference_phrase = bool(
+                re.search(
+                    r"\b(?:quero|queria|gosto|gostaria|prefiro|prefira|aceito|"
+                    r"aceitaria|desejo|escolho|escolheria)\b",
+                    prefix,
+                )
+            )
+            availability_phrase = bool(
+                re.search(
+                    r"\b(?:tem|teria|tenho|tinha|esta|estar|disponivel|existe|"
+                    r"encontrei|aparece|vende|vendido)\b",
+                    prefix,
+                )
+            )
+            simple_prefix_words = {
+                "o", "a", "cor", "na", "no", "de", "do", "da", "em", "um", "uma",
+                "esse", "essa", "este", "e", "ser", "seria",
+            }
+            simple_prefix = all(word in simple_prefix_words for word in prefix.split())
+            if availability_phrase or not (preference_phrase or simple_prefix):
+                continue
+        if negation.group() == "nao" and not scoped_colors and clause_break:
+            previous_colors = [
+                (start, end)
+                for start, end, _color in selected
+                if end <= negation.start()
+            ]
+            next_clause_start = scope_start + clause_break.end()
+            has_following_color = any(
+                start >= next_clause_start for start, end, _color in selected
+            )
+            if previous_colors and has_following_color:
+                previous_color = max(previous_colors, key=lambda span: span[1])
+                if re.fullmatch(
+                    r"[\s,;.!?]*",
+                    normalized[previous_color[1] : negation.start()],
+                ):
+                    negated_color_spans.add(previous_color)
+        negated_color_spans.update(
+            scoped_colors
+        )
+
+    return tuple(
+        color
+        for start, end, color in selected
+        if (start, end) not in negated_color_spans
+    )
+
+
+def _catalog_color_correction_scope(text: str) -> str:
+    normalized = _normalize(text)
+    correction_markers = list(
+        re.finditer(
+            r"\b(?:na verdade|quer dizer|quis dizer|queria dizer|corrigindo|"
+            r"prefiro|prefira|quero|queria|apenas|so)\b",
+            normalized,
+        )
+    )
+    return normalized[correction_markers[-1].start() :] if correction_markers else normalized
+
+
+def _latest_catalog_color_request(
+    current_text: str,
+    customer_request_context: str,
+    items: list[Any],
+) -> tuple[str, ...]:
+    for candidate in [current_text, *reversed(customer_request_context.splitlines())]:
+        colors = _requested_catalog_colors(candidate, items)
+        if colors:
+            return _requested_catalog_colors(
+                _catalog_color_correction_scope(candidate),
+                items,
+            ) or colors
+    return ()
+
+
+def _is_catalog_color_either_or_request(
+    current_text: str,
+    image_description: str | None,
+    customer_request_context: str,
+    items: list[Any],
+) -> bool:
+    candidates = [
+        current_text,
+        image_description or "",
+        *reversed(customer_request_context.splitlines()),
+    ]
+    for candidate in candidates:
+        colors = _requested_catalog_colors(candidate, items)
+        if not colors:
+            continue
+        if len(colors) < 2:
+            return False
+        normalized = _normalize(candidate)
+        color_spans = []
+        for color in colors:
+            match = re.search(rf"(?<!\w){re.escape(color)}(?!\w)", normalized)
+            if match:
+                color_spans.append((match.start(), match.end()))
+        color_spans.sort()
+        return any(
+            re.search(r"\b(?:ou|or)\b", normalized[left_end:right_start])
+            for (_left_start, left_end), (right_start, _right_end)
+            in zip(color_spans, color_spans[1:])
+        )
+    return False
+
+
+def _catalog_color_key(value: Any) -> str:
+    normalized = _normalize(str(value or ""))
+    normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE)
+    aliases = {
+        "amarela": "amarelo",
+        "branca": "branco",
+        "dourada": "dourado",
+        "prateada": "prateado",
+        "preta": "preto",
+        "roxa": "roxo",
+        "vermelha": "vermelho",
+    }
+    return " ".join(aliases.get(word, word) for word in normalized.split())
+
+
+def _item_matches_catalog_colors(item: Any, requested_colors: tuple[str, ...]) -> bool:
+    raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
+    if isinstance(raw_colors, (list, tuple, set)):
+        values = raw_colors
+    else:
+        values = re.split(r"\s*[|;/,]\s*", str(raw_colors or ""))
+    item_colors = [_catalog_color_key(value) for value in values]
+    return any(
+        color and requested_color
+        and re.search(rf"(?<!\w){re.escape(requested_color)}(?!\w)", color)
+        for color in item_colors
+        for requested_color in map(_catalog_color_key, requested_colors)
+    )
 
 
 def _strip_catalog_color_references(query: str, items: list[Any]) -> str:
@@ -3782,6 +4035,7 @@ def _sort_product_availability_items(items: list[Any]) -> list[Any]:
 def _format_product_availability(
     items: list[Any],
     *,
+    header: str | None = None,
     installment_budget: tuple[int, float] | None = None,
     installment_quotes: dict[int, dict[str, Any]] | None = None,
     entry_amount: float | None = None,
@@ -3802,19 +4056,21 @@ def _format_product_availability(
         model = "iPhone"
     else:
         model = "produto"
-    if installment_budget is not None:
+    if header is not None:
+        resolved_header = header
+    elif installment_budget is not None:
         installment_count, monthly_limit = installment_budget
         entry_text = (
             f" e entrada de {format_brl(entry_amount)}"
             if entry_amount is not None
             else " sem entrada"
         )
-        header = (
+        resolved_header = (
             f"Sim 😊 Encontrei estas opções que cabem em até "
             f"{installment_count}x de {format_brl(monthly_limit)}{entry_text}:"
         )
     else:
-        header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
+        resolved_header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
 
     def item_line(item: Any) -> str:
         color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
@@ -3863,7 +4119,7 @@ def _format_product_availability(
     )
     populated_groups = [group for _heading, group in groups if group]
     if len(populated_groups) > 1 or groups[-1][1]:
-        formatted_lines = [header]
+        formatted_lines = [resolved_header]
         for heading, group in groups:
             if not group:
                 continue
@@ -3887,7 +4143,7 @@ def _format_product_availability(
             )
         return "\n".join(formatted_lines)
 
-    lines = [header]
+    lines = [resolved_header]
     for item in items:
         lines.append(item_line(item))
     if installment_budget is not None:
@@ -3898,6 +4154,68 @@ def _format_product_availability(
             ]
         )
     return "\n".join(lines)
+
+
+def _unavailable_catalog_color_header(
+    *,
+    selected: list[Any],
+    requested_models: tuple[tuple[int, str], ...],
+    requested_ipad_models: tuple[str, ...],
+    requested_families: set[str],
+    requested_catalog_colors: tuple[str, ...],
+    requested_capacities: set[str],
+    has_available_requested_color: bool = False,
+    requested_iphone_variant: str | None = None,
+) -> str:
+    if len(requested_models) == 1:
+        model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
+        model_name = model_name.title().replace("Iphone", "iPhone")
+    elif len(requested_ipad_models) == 1:
+        ipad_model = requested_ipad_models[0]
+        model_name = f"iPad {ipad_model.title()}"
+    elif not requested_models and requested_iphone_variant:
+        model_name = f"iPhone {requested_iphone_variant.title()}"
+    elif not requested_models and len(requested_families) == 1:
+        family = next(iter(requested_families))
+        model_name = {
+            "iphone": "iPhone",
+            "ipad": "iPad",
+            "macbook": "MacBook",
+            "apple_watch": "Apple Watch",
+            "apple watch": "Apple Watch",
+            "airpods": "AirPods",
+        }.get(family, "aparelho")
+    else:
+        model_name = "aparelho"
+    color_label = " e ".join(requested_catalog_colors)
+    capacity_labels = [
+        re.sub(
+            r"(\d+(?:[.,]\d+)?)(gb|tb)",
+            lambda match: f"{match.group(1)} {match.group(2).upper()}",
+            capacity,
+            flags=re.IGNORECASE,
+        )
+        for capacity in requested_capacities
+    ]
+    capacity_text = f" de {' e '.join(capacity_labels)}" if capacity_labels else ""
+    if has_available_requested_color:
+        if len(requested_catalog_colors) == 1:
+            missing_color_text = f"na cor {color_label}"
+        else:
+            missing_color_text = f"nas cores {color_label}"
+        return (
+            f"Não localizei o {model_name} {missing_color_text}{capacity_text}. "
+            "Encontrei estas opções nas outras cores solicitadas:"
+        )
+    if len(requested_catalog_colors) > 1:
+        return (
+            f"No momento, não encontrei o {model_name} nas cores {color_label}{capacity_text}. "
+            "Encontrei estas opções em outras cores:"
+        )
+    return (
+        f"No momento, o {model_name} {color_label}{capacity_text} não está disponível. "
+        "Encontrei estas opções em outras cores:"
+    )
 
 
 def _format_available_products(result: dict[str, Any]) -> str:
@@ -5269,7 +5587,7 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
-        if _is_other_color_request(text):
+        if _is_other_color_request(text) or _is_catalog_color_list_request(text):
             query = _strip_catalog_color_references(
                 query,
                 list(getattr(self.cache, "items", []) or []),
@@ -5374,6 +5692,19 @@ class AgentService:
         requested_families = _catalog_families(catalog_filter_query)
         requested_ipad_models = _requested_ipad_model_keys(catalog_filter_query)
         requested_models = _requested_iphone_model_keys(catalog_filter_query)
+        requested_pro_max_without_generation = bool(
+            not requested_models
+            and re.search(r"\bpro\s+max\b", _normalize(catalog_filter_query))
+        )
+        if requested_pro_max_without_generation:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if re.search(
+                    r"\bpro\s+max\b",
+                    _normalize(str(getattr(item, "name", "") or "")),
+                )
+            ]
         scoped_capacity = _trailing_model_capacity_scope(
             text,
             _requested_iphone_model_keys(text),
@@ -5439,6 +5770,76 @@ class AgentService:
                     matching_installments.append(item)
                     installment_quotes[id(item)] = result
             public_candidates = matching_installments
+
+        color_catalog_items = [
+            *public_candidates,
+            *list(getattr(self.cache, "items", []) or []),
+            *list(getattr(getattr(self.cache, "sealed_cache", None), "items", []) or []),
+        ]
+        exploring_colors = _is_other_color_request(text) or _is_catalog_color_list_request(text)
+        requested_catalog_colors: tuple[str, ...] = ()
+        if not exploring_colors:
+            requested_catalog_colors = _latest_catalog_color_request(
+                text,
+                "",
+                color_catalog_items,
+            )
+            if not requested_catalog_colors and image_description:
+                requested_catalog_colors = _latest_catalog_color_request(
+                    image_description,
+                    "",
+                    color_catalog_items,
+                )
+            if not requested_catalog_colors:
+                requested_catalog_colors = _latest_catalog_color_request(
+                    "",
+                    customer_request_context,
+                    color_catalog_items,
+                )
+        color_either_or_request = (
+            not exploring_colors
+            and _is_catalog_color_either_or_request(
+                text,
+                image_description,
+                customer_request_context,
+                color_catalog_items,
+            )
+        )
+        single_catalog_model_request = (
+            len(requested_models) <= 1
+            and len(requested_ipad_models) <= 1
+            and len(requested_families) <= 1
+        )
+        requested_color_unavailable = False
+        unavailable_requested_colors: tuple[str, ...] = ()
+        has_available_requested_color = False
+        if single_catalog_model_request and requested_catalog_colors:
+            matching_color_candidates = [
+                item
+                for item in public_candidates
+                if _item_matches_catalog_colors(item, requested_catalog_colors)
+            ]
+            available_requested_colors = tuple(
+                color
+                for color in requested_catalog_colors
+                if any(
+                    _item_matches_catalog_colors(item, (color,))
+                    for item in public_candidates
+                )
+            )
+            unavailable_requested_colors = tuple(
+                color
+                for color in requested_catalog_colors
+                if color not in available_requested_colors
+            )
+            has_available_requested_color = bool(available_requested_colors)
+            requested_color_unavailable = bool(
+                public_candidates
+                and unavailable_requested_colors
+                and not (color_either_or_request and has_available_requested_color)
+            )
+            if matching_color_candidates:
+                public_candidates = matching_color_candidates
 
         if not public_candidates:
             if installment_budget is not None:
@@ -5512,6 +5913,7 @@ class AgentService:
         cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
         has_explicit_catalog_attributes = (
             _requested_battery_health(catalog_filter_query) is not None
+            or bool(requested_catalog_colors)
             or _has_requested_catalog_color(catalog_filter_query, public_candidates)
         )
         broad_request = (
@@ -5537,7 +5939,9 @@ class AgentService:
                 _normalize(str(getattr(item, "color", None) or getattr(item, "colors", "") or "")),
             )
 
-        if cheapest_request:
+        if requested_color_unavailable:
+            selected = sorted(public_candidates, key=price_sort_key)
+        elif cheapest_request:
             priced_candidates = [
                 item for item in public_candidates if _confirmed_catalog_price(item) is not None
             ]
@@ -5703,9 +6107,57 @@ class AgentService:
             else:
                 selected = select_requested_model_matches(scored)
 
+            if (
+                single_catalog_model_request
+                and len(requested_catalog_colors) > 1
+                and not color_either_or_request
+                and not unavailable_requested_colors
+            ):
+                selected_ids = {
+                    str(getattr(item, "external_id", ""))
+                    for item in selected
+                }
+                for color in requested_catalog_colors:
+                    color_matches = [
+                        (score, item)
+                        for score, item in scored
+                        if _item_matches_catalog_colors(item, (color,))
+                        and condition_matches(item)
+                    ]
+                    color_selected = select_best_matches(color_matches)
+                    if not color_selected and color_matches:
+                        color_selected = [
+                            min(
+                                color_matches,
+                                key=lambda match: (-match[0], price_sort_key(match[1])),
+                            )[1]
+                        ]
+                    for item in color_selected:
+                        item_id = str(getattr(item, "external_id", ""))
+                        if item_id not in selected_ids:
+                            selected.append(item)
+                            selected_ids.add(item_id)
+
         selected = _sort_product_availability_items(selected)
+        availability_header = None
+        if requested_color_unavailable and selected:
+            availability_header = _unavailable_catalog_color_header(
+                selected=selected,
+                requested_models=requested_models,
+                requested_ipad_models=requested_ipad_models,
+                requested_families=requested_families,
+                requested_catalog_colors=(
+                    unavailable_requested_colors or requested_catalog_colors
+                ),
+                requested_capacities=requested_capacities,
+                has_available_requested_color=has_available_requested_color,
+                requested_iphone_variant=(
+                    "pro max" if requested_pro_max_without_generation else None
+                ),
+            )
         reply = _format_product_availability(
             selected,
+            header=availability_header,
             installment_budget=installment_budget,
             installment_quotes=installment_quotes,
             entry_amount=entry_amount,

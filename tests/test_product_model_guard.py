@@ -18,6 +18,8 @@ from app.agent import (
     _is_available_list_request,
     _is_product_availability_request,
     _normalize,
+    _requested_catalog_colors,
+    _unavailable_catalog_color_header,
     _requested_device_quantity,
 )
 from app.config import Settings
@@ -4103,6 +4105,502 @@ async def test_color_followup_after_256_pro_max_value_question_lists_all_units(t
     assert color_specific.product_references == ["iphone-16-pro-max-256-b"]
     assert "PRETO" in color_specific.reply
     assert "TITÂNIO DESERTO" not in color_specific.reply
+
+
+@pytest.mark.asyncio
+async def test_unavailable_requested_color_is_disclosed_before_other_available_colors(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-unavailable-purple.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-starlight-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ESTELAR",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            source="mercado_phone",
+            search_text="iphone 14 estelar 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-midnight-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1850,
+            source="mercado_phone",
+            search_text="iphone 14 meia noite 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [{"role": "user", "content": "Seria o iPhone 14 roxo 128 GB"}]
+
+    unavailable = await agent.respond("Ele está disponível?", history=history)
+
+    assert unavailable.handoff is False
+    assert unavailable.product_references == [
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+    ]
+    assert unavailable.reply == (
+        "No momento, o iPhone 14 roxo de 128 GB não está disponível. "
+        "Encontrei estas opções em outras cores:\n"
+        "• IPHONE 14 — ESTELAR — 128GB — SEMINOVO — R$ 1.870,00 | "
+        "Bat: não informada no cadastro\n"
+        "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.850,00 | "
+        "Bat: não informada no cadastro"
+    )
+    assert not unavailable.reply.lower().startswith("sim")
+
+    available_color_list = await agent.respond(
+        "Quais são as cores?",
+        history=[
+            *history,
+            {"role": "assistant", "content": unavailable.reply},
+        ],
+    )
+
+    assert available_color_list.handoff is False
+    assert "roxo de 128 gb não está disponível" not in available_color_list.reply.lower()
+    assert "ESTELAR" in available_color_list.reply
+    assert "MEIA NOITE" in available_color_list.reply
+
+    cache.items.append(
+        InventoryItem(
+            external_id="iphone-14-blue-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1890,
+            source="mercado_phone",
+            search_text="iphone 14 azul 128gb celular seminovo",
+        )
+    )
+    image_color_conflict = await agent._try_product_availability(
+        "iPhone 14 roxo 128 GB está disponível?",
+        image_description="iPhone 14 azul 128GB",
+    )
+
+    assert image_color_conflict is not None
+    assert image_color_conflict.handoff is False
+    assert "roxo" in image_color_conflict.reply.lower()
+    assert "não está disponível" in image_color_conflict.reply.lower()
+    assert not image_color_conflict.reply.lower().startswith("sim")
+    assert set(image_color_conflict.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+
+    corrected_color_history = [
+        {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
+        {
+            "role": "user",
+            "content": "Na verdade, eu queria o iPhone 14 roxo 128 GB, não azul",
+        },
+    ]
+
+    corrected_unavailable = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_color_history,
+    )
+
+    assert corrected_unavailable.handoff is False
+    assert "roxo" in corrected_unavailable.reply.lower()
+    assert "não está disponível" in corrected_unavailable.reply.lower()
+    assert not corrected_unavailable.reply.lower().startswith("sim")
+    assert set(corrected_unavailable.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+    assert "AZUL" in corrected_unavailable.reply
+
+    corrected_before_negation_history = [
+        {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
+        {
+            "role": "user",
+            "content": "Na verdade, o iPhone 14 azul não, é roxo 128 GB",
+        },
+    ]
+    corrected_before_negation = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_before_negation_history,
+    )
+
+    assert corrected_before_negation.handoff is False
+    assert "roxo" in corrected_before_negation.reply.lower()
+    assert "não está disponível" in corrected_before_negation.reply.lower()
+    assert not corrected_before_negation.reply.lower().startswith("sim")
+    assert set(corrected_before_negation.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+
+    corrected_comma_history = [
+        {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
+        {
+            "role": "user",
+            "content": "Na verdade, o iPhone 14 azul, não, é roxo 128 GB",
+        },
+    ]
+    corrected_comma = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_comma_history,
+    )
+
+    assert corrected_comma.handoff is False
+    assert "roxo" in corrected_comma.reply.lower()
+    assert "não está disponível" in corrected_comma.reply.lower()
+    assert not corrected_comma.reply.lower().startswith("sim")
+    assert set(corrected_comma.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+
+    both_requested_colors_history = [
+        {"role": "user", "content": "Seria o iPhone 14 roxo e azul 128 GB"}
+    ]
+    partial_colors = await agent.respond(
+        "Ele está disponível?",
+        history=both_requested_colors_history,
+    )
+
+    assert partial_colors.handoff is False
+    assert partial_colors.reply.startswith(
+        "Não localizei o iPhone 14 na cor roxo de 128 GB."
+    )
+    assert "outras cores solicitadas" in partial_colors.reply
+    assert partial_colors.product_references == ["iphone-14-blue-128"]
+
+    either_or_colors_history = [
+        {"role": "user", "content": "Seria o iPhone 14 roxo ou azul 128 GB"}
+    ]
+    either_or_colors = await agent.respond(
+        "Ele está disponível?",
+        history=either_or_colors_history,
+    )
+
+    assert either_or_colors.handoff is False
+    assert either_or_colors.reply.lower().startswith("sim")
+    assert either_or_colors.product_references == ["iphone-14-blue-128"]
+
+    cache.items.append(
+        InventoryItem(
+            external_id="iphone-14-natural-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1910,
+            source="mercado_phone",
+            search_text="iphone 14 titânio natural 128gb celular seminovo",
+        )
+    )
+    both_available_colors = await agent.respond(
+        "Ele está disponível?",
+        history=[
+            {
+                "role": "user",
+                "content": "Seria o iPhone 14 titânio natural e azul 128 GB",
+            }
+        ],
+    )
+
+    assert both_available_colors.handoff is False
+    assert both_available_colors.reply.lower().startswith("sim")
+    assert set(both_available_colors.product_references) == {
+        "iphone-14-blue-128",
+        "iphone-14-natural-128",
+    }
+    assert "AZUL" in both_available_colors.reply
+    assert "TITÂNIO NATURAL" in both_available_colors.reply
+
+    cache.items.append(
+        InventoryItem(
+            external_id="iphone-14-purple-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1940,
+            source="mercado_phone",
+            search_text="iphone 14 roxo 128gb celular seminovo",
+        )
+    )
+
+    image_color_available = await agent._try_product_availability(
+        "iPhone 14 roxo 128 GB está disponível?",
+        image_description="iPhone 14 azul 128GB",
+    )
+
+    assert image_color_available is not None
+    assert image_color_available.product_references == ["iphone-14-purple-128"]
+    assert image_color_available.reply.lower().startswith("sim")
+    assert "ROXO" in image_color_available.reply
+    assert "AZUL" not in image_color_available.reply
+
+    available = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_color_history,
+    )
+
+    assert available.handoff is False
+    assert available.product_references == ["iphone-14-purple-128"]
+    assert available.reply.lower().startswith("sim")
+    assert "ROXO" in available.reply
+    assert "ESTELAR" not in available.reply
+    assert "MEIA NOITE" not in available.reply
+
+
+@pytest.mark.asyncio
+async def test_catalog_color_aliases_match_canonical_inventory_labels(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-color-aliases.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-white-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="BRANCO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            source="mercado_phone",
+            search_text="iphone 14 branca 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-intense-blue-256",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="256GB",
+            color="AZUL-INTENSO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2150,
+            source="mercado_phone",
+            search_text="iphone 14 azul intenso 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    white = await agent.respond("O iPhone 14 na cor branca 128 GB está disponível?")
+    intense_blue = await agent.respond("O iPhone 14 azul intenso 256 GB está disponível?")
+
+    assert white.handoff is False
+    assert white.reply.lower().startswith("sim")
+    assert white.product_references == ["iphone-14-white-128"]
+    assert "BRANCO" in white.reply
+    assert intense_blue.handoff is False
+    assert intense_blue.reply.lower().startswith("sim")
+    assert intense_blue.product_references == ["iphone-14-intense-blue-256"]
+    assert "AZUL-INTENSO" in intense_blue.reply
+
+
+@pytest.mark.asyncio
+async def test_broad_unavailable_color_reply_keeps_requested_iphone_family(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-family-color.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-blue-128",
+            name="IPHONE 11",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1350,
+            source="mercado_phone",
+            search_text="iphone 11 azul 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-black-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1650,
+            source="mercado_phone",
+            search_text="iphone 12 preto 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("O iPhone roxo está disponível?")
+
+    assert decision.handoff is False
+    assert decision.reply.startswith(
+        "No momento, o iPhone roxo não está disponível."
+    )
+    assert "iPhone 11 roxo" not in decision.reply
+    assert "IPHONE 11" in decision.reply
+    assert "IPHONE 12" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_unavailable_color_on_iphone_pro_max_uses_availability_reply(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-pro-max-color.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-black-128",
+            name="IPHONE 11",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1350,
+            source="mercado_phone",
+            search_text="iphone 11 preto 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-blue-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1650,
+            source="mercado_phone",
+            search_text="iphone 12 azul 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-13-pro-max-natural-256",
+            name="IPHONE 13 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3650,
+            source="mercado_phone",
+            search_text="iphone 13 pro max titânio natural 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-black-256",
+            name="IPHONE 15 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4250,
+            source="mercado_phone",
+            search_text="iphone 15 pro max preto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("O iPhone Pro Max roxo está disponível?")
+
+    assert decision.handoff is False
+    assert decision.reply.startswith(
+        "No momento, o iPhone Pro Max roxo não está disponível."
+    )
+    assert "roxo" in decision.reply.lower()
+    assert "não está disponível" in decision.reply.lower()
+    assert not decision.reply.lower().startswith("📋 lista completa")
+    assert set(decision.product_references) == {
+        "iphone-13-pro-max-natural-256",
+        "iphone-15-pro-max-black-256",
+    }
+    assert "TITÂNIO NATURAL" in decision.reply
+    assert "PRETO" in decision.reply
+
+
+def test_unavailable_color_header_uses_family_when_model_is_not_specific():
+    header = _unavailable_catalog_color_header(
+        selected=[SimpleNamespace(name="IPHONE 14")],
+        requested_models=(),
+        requested_ipad_models=(),
+        requested_families={"iphone"},
+        requested_catalog_colors=("roxo",),
+        requested_capacities={"128gb"},
+    )
+
+    assert header == (
+        "No momento, o iPhone roxo de 128 GB não está disponível. "
+        "Encontrei estas opções em outras cores:"
+    )
+    ipad_header = _unavailable_catalog_color_header(
+        selected=[SimpleNamespace(name="iPad Air")],
+        requested_models=(),
+        requested_ipad_models=("air",),
+        requested_families={"ipad"},
+        requested_catalog_colors=("roxo",),
+        requested_capacities={"128gb"},
+    )
+    apple_watch_header = _unavailable_catalog_color_header(
+        selected=[SimpleNamespace(name="Apple Watch")],
+        requested_models=(),
+        requested_ipad_models=(),
+        requested_families={"apple_watch"},
+        requested_catalog_colors=("roxo",),
+        requested_capacities=set(),
+    )
+
+    assert ipad_header.startswith("No momento, o iPad Air roxo")
+    assert apple_watch_header.startswith("No momento, o Apple Watch roxo")
+
+
+def test_availability_negation_keeps_the_color_being_asked_about():
+    assert _requested_catalog_colors(
+        "Não teria o roxo 128 GB?",
+        [SimpleNamespace(color="ROXO")],
+    ) == ("roxo",)
 
 
 @pytest.mark.asyncio
