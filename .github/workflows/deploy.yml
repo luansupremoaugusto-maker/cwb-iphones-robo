@@ -91,6 +91,41 @@ jobs:
           docker compose --env-file .env.local ps
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          faq = FAQStore(settings.faq_file)
+          service = AgentService(
+              InventoryCache(
+                  object(), settings, cache_path="/tmp/payment-methods-product-image-guard.json"
+              ),
+              faq,
+              settings,
+              offline=True,
+          )
+          text = "Fiquei interessada nesse iPhones qual são a forma de pagamento que vcs aceitam"
+          image_description = (
+              "Imagem enviada pela cliente com opções de iPhone 14 seminovo: "
+              "128 GB Meia-noite por R$ 1.870,00, 128 GB Meia-noite por R$ 1.850,00 "
+              "e 128 GB Roxo por R$ 1.870,00."
+          )
+          history = [
+              {"role": "user", "content": "Olá boa tarde"},
+              {"role": "assistant", "content": "Olá, boa tarde! 😊 Como posso te ajudar?"},
+          ]
+          decision = asyncio.run(
+              service.respond(text, history=history, image_description=image_description)
+          )
+          assert decision.reply == faq.get("pagamento"), decision
+          assert not decision.handoff, decision
+          assert not decision.product_references and not decision.image_urls, decision
+          print("PAYMENT_METHODS_AFTER_PRODUCT_IMAGE_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
           from app.agent import AgentService
