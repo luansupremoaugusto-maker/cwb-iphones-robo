@@ -6764,6 +6764,8 @@ def _ensure_trade_in_form_before_handoff(
                 "handoff": False,
                 "handoff_reason": None,
                 "confidence": "high",
+                "product_references": [],
+                "image_urls": [],
             }
         )
     if not decision.handoff or trade_in_em_andamento(history):

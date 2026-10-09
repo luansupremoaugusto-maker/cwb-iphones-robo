@@ -3451,10 +3451,14 @@ async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp
             reply=TRADE_IN_FORM,
             handoff=True,
             handoff_reason=TRADE_IN_REASON,
+            product_references=["iphone-13-128"],
+            image_urls=["https://example.test/iphone-13.jpg"],
         ),
         text,
         history,
     )
+    explicit_buyback_text = "Vocês compram iPhone 13? Vou na loja comprar outro."
+    explicit_buyback_decision = await service.respond(explicit_buyback_text)
 
     recent_user_context = " ".join(
         item["content"] for item in history if item["role"] == "user"
@@ -3466,3 +3470,8 @@ async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp
     assert decision.image_urls == []
     assert model_trade_in_candidate.reply == PURCHASE_WITHOUT_TRADE_IN_REPLY
     assert model_trade_in_candidate.handoff is False
+    assert model_trade_in_candidate.product_references == []
+    assert model_trade_in_candidate.image_urls == []
+    assert is_trade_in_request(explicit_buyback_text) is True
+    assert explicit_buyback_decision.reply == TRADE_IN_FORM
+    assert explicit_buyback_decision.handoff is True

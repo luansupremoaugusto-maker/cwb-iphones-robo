@@ -841,7 +841,8 @@ def _is_store_buyback_question(text: str) -> bool:
         r"\b(?:(?:na|em|para|pra|pela|por)\s+|(?:um|uma|a)\s+)compra\s+de\b",
         text,
         flags=re.IGNORECASE,
-    ) or re.search(
+    )
+    customer_buying_at_store = re.search(
         r"\b(?:vou|vamos|quero|preciso|pretendo|gostaria de)\b.{0,25}"
         r"\bloja\b.{0,25}\bcompr\w*\b",
         text,
@@ -855,9 +856,12 @@ def _is_store_buyback_question(text: str) -> bool:
         text,
         flags=re.IGNORECASE,
     )
-    buyback_context = store_subject or verb_first
     if customer_purchase_context and not _has_personal_device_reference(text):
         buyback_context = None
+    else:
+        if customer_buying_at_store and not _has_personal_device_reference(text):
+            store_subject = None
+        buyback_context = store_subject or verb_first
     return bool(buyback_context and _has_device_reference(text)) or bool(
         re.search(r"\b(?:vocês|voces|vcs|loja)\b.{0,35}\baceitam\s+usado\b", text, re.IGNORECASE)
     )
