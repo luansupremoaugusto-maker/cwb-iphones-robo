@@ -1440,6 +1440,15 @@ jobs:
           assert mixed_non_apple.reply == NON_APPLE_TRADE_IN_REPLY, mixed_non_apple
           assert not mixed_non_apple.handoff, mixed_non_apple
 
+          owned_non_apple = asyncio.run(
+              service.respond(
+                  "Meu Samsung, vocês aceitam para abater o valor na compra do MacBook Neo?",
+                  image_description=image_description,
+              )
+          )
+          assert owned_non_apple.reply == NON_APPLE_TRADE_IN_REPLY, owned_non_apple
+          assert not owned_non_apple.handoff, owned_non_apple
+
           apple_offer = asyncio.run(
               service.respond(
                   "Na compra do Samsung, vocês aceitam meu iPad para abater o valor?"

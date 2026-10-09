@@ -298,6 +298,33 @@ async def test_non_apple_offer_is_not_confused_with_apple_purchase_target(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_owned_non_apple_device_before_buyback_verb_stays_out_of_evaluation(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Meu Samsung, vocês aceitam para abater o valor na compra do MacBook Neo?"
+
+    decision = await service.respond(
+        text,
+        image_description="Anúncio da loja: MacBook Neo 2026, produto completo da Apple.",
+    )
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_non_apple_acceptance_question_precedes_catalog_interest_image_route(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
