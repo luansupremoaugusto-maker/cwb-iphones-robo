@@ -1258,6 +1258,38 @@ def _latest_catalog_color_request(
     return ()
 
 
+def _is_catalog_color_either_or_request(
+    current_text: str,
+    image_description: str | None,
+    customer_request_context: str,
+    items: list[Any],
+) -> bool:
+    candidates = [
+        current_text,
+        image_description or "",
+        *reversed(customer_request_context.splitlines()),
+    ]
+    for candidate in candidates:
+        colors = _requested_catalog_colors(candidate, items)
+        if not colors:
+            continue
+        if len(colors) < 2:
+            return False
+        normalized = _normalize(candidate)
+        color_spans = []
+        for color in colors:
+            match = re.search(rf"(?<!\w){re.escape(color)}(?!\w)", normalized)
+            if match:
+                color_spans.append((match.start(), match.end()))
+        color_spans.sort()
+        return any(
+            re.search(r"\b(?:ou|or)\b", normalized[left_end:right_start])
+            for (_left_start, left_end), (right_start, _right_end)
+            in zip(color_spans, color_spans[1:])
+        )
+    return False
+
+
 def _item_matches_catalog_colors(item: Any, requested_colors: tuple[str, ...]) -> bool:
     raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
     if isinstance(raw_colors, (list, tuple, set)):
@@ -4113,6 +4145,7 @@ def _unavailable_catalog_color_header(
     requested_families: set[str],
     requested_catalog_colors: tuple[str, ...],
     requested_capacities: set[str],
+    has_available_requested_color: bool = False,
 ) -> str:
     if len(requested_models) == 1:
         model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
@@ -4143,6 +4176,20 @@ def _unavailable_catalog_color_header(
         for capacity in requested_capacities
     ]
     capacity_text = f" de {' e '.join(capacity_labels)}" if capacity_labels else ""
+    if has_available_requested_color:
+        if len(requested_catalog_colors) == 1:
+            missing_color_text = f"na cor {color_label}"
+        else:
+            missing_color_text = f"nas cores {color_label}"
+        return (
+            f"Não localizei o {model_name} {missing_color_text}{capacity_text}. "
+            "Encontrei estas opções nas outras cores solicitadas:"
+        )
+    if len(requested_catalog_colors) > 1:
+        return (
+            f"No momento, não encontrei o {model_name} nas cores {color_label}{capacity_text}. "
+            "Encontrei estas opções em outras cores:"
+        )
     return (
         f"No momento, o {model_name} {color_label}{capacity_text} não está disponível. "
         "Encontrei estas opções em outras cores:"
@@ -5714,20 +5761,47 @@ class AgentService:
                     customer_request_context,
                     color_catalog_items,
                 )
+        color_either_or_request = (
+            not exploring_colors
+            and _is_catalog_color_either_or_request(
+                text,
+                image_description,
+                customer_request_context,
+                color_catalog_items,
+            )
+        )
         single_catalog_model_request = (
             len(requested_models) <= 1
             and len(requested_ipad_models) <= 1
             and len(requested_families) <= 1
         )
         requested_color_unavailable = False
+        unavailable_requested_colors: tuple[str, ...] = ()
+        has_available_requested_color = False
         if single_catalog_model_request and requested_catalog_colors:
             matching_color_candidates = [
                 item
                 for item in public_candidates
                 if _item_matches_catalog_colors(item, requested_catalog_colors)
             ]
+            available_requested_colors = tuple(
+                color
+                for color in requested_catalog_colors
+                if any(
+                    _item_matches_catalog_colors(item, (color,))
+                    for item in public_candidates
+                )
+            )
+            unavailable_requested_colors = tuple(
+                color
+                for color in requested_catalog_colors
+                if color not in available_requested_colors
+            )
+            has_available_requested_color = bool(available_requested_colors)
             requested_color_unavailable = bool(
-                public_candidates and not matching_color_candidates
+                public_candidates
+                and unavailable_requested_colors
+                and not (color_either_or_request and has_available_requested_color)
             )
             if matching_color_candidates:
                 public_candidates = matching_color_candidates
@@ -6006,8 +6080,11 @@ class AgentService:
                 requested_models=requested_models,
                 requested_ipad_models=requested_ipad_models,
                 requested_families=requested_families,
-                requested_catalog_colors=requested_catalog_colors,
+                requested_catalog_colors=(
+                    unavailable_requested_colors or requested_catalog_colors
+                ),
                 requested_capacities=requested_capacities,
+                has_available_requested_color=has_available_requested_color,
             )
         reply = _format_product_availability(
             selected,
