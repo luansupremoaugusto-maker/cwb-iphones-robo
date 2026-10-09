@@ -2690,6 +2690,16 @@ def _extract_budget_limit(text: str) -> float | None:
     return None
 
 
+def _extract_latest_budget_limit(text: str) -> float | None:
+    """Return the latest ceiling from newline-delimited customer context."""
+    latest_limit = None
+    for customer_message in (text or "").splitlines():
+        amount = _extract_budget_limit(customer_message)
+        if amount is not None:
+            latest_limit = amount
+    return latest_limit
+
+
 def _requested_device_quantity(text: str) -> int | None:
     normalized = _normalize(text)
     patterns = (
@@ -5244,9 +5254,9 @@ class AgentService:
         )
         requested_budget = None
         if not installment_budget_context:
-            requested_budget = _extract_budget_limit(text)
+            requested_budget = _extract_latest_budget_limit(text)
             if requested_budget is None and not allow_buyer_interest_with_image:
-                requested_budget = _extract_budget_limit(customer_request_context)
+                requested_budget = _extract_latest_budget_limit(customer_request_context)
         requested_quantity = _requested_device_quantity(
             text if allow_buyer_interest_with_image else query
         )

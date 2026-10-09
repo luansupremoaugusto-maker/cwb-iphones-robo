@@ -2125,6 +2125,80 @@ async def test_comma_thousands_budget_keeps_iphone_15_within_r3200(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_latest_customer_budget_applies_after_ceiling_revision(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-15-base-128-under-3200",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2820,
+            battery_health=88,
+            search_text="iphone 15 azul 128gb seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-15-base-256-under-4000",
+            name="iPhone 15",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3680,
+            battery_health=89,
+            search_text="iphone 15 preto 256gb seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-15-base-512-over-4000",
+            name="iPhone 15",
+            category="Celular",
+            capacity="512GB",
+            color="ROSA",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4250,
+            battery_health=90,
+            search_text="iphone 15 rosa 512gb seminovo celular disponivel para venda",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+    history = [
+        {
+            "role": "user",
+            "content": "Quais iPhones vocês têm até uns 3,200?",
+        },
+        {
+            "role": "assistant",
+            "content": "Posso procurar dentro desse valor.",
+        },
+        {
+            "role": "user",
+            "content": "Na verdade, pode considerar até uns 4,000.",
+        },
+    ]
+
+    decision = await agent.respond("O 15 tem algum?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == [
+        "iphone-15-base-128-under-3200",
+        "iphone-15-base-256-under-4000",
+    ], decision.reply
+    assert "R$ 3.680,00" in decision.reply
+    assert "R$ 4.250,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_explicit_iphone_pro_max_with_abbreviated_battery_matches_first_request(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
