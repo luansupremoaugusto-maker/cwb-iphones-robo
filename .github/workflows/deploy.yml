@@ -1431,6 +1431,24 @@ jobs:
           assert not non_apple.handoff, non_apple
           assert not non_apple.product_references and not non_apple.image_urls, non_apple
 
+          mixed_non_apple = asyncio.run(
+              service.respond(
+                  "Na compra do MacBook Neo, vocês aceitam meu Samsung para abater o valor?",
+                  image_description=image_description,
+              )
+          )
+          assert mixed_non_apple.reply == NON_APPLE_TRADE_IN_REPLY, mixed_non_apple
+          assert not mixed_non_apple.handoff, mixed_non_apple
+
+          apple_offer = asyncio.run(
+              service.respond(
+                  "Na compra do Samsung, vocês aceitam meu iPad para abater o valor?"
+              )
+          )
+          assert apple_offer.reply == TRADE_IN_FORM, apple_offer
+          assert apple_offer.handoff, apple_offer
+          assert not apple_offer.product_references and not apple_offer.image_urls
+
           loose_part = asyncio.run(
               service.respond(
                   "Vocês compram bateria de Samsung?",

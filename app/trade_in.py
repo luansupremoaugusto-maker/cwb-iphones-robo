@@ -166,6 +166,15 @@ _NON_APPLE_EXCHANGE_RE = re.compile(
     r"como\s+entrada|de\s+entrada|retoma\w*|retomar)\b",
     re.IGNORECASE,
 )
+_TRADE_IN_DEVICE_OFFER_VERB_RE = re.compile(
+    r"\b(?:aceit\w*|peg\w*|receb\w*|avali\w*|compram|compramos)\b",
+    re.IGNORECASE,
+)
+_TRADE_IN_DEVICE_MENTION_RE = re.compile(
+    rf"(?P<apple>{_APPLE_PRODUCT_RE.pattern})|"
+    rf"(?P<non_apple>{_NON_APPLE_RE.pattern})",
+    re.IGNORECASE,
+)
 # Informal messages often put the percentage after the battery sentence:
 # "a bateria ... acho que tá em 82%".
 _COMPLETE_DEVICE_DETAIL_RE = re.compile(
@@ -529,12 +538,46 @@ def _has_device_reference(text: str) -> bool:
 def is_non_apple_trade_in_request(text: str | None) -> bool:
     """Recognize a non-Apple buyback question before the LLM can offer a form."""
     normalized = _normalize(text)
-    if not normalized or _APPLE_PRODUCT_RE.search(normalized):
+    if not normalized or not _NON_APPLE_RE.search(normalized):
         return False
-    return bool(
-        _NON_APPLE_RE.search(normalized)
-        and (_BUYBACK_VERB_RE.search(normalized) or _NON_APPLE_EXCHANGE_RE.search(normalized))
-    )
+    if not (_BUYBACK_VERB_RE.search(normalized) or _NON_APPLE_EXCHANGE_RE.search(normalized)):
+        return False
+    if not _APPLE_PRODUCT_RE.search(normalized):
+        return True
+
+    # When both purchase target and offered device are named, use the device
+    # nearest to the buyback cue to distinguish a MacBook purchase from a
+    # Samsung offered to offset its price.
+    for verb_match in _TRADE_IN_DEVICE_OFFER_VERB_RE.finditer(normalized):
+        device_match = _TRADE_IN_DEVICE_MENTION_RE.search(
+            normalized, verb_match.end()
+        )
+        if device_match and device_match.start() - verb_match.end() <= 45:
+            if device_match.lastgroup == "non_apple":
+                return True
+
+    for exchange_match in _NON_APPLE_EXCHANGE_RE.finditer(normalized):
+        previous_devices = list(
+            _TRADE_IN_DEVICE_MENTION_RE.finditer(
+                normalized,
+                max(0, exchange_match.start() - 45),
+                exchange_match.start(),
+            )
+        )
+        if previous_devices:
+            if previous_devices[-1].lastgroup == "non_apple":
+                return True
+            continue
+        next_device = _TRADE_IN_DEVICE_MENTION_RE.search(
+            normalized, exchange_match.end()
+        )
+        if (
+            next_device
+            and next_device.start() - exchange_match.end() <= 45
+            and next_device.lastgroup == "non_apple"
+        ):
+            return True
+    return False
 
 
 def has_explicit_trade_in_cue(text: str | None) -> bool:

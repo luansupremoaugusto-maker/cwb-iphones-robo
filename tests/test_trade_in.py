@@ -238,7 +238,59 @@ async def test_non_apple_trade_in_text_wins_over_catalog_image_model(tmp_path):
     decision = await service.respond(text, image_description=image_description)
 
     assert is_non_apple_trade_in_request(text) is True
-    assert is_non_apple_trade_in_request(f"{text} {image_description}") is False
+    assert is_non_apple_trade_in_request(f"{text} {image_description}") is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_apple_device_offer_is_kept_when_purchase_target_is_non_apple(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Na compra do Samsung, vocês aceitam meu iPad para abater o valor?"
+
+    decision = await service.respond(text)
+
+    assert is_non_apple_trade_in_request(text) is False
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_offer_is_not_confused_with_apple_purchase_target(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Na compra do MacBook Neo, vocês aceitam meu Samsung para abater o valor?"
+    )
+    image_description = "Anúncio da loja: MacBook Neo 2026, produto completo da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_non_apple_trade_in_request(text) is True
     assert decision.reply == NON_APPLE_TRADE_IN_REPLY
     assert decision.handoff is False
     assert decision.product_references == []
