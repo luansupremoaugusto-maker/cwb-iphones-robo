@@ -1159,6 +1159,33 @@ def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
     return tuple(color for _start, _end, color in selected)
 
 
+def _catalog_color_correction_scope(text: str) -> str:
+    normalized = _normalize(text)
+    correction_markers = list(
+        re.finditer(
+            r"\b(?:na verdade|quer dizer|quis dizer|queria dizer|corrigindo|"
+            r"prefiro|prefira|quero|queria|apenas|so)\b",
+            normalized,
+        )
+    )
+    return normalized[correction_markers[-1].start() :] if correction_markers else normalized
+
+
+def _latest_catalog_color_request(
+    current_text: str,
+    customer_request_context: str,
+    items: list[Any],
+) -> tuple[str, ...]:
+    for candidate in [current_text, *reversed(customer_request_context.splitlines())]:
+        colors = _requested_catalog_colors(candidate, items)
+        if colors:
+            return _requested_catalog_colors(
+                _catalog_color_correction_scope(candidate),
+                items,
+            ) or colors
+    return ()
+
+
 def _item_matches_catalog_colors(item: Any, requested_colors: tuple[str, ...]) -> bool:
     raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
     if isinstance(raw_colors, (list, tuple, set)):
@@ -5552,20 +5579,16 @@ class AgentService:
             *list(getattr(getattr(self.cache, "sealed_cache", None), "items", []) or []),
         ]
         exploring_colors = _is_other_color_request(text) or _is_catalog_color_list_request(text)
-        current_turn_colors = _requested_catalog_colors(text, color_catalog_items)
-        if exploring_colors or current_turn_colors:
-            color_request_query = text
-        else:
-            color_request_query = customer_request_context
-        if image_description:
-            color_request_query = _current_catalog_context(
-                color_request_query,
-                image_description,
+        current_color_query = _current_catalog_context(text, image_description)
+        requested_catalog_colors = (
+            ()
+            if exploring_colors
+            else _latest_catalog_color_request(
+                current_color_query,
+                customer_request_context,
+                color_catalog_items,
             )
-        requested_catalog_colors = _requested_catalog_colors(
-            color_request_query,
-            color_catalog_items,
-        ) if not exploring_colors else ()
+        )
         single_catalog_model_request = (
             len(requested_models) <= 1
             and len(requested_ipad_models) <= 1
@@ -5853,8 +5876,20 @@ class AgentService:
         selected = _sort_product_availability_items(selected)
         availability_header = None
         if requested_color_unavailable and selected:
-            model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
-            model_name = model_name.title().replace("Iphone", "iPhone")
+            if len(requested_models) == 1:
+                model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
+                model_name = model_name.title().replace("Iphone", "iPhone")
+            elif not requested_models and len(requested_families) == 1:
+                family = next(iter(requested_families))
+                model_name = {
+                    "iphone": "iPhone",
+                    "ipad": "iPad",
+                    "macbook": "MacBook",
+                    "apple watch": "Apple Watch",
+                    "airpods": "AirPods",
+                }.get(family, "aparelho")
+            else:
+                model_name = "aparelho"
             color_label = " e ".join(requested_catalog_colors)
             capacity_labels = [
                 re.sub(

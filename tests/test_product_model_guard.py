@@ -4164,6 +4164,36 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
 
     cache.items.append(
         InventoryItem(
+            external_id="iphone-14-blue-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1890,
+            source="mercado_phone",
+            search_text="iphone 14 azul 128gb celular seminovo",
+        )
+    )
+    corrected_color_history = [
+        {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
+        {"role": "user", "content": "Na verdade, eu queria o iPhone 14 roxo 128 GB"},
+    ]
+
+    corrected_unavailable = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_color_history,
+    )
+
+    assert corrected_unavailable.handoff is False
+    assert "roxo" in corrected_unavailable.reply.lower()
+    assert "não está disponível" in corrected_unavailable.reply.lower()
+    assert not corrected_unavailable.reply.lower().startswith("sim")
+
+    cache.items.append(
+        InventoryItem(
             external_id="iphone-14-purple-128",
             name="IPHONE 14",
             category="Celular",
@@ -4178,7 +4208,10 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
         )
     )
 
-    available = await agent.respond("Ele está disponível?", history=history)
+    available = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_color_history,
+    )
 
     assert available.handoff is False
     assert available.product_references == ["iphone-14-purple-128"]
