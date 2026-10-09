@@ -407,6 +407,15 @@ def _is_other_color_request(text: str) -> bool:
     return bool(re.search(r"\boutra(?:s)?\s+cor(?:es)?\b", _normalize(text)))
 
 
+def _is_catalog_color_list_request(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:quais|todas|lista(?:r)?)\s+(?:as\s+)?cores\b",
+            _normalize(text),
+        )
+    )
+
+
 def _is_battery_detail_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or "bateria" not in normalized:
@@ -1069,6 +1078,100 @@ def _catalog_color_map(items: list[Any]) -> dict[str, str]:
             if normalized_color:
                 colors.setdefault(normalized_color, color)
     return colors
+
+
+_COMMON_CATALOG_COLOR_NAMES = (
+    "azul claro",
+    "azul escuro",
+    "azul intenso",
+    "azul ultramarino",
+    "roxo profundo",
+    "preto espacial",
+    "titânio natural",
+    "titânio deserto",
+    "titânio branco",
+    "titânio preto",
+    "meia noite",
+    "ultramarino",
+    "estelar",
+    "roxo",
+    "roxa",
+    "azul",
+    "preto",
+    "preta",
+    "branco",
+    "branca",
+    "verde",
+    "rosa",
+    "amarelo",
+    "amarela",
+    "vermelho",
+    "vermelha",
+    "laranja",
+    "dourado",
+    "dourada",
+    "prateado",
+    "prateada",
+    "cinza",
+    "grafite",
+    "bege",
+    "marrom",
+    "purple",
+    "blue",
+    "black",
+    "white",
+    "green",
+    "pink",
+    "midnight",
+    "starlight",
+    "ultramarine",
+)
+
+
+def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
+    """Find color names in a customer request, even when none are in stock."""
+    normalized = _normalize(text)
+    if not normalized:
+        return ()
+
+    known_colors = {
+        *_COMMON_CATALOG_COLOR_NAMES,
+        *_catalog_color_map(items).keys(),
+    }
+    matches: list[tuple[int, int, str]] = []
+    for color in known_colors:
+        normalized_color = _normalize(color).strip()
+        if not normalized_color:
+            continue
+        match = re.search(
+            rf"(?<!\w){re.escape(normalized_color)}(?!\w)",
+            normalized,
+        )
+        if match:
+            matches.append((match.start(), match.end(), normalized_color))
+
+    selected: list[tuple[int, int, str]] = []
+    for candidate in sorted(matches, key=lambda item: (item[0], -(item[1] - item[0]))):
+        start, end, _color = candidate
+        if any(start < selected_end and selected_start < end for selected_start, selected_end, _ in selected):
+            continue
+        selected.append(candidate)
+    return tuple(color for _start, _end, color in selected)
+
+
+def _item_matches_catalog_colors(item: Any, requested_colors: tuple[str, ...]) -> bool:
+    raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
+    if isinstance(raw_colors, (list, tuple, set)):
+        values = raw_colors
+    else:
+        values = re.split(r"\s*[|;/,]\s*", str(raw_colors or ""))
+    item_colors = [_normalize(str(value or "")).strip() for value in values]
+    return any(
+        color
+        and re.search(rf"(?<!\w){re.escape(requested_color)}(?!\w)", color)
+        for color in item_colors
+        for requested_color in requested_colors
+    )
 
 
 def _strip_catalog_color_references(query: str, items: list[Any]) -> str:
@@ -3782,6 +3885,7 @@ def _sort_product_availability_items(items: list[Any]) -> list[Any]:
 def _format_product_availability(
     items: list[Any],
     *,
+    header: str | None = None,
     installment_budget: tuple[int, float] | None = None,
     installment_quotes: dict[int, dict[str, Any]] | None = None,
     entry_amount: float | None = None,
@@ -3802,19 +3906,21 @@ def _format_product_availability(
         model = "iPhone"
     else:
         model = "produto"
-    if installment_budget is not None:
+    if header is not None:
+        resolved_header = header
+    elif installment_budget is not None:
         installment_count, monthly_limit = installment_budget
         entry_text = (
             f" e entrada de {format_brl(entry_amount)}"
             if entry_amount is not None
             else " sem entrada"
         )
-        header = (
+        resolved_header = (
             f"Sim 😊 Encontrei estas opções que cabem em até "
             f"{installment_count}x de {format_brl(monthly_limit)}{entry_text}:"
         )
     else:
-        header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
+        resolved_header = f"Sim 😊 Encontrei estas opções de {model} disponíveis:"
 
     def item_line(item: Any) -> str:
         color = str(getattr(item, "color", None) or getattr(item, "colors", None) or "cor não informada")
@@ -3863,7 +3969,7 @@ def _format_product_availability(
     )
     populated_groups = [group for _heading, group in groups if group]
     if len(populated_groups) > 1 or groups[-1][1]:
-        formatted_lines = [header]
+        formatted_lines = [resolved_header]
         for heading, group in groups:
             if not group:
                 continue
@@ -3887,7 +3993,7 @@ def _format_product_availability(
             )
         return "\n".join(formatted_lines)
 
-    lines = [header]
+    lines = [resolved_header]
     for item in items:
         lines.append(item_line(item))
     if installment_budget is not None:
@@ -5269,7 +5375,7 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
-        if _is_other_color_request(text):
+        if _is_other_color_request(text) or _is_catalog_color_list_request(text):
             query = _strip_catalog_color_references(
                 query,
                 list(getattr(self.cache, "items", []) or []),
@@ -5440,6 +5546,44 @@ class AgentService:
                     installment_quotes[id(item)] = result
             public_candidates = matching_installments
 
+        color_catalog_items = [
+            *public_candidates,
+            *list(getattr(self.cache, "items", []) or []),
+            *list(getattr(getattr(self.cache, "sealed_cache", None), "items", []) or []),
+        ]
+        exploring_colors = _is_other_color_request(text) or _is_catalog_color_list_request(text)
+        current_turn_colors = _requested_catalog_colors(text, color_catalog_items)
+        if exploring_colors or current_turn_colors:
+            color_request_query = text
+        else:
+            color_request_query = customer_request_context
+        if image_description:
+            color_request_query = _current_catalog_context(
+                color_request_query,
+                image_description,
+            )
+        requested_catalog_colors = _requested_catalog_colors(
+            color_request_query,
+            color_catalog_items,
+        ) if not exploring_colors else ()
+        single_catalog_model_request = (
+            len(requested_models) <= 1
+            and len(requested_ipad_models) <= 1
+            and len(requested_families) <= 1
+        )
+        requested_color_unavailable = False
+        if single_catalog_model_request and requested_catalog_colors:
+            matching_color_candidates = [
+                item
+                for item in public_candidates
+                if _item_matches_catalog_colors(item, requested_catalog_colors)
+            ]
+            requested_color_unavailable = bool(
+                public_candidates and not matching_color_candidates
+            )
+            if matching_color_candidates:
+                public_candidates = matching_color_candidates
+
         if not public_candidates:
             if installment_budget is not None:
                 installment_count, monthly_limit = installment_budget
@@ -5512,6 +5656,7 @@ class AgentService:
         cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
         has_explicit_catalog_attributes = (
             _requested_battery_health(catalog_filter_query) is not None
+            or bool(requested_catalog_colors)
             or _has_requested_catalog_color(catalog_filter_query, public_candidates)
         )
         broad_request = (
@@ -5537,7 +5682,9 @@ class AgentService:
                 _normalize(str(getattr(item, "color", None) or getattr(item, "colors", "") or "")),
             )
 
-        if cheapest_request:
+        if requested_color_unavailable:
+            selected = sorted(public_candidates, key=price_sort_key)
+        elif cheapest_request:
             priced_candidates = [
                 item for item in public_candidates if _confirmed_catalog_price(item) is not None
             ]
@@ -5704,8 +5851,28 @@ class AgentService:
                 selected = select_requested_model_matches(scored)
 
         selected = _sort_product_availability_items(selected)
+        availability_header = None
+        if requested_color_unavailable and selected:
+            model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
+            model_name = model_name.title().replace("Iphone", "iPhone")
+            color_label = " e ".join(requested_catalog_colors)
+            capacity_labels = [
+                re.sub(
+                    r"(\d+(?:[.,]\d+)?)(gb|tb)",
+                    lambda match: f"{match.group(1)} {match.group(2).upper()}",
+                    capacity,
+                    flags=re.IGNORECASE,
+                )
+                for capacity in requested_capacities
+            ]
+            capacity_text = f" de {' e '.join(capacity_labels)}" if capacity_labels else ""
+            availability_header = (
+                f"No momento, o {model_name} {color_label}{capacity_text} não está disponível. "
+                "Encontrei estas opções em outras cores:"
+            )
         reply = _format_product_availability(
             selected,
+            header=availability_header,
             installment_budget=installment_budget,
             installment_quotes=installment_quotes,
             entry_amount=entry_amount,

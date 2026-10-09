@@ -4106,6 +4106,89 @@ async def test_color_followup_after_256_pro_max_value_question_lists_all_units(t
 
 
 @pytest.mark.asyncio
+async def test_unavailable_requested_color_is_disclosed_before_other_available_colors(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-unavailable-purple.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-starlight-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ESTELAR",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            source="mercado_phone",
+            search_text="iphone 14 estelar 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-midnight-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1850,
+            source="mercado_phone",
+            search_text="iphone 14 meia noite 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [{"role": "user", "content": "Seria o iPhone 14 roxo 128 GB"}]
+
+    unavailable = await agent.respond("Ele está disponível?", history=history)
+
+    assert unavailable.handoff is False
+    assert unavailable.product_references == [
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+    ]
+    assert unavailable.reply == (
+        "No momento, o iPhone 14 roxo de 128 GB não está disponível. "
+        "Encontrei estas opções em outras cores:\n"
+        "• IPHONE 14 — ESTELAR — 128GB — SEMINOVO — R$ 1.870,00 | "
+        "Bat: não informada no cadastro\n"
+        "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.850,00 | "
+        "Bat: não informada no cadastro"
+    )
+    assert not unavailable.reply.lower().startswith("sim")
+
+    cache.items.append(
+        InventoryItem(
+            external_id="iphone-14-purple-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ROXO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1940,
+            source="mercado_phone",
+            search_text="iphone 14 roxo 128gb celular seminovo",
+        )
+    )
+
+    available = await agent.respond("Ele está disponível?", history=history)
+
+    assert available.handoff is False
+    assert available.product_references == ["iphone-14-purple-128"]
+    assert available.reply.lower().startswith("sim")
+    assert "ROXO" in available.reply
+    assert "ESTELAR" not in available.reply
+    assert "MEIA NOITE" not in available.reply
+
+
+@pytest.mark.asyncio
 async def test_other_color_followup_explains_only_cataloged_color(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
