@@ -4168,8 +4168,8 @@ class AgentService:
                 )
             )
         if (
-            not is_purchase_without_trade_in_request(combined_request)
-            and is_trade_in_context_request(combined_request, history)
+            not is_purchase_without_trade_in_request(text)
+            and is_trade_in_context_request(text, history)
         ):
             return AgentDecision(
                 reply=TRADE_IN_FORM,
