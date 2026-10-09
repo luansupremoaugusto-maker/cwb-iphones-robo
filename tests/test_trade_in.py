@@ -11,6 +11,7 @@ from app.faq import FAQStore
 from app.runtime import build_runtime
 from app.schemas import InventoryItem
 from app.trade_in import (
+    NON_APPLE_TRADE_IN_REPLY,
     PARTS_BUYBACK_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
@@ -19,6 +20,7 @@ from app.trade_in import (
     is_trade_in_context_request,
     is_trade_in_request,
     is_parts_buyback_request,
+    is_non_apple_trade_in_request,
     trade_in_em_andamento,
 )
 from app.adapters.mercado_phone import InventoryCache
@@ -215,6 +217,107 @@ async def test_explicit_buyback_question_can_identify_device_from_attached_image
     assert decision.handoff is True
     assert decision.product_references == []
     assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_trade_in_text_wins_over_catalog_image_model(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês pegam um Samsung na troca?"
+    image_description = "Anúncio da loja com iPhone 15 Pro Max 256 GB da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert is_non_apple_trade_in_request(f"{text} {image_description}") is False
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_acceptance_question_precedes_catalog_interest_image_route(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Me interessei nesse Galaxy, vocês aceitam?"
+    image_description = "Anúncio da loja: iPhone 15 Pro Max 256 GB da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_loose_part_request_keeps_parts_reply_with_catalog_image(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês compram bateria de Samsung?"
+
+    decision = await service.respond(
+        text,
+        image_description="Anúncio da loja: iPhone 15 Pro Max 256 GB da Apple.",
+    )
+
+    assert is_parts_buyback_request(text) is True
+    assert decision.reply == PARTS_BUYBACK_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_purchase_interest_with_image_does_not_start_trade_in(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Me interessei nesse MacBook Neo, quero comprar."
+    image_description = "Anúncio da loja: MacBook Neo 2026, produto completo da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_trade_in_request(text) is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff_reason != "Avaliação de aparelho usado para parte do pagamento"
 
 
 @pytest.mark.asyncio

@@ -537,6 +537,15 @@ def is_non_apple_trade_in_request(text: str | None) -> bool:
     )
 
 
+def has_explicit_trade_in_cue(text: str | None) -> bool:
+    """Return whether the customer's own text contains a buyback or exchange cue."""
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and (_BUYBACK_VERB_RE.search(normalized) or _NON_APPLE_EXCHANGE_RE.search(normalized))
+    )
+
+
 def _has_personal_device_reference(text: str) -> bool:
     return bool(
         re.search(

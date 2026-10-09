@@ -56,6 +56,7 @@ from app.trade_in import (
     is_completed_trade_in_form,
     is_trade_in_context_request,
     is_trade_in_request,
+    has_explicit_trade_in_cue,
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
@@ -4065,6 +4066,8 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
+            return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
         if (
             image_description
             and _has_product_reference(_normalize(image_description))
@@ -4168,7 +4171,8 @@ class AgentService:
                 )
             )
         # OCR may append catalog copy that masks a clear offer in the customer's text.
-        # Keep the combined fallback for buyback questions whose device is identified by the image.
+        # A combined fallback is limited to explicit buyback cues in customer text,
+        # so catalog descriptions cannot create trade-in intent on their own.
         text_trade_in_context = is_trade_in_context_request(text, history)
         combined_trade_in_context = is_trade_in_context_request(
             combined_request, history
@@ -4180,7 +4184,9 @@ class AgentService:
             )
             or (
                 combined_trade_in_context
-                and not is_purchase_without_trade_in_request(combined_request)
+                and has_explicit_trade_in_cue(text)
+                and not is_non_apple_trade_in_request(text)
+                and not is_purchase_without_trade_in_request(text)
             )
         ):
             return AgentDecision(
