@@ -63,6 +63,7 @@ from app.trade_in import (
     is_catalog_purchase_advice_request,
     catalog_price_recall_amount,
     trade_in_em_andamento,
+    is_contextual_generic_device_purchase_request,
     is_purchase_without_trade_in_request,
 )
 
@@ -4108,6 +4109,17 @@ class AgentService:
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
         if is_non_apple_trade_in_request(combined_request):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
+        # A purchase deadline can follow a store visit invitation in history.
+        # Keep it in the buying flow unless the customer asks to schedule.
+        if (
+            is_contextual_generic_device_purchase_request(text, history)
+            and not _is_visit_request(text)
+            and not _is_reservation_request(text)
+        ):
+            return AgentDecision(
+                reply=PURCHASE_WITHOUT_TRADE_IN_REPLY,
+                confidence="high",
+            )
         current_day_decision = self._try_current_day_information(text)
         if current_day_decision is not None:
             if _is_visit_request(text) or _is_reservation_request(text):
@@ -6743,7 +6755,7 @@ def _ensure_trade_in_form_before_handoff(
 
     if (
         not trade_in_em_andamento(history)
-        and is_purchase_without_trade_in_request(request_context)
+        and is_purchase_without_trade_in_request(request_context, history)
         and _looks_like_trade_in_handoff(decision)
     ):
         return decision.model_copy(

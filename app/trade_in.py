@@ -841,6 +841,11 @@ def _is_store_buyback_question(text: str) -> bool:
         r"\b(?:(?:na|em|para|pra|pela|por)\s+|(?:um|uma|a)\s+)compra\s+de\b",
         text,
         flags=re.IGNORECASE,
+    ) or re.search(
+        r"\b(?:vou|vamos|quero|preciso|pretendo|gostaria de)\b.{0,25}"
+        r"\bloja\b.{0,25}\bcompr\w*\b",
+        text,
+        flags=re.IGNORECASE,
     )
     verb_first = re.search(
         r"\b(?:compram|compra|pegam|pegm|pegem|peguem|pegaria|pegariam|aceitam|recebem|avaliam)\b.{0,45}\b"
@@ -1067,8 +1072,14 @@ def is_trade_in_request(text: str | None) -> bool:
 
 
 _PURCHASE_INTENT_RE = re.compile(
-    r"\b(?:quero|vou|preciso|pretendo|gostaria de|decidi|optei por)\s+compr\w*\b"
+    r"\b(?:quero|vou|preciso|pretendo|gostaria de|decidi|optei por)\s+"
+    r"(?:(?:na|a|para a|pra)\s+loja\s+)?compr\w*\b"
     r"|\bcomprar\s+(?:um|uma|o|a)?\s*(?:aparelho|celular|iphone|ipad|macbook|novo|outro)\b",
+    re.IGNORECASE,
+)
+_GENERIC_DEVICE_NEED_RE = re.compile(
+    r"\b(?:preciso|necessito|quero|busco|procuro|estou procurando|to procurando)\b"
+    r".{0,18}\b(?:cell|celular(?:es)?|aparelho(?:s)?|smartphone(?:s)?|telefone(?:s)?)\b",
     re.IGNORECASE,
 )
 
@@ -1086,7 +1097,35 @@ _MONEY_AMOUNT_RE = re.compile(
 )
 
 
-def is_purchase_without_trade_in_request(text: str | None) -> bool:
+def is_contextual_generic_device_purchase_request(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize an unspecified device need after the customer said they would buy."""
+    normalized = _normalize(text)
+    if (
+        not normalized
+        or not _GENERIC_DEVICE_NEED_RE.search(normalized)
+        or is_trade_in_request(normalized)
+    ):
+        return False
+
+    recent_user_context = " ".join(
+        _normalize(entry.get("content", ""))
+        for entry in (history or [])[-8:]
+        if entry.get("role") == "user" and entry.get("content")
+    )
+    return bool(
+        recent_user_context
+        and _PURCHASE_INTENT_RE.search(recent_user_context)
+        and not is_trade_in_request(recent_user_context)
+    )
+
+
+def is_purchase_without_trade_in_request(
+    text: str | None,
+    history: list[dict[str, str]] | None = None,
+) -> bool:
     """Recognize a purchase or catalog payment request without a device offer."""
     normalized = _normalize(text)
     if (
@@ -1097,9 +1136,11 @@ def is_purchase_without_trade_in_request(text: str | None) -> bool:
     ):
         return not is_trade_in_request(normalized)
 
-    if not normalized or not _PURCHASE_INTENT_RE.search(normalized):
+    if not normalized or is_trade_in_request(normalized):
         return False
-    return not is_trade_in_request(normalized)
+    if _PURCHASE_INTENT_RE.search(normalized):
+        return True
+    return is_contextual_generic_device_purchase_request(normalized, history)
 
 
 _FORM_EM_ANDAMENTO_MARKER = "favor preencher lista de avaliacao"
