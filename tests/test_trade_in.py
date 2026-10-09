@@ -2358,6 +2358,43 @@ async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_conditional_buyback_price_question_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-256-desert",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4320,
+            battery_health=87,
+            search_text="iphone 16 pro 256 gb titanio deserto celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = "Quanto vocês pagariam num iPhone 16 pro com 90% de bateria 128gb"
+
+    decision = await service.respond(text)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
 async def test_device_offer_with_no_parts_or_damage_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
