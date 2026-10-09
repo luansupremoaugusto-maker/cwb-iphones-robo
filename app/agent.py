@@ -540,6 +540,8 @@ def _is_variant_catalog_list_request(text: str) -> bool:
         return False
     if _requested_iphone_model_keys(text):
         return False
+    if _requested_catalog_colors(text, []):
+        return False
     return bool(
         re.search(
             r"\b(?:quais?|opcoes?|modelos?|lista|tem|teria|disponivel|"
@@ -4163,6 +4165,7 @@ def _unavailable_catalog_color_header(
     requested_catalog_colors: tuple[str, ...],
     requested_capacities: set[str],
     has_available_requested_color: bool = False,
+    requested_iphone_variant: str | None = None,
 ) -> str:
     if len(requested_models) == 1:
         model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
@@ -4170,6 +4173,8 @@ def _unavailable_catalog_color_header(
     elif len(requested_ipad_models) == 1:
         ipad_model = requested_ipad_models[0]
         model_name = f"iPad {ipad_model.title()}"
+    elif not requested_models and requested_iphone_variant:
+        model_name = f"iPhone {requested_iphone_variant.title()}"
     elif not requested_models and len(requested_families) == 1:
         family = next(iter(requested_families))
         model_name = {
@@ -5687,6 +5692,19 @@ class AgentService:
         requested_families = _catalog_families(catalog_filter_query)
         requested_ipad_models = _requested_ipad_model_keys(catalog_filter_query)
         requested_models = _requested_iphone_model_keys(catalog_filter_query)
+        requested_pro_max_without_generation = bool(
+            not requested_models
+            and re.search(r"\bpro\s+max\b", _normalize(catalog_filter_query))
+        )
+        if requested_pro_max_without_generation:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if re.search(
+                    r"\bpro\s+max\b",
+                    _normalize(str(getattr(item, "name", "") or "")),
+                )
+            ]
         scoped_capacity = _trailing_model_capacity_scope(
             text,
             _requested_iphone_model_keys(text),
@@ -6133,6 +6151,9 @@ class AgentService:
                 ),
                 requested_capacities=requested_capacities,
                 has_available_requested_color=has_available_requested_color,
+                requested_iphone_variant=(
+                    "pro max" if requested_pro_max_without_generation else None
+                ),
             )
         reply = _format_product_availability(
             selected,
