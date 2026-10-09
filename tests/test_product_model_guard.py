@@ -4241,6 +4241,28 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
         "iphone-14-blue-128",
     }
 
+    corrected_comma_history = [
+        {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
+        {
+            "role": "user",
+            "content": "Na verdade, o iPhone 14 azul, não, é roxo 128 GB",
+        },
+    ]
+    corrected_comma = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_comma_history,
+    )
+
+    assert corrected_comma.handoff is False
+    assert "roxo" in corrected_comma.reply.lower()
+    assert "não está disponível" in corrected_comma.reply.lower()
+    assert not corrected_comma.reply.lower().startswith("sim")
+    assert set(corrected_comma.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+
     cache.items.append(
         InventoryItem(
             external_id="iphone-14-purple-128",
@@ -4274,6 +4296,7 @@ def test_unavailable_color_header_uses_family_when_model_is_not_specific():
     header = _unavailable_catalog_color_header(
         selected=[SimpleNamespace(name="IPHONE 14")],
         requested_models=(),
+        requested_ipad_models=(),
         requested_families={"iphone"},
         requested_catalog_colors=("roxo",),
         requested_capacities={"128gb"},
@@ -4283,6 +4306,25 @@ def test_unavailable_color_header_uses_family_when_model_is_not_specific():
         "No momento, o iPhone roxo de 128 GB não está disponível. "
         "Encontrei estas opções em outras cores:"
     )
+    ipad_header = _unavailable_catalog_color_header(
+        selected=[SimpleNamespace(name="iPad Air")],
+        requested_models=(),
+        requested_ipad_models=("air",),
+        requested_families={"ipad"},
+        requested_catalog_colors=("roxo",),
+        requested_capacities={"128gb"},
+    )
+    apple_watch_header = _unavailable_catalog_color_header(
+        selected=[SimpleNamespace(name="Apple Watch")],
+        requested_models=(),
+        requested_ipad_models=(),
+        requested_families={"apple_watch"},
+        requested_catalog_colors=("roxo",),
+        requested_capacities=set(),
+    )
+
+    assert ipad_header.startswith("No momento, o iPad Air roxo")
+    assert apple_watch_header.startswith("No momento, o Apple Watch roxo")
 
 
 def test_availability_negation_keeps_the_color_being_asked_about():

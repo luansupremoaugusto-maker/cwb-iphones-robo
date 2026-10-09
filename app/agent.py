@@ -1215,7 +1215,10 @@ def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
             )
             if previous_colors and has_following_color:
                 previous_color = max(previous_colors, key=lambda span: span[1])
-                if not normalized[previous_color[1] : negation.start()].strip():
+                if re.fullmatch(
+                    r"[\s,;.!?]*",
+                    normalized[previous_color[1] : negation.start()],
+                ):
                     negated_color_spans.add(previous_color)
         negated_color_spans.update(
             scoped_colors
@@ -4106,6 +4109,7 @@ def _unavailable_catalog_color_header(
     *,
     selected: list[Any],
     requested_models: tuple[tuple[int, str], ...],
+    requested_ipad_models: tuple[str, ...],
     requested_families: set[str],
     requested_catalog_colors: tuple[str, ...],
     requested_capacities: set[str],
@@ -4113,12 +4117,16 @@ def _unavailable_catalog_color_header(
     if len(requested_models) == 1:
         model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
         model_name = model_name.title().replace("Iphone", "iPhone")
+    elif len(requested_ipad_models) == 1:
+        ipad_model = requested_ipad_models[0]
+        model_name = f"iPad {ipad_model.title()}"
     elif not requested_models and len(requested_families) == 1:
         family = next(iter(requested_families))
         model_name = {
             "iphone": "iPhone",
             "ipad": "iPad",
             "macbook": "MacBook",
+            "apple_watch": "Apple Watch",
             "apple watch": "Apple Watch",
             "airpods": "AirPods",
         }.get(family, "aparelho")
@@ -5996,6 +6004,7 @@ class AgentService:
             availability_header = _unavailable_catalog_color_header(
                 selected=selected,
                 requested_models=requested_models,
+                requested_ipad_models=requested_ipad_models,
                 requested_families=requested_families,
                 requested_catalog_colors=requested_catalog_colors,
                 requested_capacities=requested_capacities,
