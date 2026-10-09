@@ -76,6 +76,12 @@ _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_NORMAL_AND_SHARED_PRO_MAX_PATTERN = re.compile(
+    r"\b(?P<number>1[0-9])\s+normal\s+(?P<join>e|ou|or)\s+"
+    r"(?:(?:o|a)\s+)?pro\s+max\b",
+    flags=re.IGNORECASE,
+)
+
 _IPHONE_MODEL_RANGE_PATTERN = re.compile(
     r"(?<!\w)(?:iphones?\s*)?(?P<start>1[0-9])\s+(?:a|ate)\s*"
     r"(?:(?:o|a)\s+)?"
@@ -224,6 +230,13 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         ),
         normalized,
     )
+    normalized = _NORMAL_AND_SHARED_PRO_MAX_PATTERN.sub(
+        lambda match: (
+            f"{match.group('number')} {match.group('join')} o "
+            f"{match.group('number')} pro max"
+        ),
+        normalized,
+    )
 
     shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(normalized)
     if shared_suffix:
@@ -262,6 +275,13 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     )
     line_aware_normalized = _SHARED_PRO_MAX_CONJUNCTION_PATTERN.sub(
         lambda match: f"{match.group('number')} pro e {match.group('number')} pro max",
+        line_aware_normalized,
+    )
+    line_aware_normalized = _NORMAL_AND_SHARED_PRO_MAX_PATTERN.sub(
+        lambda match: (
+            f"{match.group('number')} {match.group('join')} o "
+            f"{match.group('number')} pro max"
+        ),
         line_aware_normalized,
     )
     shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(line_aware_normalized)
@@ -330,7 +350,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             continue
         separator = line_aware_normalized[previous.end() : match.start()]
         if not re.fullmatch(
-            r"\s*(?:\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\s*)?"
+            r"\s*[.!?]*\s*(?:\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\s*)?"
             r"(?:\d{1,3}\s*%\s*)?"
             r"(?:(?:(?:semi[\s-]*)?nov[oa]s?|usad[oa]s?|lacrad[oa]s?)[?!.,;:]*\s*)?"
             r"(?:\d{1,3}\s*%\s*)?"

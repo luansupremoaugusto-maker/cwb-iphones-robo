@@ -387,7 +387,9 @@ async def test_explicit_visit_booking_after_catalog_reply_is_forwarded(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_visit_followup_with_compact_hour_is_forwarded(tmp_path):
+async def test_visit_followup_with_compact_hour_is_forwarded(tmp_path, monkeypatch):
+    current = datetime(2026, 8, 17, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
     agent = build_agent(tmp_path)
     initial = await agent.respond("Quero marcar uma visita a loja.")
 

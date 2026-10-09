@@ -520,6 +520,95 @@ jobs:
             printf 'OpenAI reasoning effort (%s): %s\n' "$service" "$effective_effort"
           done
           docker compose --env-file .env.local exec -T app python -c 'from app.adapters.catalog_cache import _requested_iphone_model_keys; query = "Tem algum iPhone 17 usado? Ou 16 pro usado"; expected = ((17, ""), (16, "pro")); actual = _requested_iphone_model_keys(query); assert actual == expected, actual; print("iPhone 17/16 Pro alternatives: ok")'
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache, _requested_iphone_model_keys
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-normal-shared-pro-max.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-16-normal-128",
+                  name="iPhone 16",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="PRETO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=3750,
+                  battery_health=90,
+                  source="mercado_phone",
+                  search_text="iphone 16 preto 128 gb celular seminovo",
+              ),
+              InventoryItem(
+                  external_id="iphone-16-pro-max-256",
+                  name="iPhone 16 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="TITÂNIO PRETO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=6200,
+                  battery_health=88,
+                  source="mercado_phone",
+                  search_text="iphone 16 pro max titanio preto 256 gb celular seminovo",
+              ),
+              InventoryItem(
+                  external_id="iphone-15-pro-max-256",
+                  name="iPhone 15 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="TITÂNIO NATURAL",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=5400,
+                  battery_health=87,
+                  source="mercado_phone",
+                  search_text="iphone 15 pro max titanio natural 256 gb celular seminovo",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          query = (
+              "Boa noite! Tudo certo? Gostaria de ver quanto está o iPhone 16 normal "
+              "e o Pró Max. O 15 Pro Max também."
+          )
+          decision = asyncio.run(service.respond(query))
+          expected = {
+              "iphone-16-normal-128",
+              "iphone-16-pro-max-256",
+              "iphone-15-pro-max-256",
+          }
+          assert not decision.handoff, decision
+          assert set(decision.product_references) == expected, decision.product_references
+          for value in (
+              "iPhone 16",
+              "iPhone 16 Pro Max",
+              "iPhone 15 Pro Max",
+              "R$ 3.750,00",
+              "R$ 6.200,00",
+              "R$ 5.400,00",
+          ):
+              assert value in decision.reply, decision.reply
+          assert _requested_iphone_model_keys("Queria saber do iPhone 16 normal") == ((16, ""),)
+          print("IPHONE_NORMAL_AND_SHARED_PRO_MAX_ALTERNATIVES_OK")
+          PY
           docker compose --env-file .env.local exec -T app python -c 'from app.adapters.catalog_cache import _requested_iphone_model_keys; from app.agent import _multi_model_installment_queries; query = "O 16 pro semi-novo 100% e o 17 pro Max lacrado de 256"; expected_models = ((16, "pro"), (17, "pro max")); expected_queries = ("o 16 pro semi-novo 100%", "o 17 pro max lacrado de 256"); models = _requested_iphone_model_keys(query); queries = _multi_model_installment_queries(query, []); assert models == expected_models, models; assert queries == expected_queries, queries; print("Two-model installment scopes: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_parts_buyback_request, is_trade_in_request; query = "Por quanto vocês pegam 14 pro Max roxo, 83% a bateria e 128gb? Quero trocar pelo 16 pro Max"; assert is_trade_in_request(query); assert not is_parts_buyback_request(query); print("iPhone 14 Pro Max trade-up evaluation routing: ok")'
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-17-to-18-upgrade-evaluation.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}]; text = "bom dia!! vcs fazem upgrade de celular? meu atual é um iPhone 17 Pro Max 256 GB em ótimo estado, sem avarias, com 84% de saúde da bateria e sem restrição de operadora (comprei fora) e garantia da apple até 25/12. e eu to querendo trocar pelo 18 pro max de 256gb!"; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == []; print("Detailed iPhone 17 Pro Max to 18 Pro Max evaluation routing: ok")'
