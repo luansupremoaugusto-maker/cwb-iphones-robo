@@ -2641,13 +2641,14 @@ def _extract_budget_limit(text: str) -> float | None:
         r"(?:(?:o|a)\s+)?(?:iphones?\s*)?(?P<end>1[0-9])\b",
         normalized,
     )
+    latest_budget_limit = None
     for marker in marker_pattern.finditer(normalized):
         amount_match = re.search(
             r"(?:r\$\s*)?(?P<value>\d+(?:[.,]\d+)?)(?:\s*(?P<scale>mil|k))?",
             normalized[marker.end() :],
         )
         if not amount_match:
-            return None
+            continue
         amount_start = marker.end() + amount_match.start("value")
         if (
             iphone_model_range is not None
@@ -2663,7 +2664,7 @@ def _extract_budget_limit(text: str) -> float | None:
 
         amount = _parse_budget_amount(amount_match.group("value"))
         if amount is None:
-            return None
+            continue
         # Do not treat delivery deadlines, installment counts, or quantities as
         # prices. This matters when a previous catalog answer is part of the
         # follow-up context, for example: "entrega em até 1 semana".
@@ -2676,18 +2677,18 @@ def _extract_budget_limit(text: str) -> float | None:
         if re.search(r"\biphones?\s*$", prefix) or re.match(
             r"\s*(?:pro(?:\s+max)?|max|plus|mini|air|e)\b", suffix
         ):
-            return None
+            continue
         if re.match(
             r"\s*(?:x\b|semanas?\b|dias?\b|horas?\b|mes(?:es)?\b|"
             r"vez(?:es)?\b|parcelas?\b|unidades?\b|aparelhos?\b|"
             r"celulares?\b|telefones?\b|iphones?\b|gb\b|tb\b|%)",
             suffix,
         ):
-            return None
+            continue
         if amount_match.group("scale") and amount < 1000:
             amount *= 1000
-        return amount
-    return None
+        latest_budget_limit = amount
+    return latest_budget_limit
 
 
 def _extract_latest_budget_limit(text: str) -> float | None:

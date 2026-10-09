@@ -125,6 +125,19 @@ def test_delivery_deadline_is_not_parsed_as_budget_limit():
     assert _extract_budget_limit(f"{model_range}, com orçamento até R$ 7.200,00") == 7200
 
 
+def test_latest_valid_budget_ceiling_wins_within_one_message():
+    revised_budget = (
+        "Quais iPhones vocês têm até uns 3,200? "
+        "Na verdade, pode considerar até uns 4,000."
+    )
+    deadline_then_budget = (
+        "iPhone 15 com entrega em até 1 semana; orçamento até R$ 4.000"
+    )
+
+    assert _extract_budget_limit(revised_budget) == 4000
+    assert _extract_budget_limit(deadline_then_budget) == 4000
+
+
 def test_thousands_separator_budget_is_not_parsed_as_a_bare_model():
     query = "Olá, gostaria de saber quais celulares vc tem na faixa de 1.000 reais"
 

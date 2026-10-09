@@ -1392,6 +1392,9 @@ jobs:
           )
           assert _extract_budget_limit(request) == 3200
           assert _extract_budget_limit("iPhone 15 até R$ 3,20") == 3.2
+          assert _extract_budget_limit(
+              "Quais iPhones têm até 3,200? Na verdade, pode considerar até 4,000."
+          ) == 4000
           assert not initial_decision.handoff, initial_decision
           assert initial_decision.product_references == ["iphone-15-under-budget"], initial_decision
           assert "R$ 2.820,00" in initial_decision.reply, initial_decision.reply
