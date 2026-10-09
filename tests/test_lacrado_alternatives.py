@@ -513,6 +513,33 @@ async def test_iphone_18_pro_max_quote_does_not_claim_ready_stock_when_none_exis
 
 
 @pytest.mark.asyncio
+async def test_explicit_current_iphone_price_request_uses_catalog_before_price_policy(tmp_path):
+    agent = build_iphone_18_pro_max_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Boa tarde"},
+        {
+            "role": "user",
+            "content": "Os aparelhos de vocês são na versão americana?",
+        },
+        {
+            "role": "assistant",
+            "content": "Boa tarde! 😊 Como posso te ajudar?",
+        },
+    ]
+
+    decision = await agent.respond(
+        "E qual é o valor atual do iPhone 18 Pro Max bordo",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["ready-18-pro-max-256"]
+    assert "BORDO" in decision.reply
+    assert "R$ 10.000,00" in decision.reply
+    assert "os preços podem ser alterados" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_new_condition_followup_excludes_seminovo_when_customer_rejects_it(tmp_path):
     agent = build_missing_new_iphone_14_agent(tmp_path)
     history = []
