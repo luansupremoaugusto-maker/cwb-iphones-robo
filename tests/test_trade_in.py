@@ -3041,3 +3041,114 @@ async def test_apple_purchase_source_does_not_turn_direct_model_interest_into_tr
     assert decision.handoff is False
     assert decision.reply != TRADE_IN_FORM
     assert is_trade_in_request(text) is False
+
+
+@pytest.mark.asyncio
+async def test_trade_in_upgrade_followup_uses_recent_owned_iphone_profile(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "oii bom dia, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "user",
+            "content": "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de IPHONE 16 PLUS disponíveis: "
+                "iPhone 16 Plus — Ultramarino — 128 GB — seminovo — "
+                "R$ 3.860,00 | bateria 100%."
+            ),
+        },
+    ]
+    text = "gostaria de saber quanto fica na troca p um 17 pro max"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    catalog_question = "Quanto custa o iPhone 17 Pro Max?"
+    catalog_decision = await service.respond(catalog_question, history=history)
+
+    assert is_trade_in_context_request(catalog_question, history) is False
+    assert catalog_decision.handoff is False
+    assert catalog_decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_complete_bare_iphone_profile_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa"
+    history = [
+        {"role": "user", "content": "oii bom dia, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_age_and_catalog_model_do_not_combine_into_owned_iphone_profile(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Tenho 16 anos. Quanto custa um 16 Plus em perfeito estado?"
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is False
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
