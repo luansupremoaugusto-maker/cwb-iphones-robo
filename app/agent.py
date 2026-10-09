@@ -1156,7 +1156,62 @@ def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
         if any(start < selected_end and selected_start < end for selected_start, selected_end, _ in selected):
             continue
         selected.append(candidate)
-    return tuple(color for _start, _end, color in selected)
+
+    negated_color_spans: set[tuple[int, int]] = set()
+    for negation in re.finditer(r"\b(?:nao|sem|exceto)\b", normalized):
+        scope_start = negation.end()
+        remainder = normalized[scope_start:]
+        if negation.group() == "sem" and re.match(r"\s+duvida\b", remainder):
+            continue
+        if negation.group() == "nao" and re.match(r"\s+apenas\b", remainder):
+            continue
+        clause_break = re.search(
+            r"[,;.!?]|\b(?:mas|porem|e\s+sim|so\s+que)\b",
+            remainder,
+        )
+        scope_end = (
+            scope_start + clause_break.start()
+            if clause_break
+            else len(normalized)
+        )
+        scoped_colors = [
+            (start, end)
+            for start, end, _color in selected
+            if scope_start <= start < scope_end
+        ]
+        if negation.group() == "nao" and scoped_colors:
+            first_color_start = min(start for start, _end in scoped_colors)
+            prefix = normalized[scope_start:first_color_start].strip()
+            preference_phrase = bool(
+                re.search(
+                    r"\b(?:quero|queria|gosto|gostaria|prefiro|prefira|aceito|"
+                    r"aceitaria|desejo|escolho|escolheria)\b",
+                    prefix,
+                )
+            )
+            availability_phrase = bool(
+                re.search(
+                    r"\b(?:tem|teria|tenho|tinha|esta|estar|disponivel|existe|"
+                    r"encontrei|aparece|vende|vendido)\b",
+                    prefix,
+                )
+            )
+            simple_prefix_words = {
+                "o", "a", "cor", "na", "no", "de", "do", "da", "em", "um", "uma",
+                "esse", "essa", "este", "e", "ser", "seria",
+            }
+            simple_prefix = all(word in simple_prefix_words for word in prefix.split())
+            if availability_phrase or not (preference_phrase or simple_prefix):
+                continue
+        negated_color_spans.update(
+            scoped_colors
+        )
+
+    return tuple(
+        color
+        for start, end, color in selected
+        if (start, end) not in negated_color_spans
+    )
 
 
 def _catalog_color_correction_scope(text: str) -> str:
@@ -4033,6 +4088,45 @@ def _format_product_availability(
     return "\n".join(lines)
 
 
+def _unavailable_catalog_color_header(
+    *,
+    selected: list[Any],
+    requested_models: tuple[tuple[int, str], ...],
+    requested_families: set[str],
+    requested_catalog_colors: tuple[str, ...],
+    requested_capacities: set[str],
+) -> str:
+    if len(requested_models) == 1:
+        model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
+        model_name = model_name.title().replace("Iphone", "iPhone")
+    elif not requested_models and len(requested_families) == 1:
+        family = next(iter(requested_families))
+        model_name = {
+            "iphone": "iPhone",
+            "ipad": "iPad",
+            "macbook": "MacBook",
+            "apple watch": "Apple Watch",
+            "airpods": "AirPods",
+        }.get(family, "aparelho")
+    else:
+        model_name = "aparelho"
+    color_label = " e ".join(requested_catalog_colors)
+    capacity_labels = [
+        re.sub(
+            r"(\d+(?:[.,]\d+)?)(gb|tb)",
+            lambda match: f"{match.group(1)} {match.group(2).upper()}",
+            capacity,
+            flags=re.IGNORECASE,
+        )
+        for capacity in requested_capacities
+    ]
+    capacity_text = f" de {' e '.join(capacity_labels)}" if capacity_labels else ""
+    return (
+        f"No momento, o {model_name} {color_label}{capacity_text} não está disponível. "
+        "Encontrei estas opções em outras cores:"
+    )
+
+
 def _format_available_products(result: dict[str, Any]) -> str:
     def entry_line(entry: dict[str, Any]) -> str:
         color = entry.get("cor")
@@ -5876,34 +5970,12 @@ class AgentService:
         selected = _sort_product_availability_items(selected)
         availability_header = None
         if requested_color_unavailable and selected:
-            if len(requested_models) == 1:
-                model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
-                model_name = model_name.title().replace("Iphone", "iPhone")
-            elif not requested_models and len(requested_families) == 1:
-                family = next(iter(requested_families))
-                model_name = {
-                    "iphone": "iPhone",
-                    "ipad": "iPad",
-                    "macbook": "MacBook",
-                    "apple watch": "Apple Watch",
-                    "airpods": "AirPods",
-                }.get(family, "aparelho")
-            else:
-                model_name = "aparelho"
-            color_label = " e ".join(requested_catalog_colors)
-            capacity_labels = [
-                re.sub(
-                    r"(\d+(?:[.,]\d+)?)(gb|tb)",
-                    lambda match: f"{match.group(1)} {match.group(2).upper()}",
-                    capacity,
-                    flags=re.IGNORECASE,
-                )
-                for capacity in requested_capacities
-            ]
-            capacity_text = f" de {' e '.join(capacity_labels)}" if capacity_labels else ""
-            availability_header = (
-                f"No momento, o {model_name} {color_label}{capacity_text} não está disponível. "
-                "Encontrei estas opções em outras cores:"
+            availability_header = _unavailable_catalog_color_header(
+                selected=selected,
+                requested_models=requested_models,
+                requested_families=requested_families,
+                requested_catalog_colors=requested_catalog_colors,
+                requested_capacities=requested_capacities,
             )
         reply = _format_product_availability(
             selected,

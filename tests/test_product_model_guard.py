@@ -18,6 +18,8 @@ from app.agent import (
     _is_available_list_request,
     _is_product_availability_request,
     _normalize,
+    _requested_catalog_colors,
+    _unavailable_catalog_color_header,
     _requested_device_quantity,
 )
 from app.config import Settings
@@ -4179,7 +4181,10 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
     )
     corrected_color_history = [
         {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
-        {"role": "user", "content": "Na verdade, eu queria o iPhone 14 roxo 128 GB"},
+        {
+            "role": "user",
+            "content": "Na verdade, eu queria o iPhone 14 roxo 128 GB, não azul",
+        },
     ]
 
     corrected_unavailable = await agent.respond(
@@ -4191,6 +4196,12 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
     assert "roxo" in corrected_unavailable.reply.lower()
     assert "não está disponível" in corrected_unavailable.reply.lower()
     assert not corrected_unavailable.reply.lower().startswith("sim")
+    assert set(corrected_unavailable.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+    assert "AZUL" in corrected_unavailable.reply
 
     cache.items.append(
         InventoryItem(
@@ -4219,6 +4230,28 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
     assert "ROXO" in available.reply
     assert "ESTELAR" not in available.reply
     assert "MEIA NOITE" not in available.reply
+
+
+def test_unavailable_color_header_uses_family_when_model_is_not_specific():
+    header = _unavailable_catalog_color_header(
+        selected=[SimpleNamespace(name="IPHONE 14")],
+        requested_models=(),
+        requested_families={"iphone"},
+        requested_catalog_colors=("roxo",),
+        requested_capacities={"128gb"},
+    )
+
+    assert header == (
+        "No momento, o iPhone roxo de 128 GB não está disponível. "
+        "Encontrei estas opções em outras cores:"
+    )
+
+
+def test_availability_negation_keeps_the_color_being_asked_about():
+    assert _requested_catalog_colors(
+        "Não teria o roxo 128 GB?",
+        [SimpleNamespace(color="ROXO")],
+    ) == ("roxo",)
 
 
 @pytest.mark.asyncio
