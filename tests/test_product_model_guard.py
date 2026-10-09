@@ -2047,6 +2047,69 @@ async def test_generic_cellphone_budget_returns_every_available_option_under_100
 
 
 @pytest.mark.asyncio
+async def test_comma_thousands_budget_keeps_iphone_15_within_r3200(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-14-base-128",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2400,
+            battery_health=86,
+            search_text="iphone 14 azul 128gb seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-15-base-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2820,
+            battery_health=88,
+            search_text="iphone 15 azul 128gb seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-128",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="128GB",
+            color="TITÂNIO PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3530,
+            battery_health=87,
+            search_text="iphone 15 pro titanio preto 128gb seminovo celular disponivel para venda",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+    request = "Quais iPhones vocês tem disponíveis de até uns 3,200? Por favor"
+
+    decision = await agent.respond(
+        "O 15 tem algum?",
+        history=[{"role": "user", "content": request}],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-base-128"], decision.reply
+    assert _extract_budget_limit(request) == 3200
+    assert _extract_budget_limit("iPhone 15 até R$ 3,20") == 3.2
+    assert "R$ 2.820,00" in decision.reply
+    assert "R$ 3.530,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_explicit_iphone_pro_max_with_abbreviated_battery_matches_first_request(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

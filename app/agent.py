@@ -2620,6 +2620,15 @@ def _parse_brl_amount(raw_value: str) -> float | None:
     return amount if amount >= 0 else None
 
 
+def _parse_budget_amount(raw_value: str) -> float | None:
+    """Parse a price ceiling, accepting comma-separated thousands from customers."""
+    # Brazilian currency uses two decimal places; three digits after a comma in
+    # a budget ("3,200") therefore indicates a thousands separator.
+    if re.fullmatch(r"\d+,\d{3}", raw_value or ""):
+        return float(raw_value.replace(",", ""))
+    return _parse_brl_amount(raw_value)
+
+
 def _extract_budget_limit(text: str) -> float | None:
     """Extract a maximum price from a natural-language budget request."""
     normalized = _normalize(text)
@@ -2652,7 +2661,7 @@ def _extract_budget_limit(text: str) -> float | None:
             # sixteen-real budget limit. Keep looking for a later price marker.
             continue
 
-        amount = _parse_brl_amount(amount_match.group("value"))
+        amount = _parse_budget_amount(amount_match.group("value"))
         if amount is None:
             return None
         # Do not treat delivery deadlines, installment counts, or quantities as
