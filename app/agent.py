@@ -410,7 +410,7 @@ def _is_other_color_request(text: str) -> bool:
 def _is_catalog_color_list_request(text: str) -> bool:
     return bool(
         re.search(
-            r"\b(?:quais|todas|lista(?:r)?)\s+(?:as\s+)?cores\b",
+            r"\b(?:quais|todas|lista(?:r)?)\s+(?:(?:sao|seriam)\s+)?(?:as\s+)?cores\b",
             _normalize(text),
         )
     )
@@ -6071,6 +6071,37 @@ class AgentService:
                     selected.extend(select_requested_model_matches(capacity_matches))
             else:
                 selected = select_requested_model_matches(scored)
+
+            if (
+                single_catalog_model_request
+                and len(requested_catalog_colors) > 1
+                and not color_either_or_request
+                and not unavailable_requested_colors
+            ):
+                selected_ids = {
+                    str(getattr(item, "external_id", ""))
+                    for item in selected
+                }
+                for color in requested_catalog_colors:
+                    color_matches = [
+                        (score, item)
+                        for score, item in scored
+                        if _item_matches_catalog_colors(item, (color,))
+                        and condition_matches(item)
+                    ]
+                    color_selected = select_best_matches(color_matches)
+                    if not color_selected and color_matches:
+                        color_selected = [
+                            min(
+                                color_matches,
+                                key=lambda match: (-match[0], price_sort_key(match[1])),
+                            )[1]
+                        ]
+                    for item in color_selected:
+                        item_id = str(getattr(item, "external_id", ""))
+                        if item_id not in selected_ids:
+                            selected.append(item)
+                            selected_ids.add(item_id)
 
         selected = _sort_product_availability_items(selected)
         availability_header = None

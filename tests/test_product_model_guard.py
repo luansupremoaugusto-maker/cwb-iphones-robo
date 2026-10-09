@@ -4164,6 +4164,19 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
     )
     assert not unavailable.reply.lower().startswith("sim")
 
+    available_color_list = await agent.respond(
+        "Quais são as cores?",
+        history=[
+            *history,
+            {"role": "assistant", "content": unavailable.reply},
+        ],
+    )
+
+    assert available_color_list.handoff is False
+    assert "roxo de 128 gb não está disponível" not in available_color_list.reply.lower()
+    assert "ESTELAR" in available_color_list.reply
+    assert "MEIA NOITE" in available_color_list.reply
+
     cache.items.append(
         InventoryItem(
             external_id="iphone-14-blue-128",
@@ -4289,6 +4302,40 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
     assert either_or_colors.handoff is False
     assert either_or_colors.reply.lower().startswith("sim")
     assert either_or_colors.product_references == ["iphone-14-blue-128"]
+
+    cache.items.append(
+        InventoryItem(
+            external_id="iphone-14-natural-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1910,
+            source="mercado_phone",
+            search_text="iphone 14 titânio natural 128gb celular seminovo",
+        )
+    )
+    both_available_colors = await agent.respond(
+        "Ele está disponível?",
+        history=[
+            {
+                "role": "user",
+                "content": "Seria o iPhone 14 titânio natural e azul 128 GB",
+            }
+        ],
+    )
+
+    assert both_available_colors.handoff is False
+    assert both_available_colors.reply.lower().startswith("sim")
+    assert set(both_available_colors.product_references) == {
+        "iphone-14-blue-128",
+        "iphone-14-natural-128",
+    }
+    assert "AZUL" in both_available_colors.reply
+    assert "TITÂNIO NATURAL" in both_available_colors.reply
 
     cache.items.append(
         InventoryItem(
