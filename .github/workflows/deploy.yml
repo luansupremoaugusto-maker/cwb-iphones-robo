@@ -1315,6 +1315,14 @@ jobs:
           print("INSTALLMENT_MONTHLY_BUDGET_FILTER_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
+          from app.agent import _extract_budget_limit
+
+          request = "Quais iPhones vocês tem disponíveis de até uns 3,200? Por favor"
+          assert _extract_budget_limit(request) == 3200
+          assert _extract_budget_limit("iPhone 15 até R$ 3,20") == 3.2
+          print("COMMA_THOUSANDS_CATALOG_BUDGET_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
           from app.adapters.mercado_phone import InventoryCache
           from app.agent import AgentService
