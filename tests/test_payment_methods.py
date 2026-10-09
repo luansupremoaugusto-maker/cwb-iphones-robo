@@ -94,6 +94,28 @@ async def test_payment_question_confirms_debit_with_two_credit_cards_and_pix(tmp
 
 
 @pytest.mark.asyncio
+async def test_payment_question_after_customer_sends_product_image_uses_payment_faq(tmp_path):
+    agent = build_agent(tmp_path)
+    text = "Fiquei interessada nesse iPhones qual são a forma de pagamento que vcs aceitam"
+    image_description = (
+        "Imagem enviada pela cliente com opções de iPhone 14 seminovo: "
+        "128 GB Meia-noite por R$ 1.870,00, 128 GB Meia-noite por R$ 1.850,00 "
+        "e 128 GB Roxo por R$ 1.870,00."
+    )
+    history = [
+        {"role": "user", "content": "Olá boa tarde"},
+        {"role": "assistant", "content": "Olá, boa tarde! 😊 Como posso te ajudar?"},
+    ]
+
+    decision = await agent.respond(text, history=history, image_description=image_description)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_generic_payment_method_question_about_exchange_does_not_list_products():
     agent = build_agent_with_cache(AvailableCatalog())
 

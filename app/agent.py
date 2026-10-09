@@ -4448,6 +4448,13 @@ class AgentService:
             and _is_catalog_buyer_interest(text)
             and not trade_in_em_andamento(history)
         ):
+            if (
+                _is_payment_methods_question(text)
+                and not _is_explicit_catalog_price_request(text)
+            ):
+                payment_methods_decision = self._try_payment_methods(text)
+                if payment_methods_decision is not None:
+                    return protect_customer_decision(payment_methods_decision)
             catalog_interest_decision = await self._try_product_availability(
                 text,
                 history=history,
