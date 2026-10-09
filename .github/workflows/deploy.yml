@@ -471,6 +471,74 @@ jobs:
               async def fetch_all_inventory(self):
                   return []
 
+          class EmptySealedCatalog:
+              items = []
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return []
+
+              async def get(self, product_id):
+                  return None
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-18-pro-max-bordo-price-guard.json",
+              sealed_cache=EmptySealedCatalog(),
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="ready-18-pro-max-256",
+                  name="iPhone 18 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="BORDO",
+                  source="mercado_phone",
+                  condition="LACRADO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=10000,
+                  search_text="iphone 18 pro max bordo 256 gb celular lacrado",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "user", "content": "Boa tarde"},
+              {"role": "user", "content": "Os aparelhos de vocês são na versão americana?"},
+              {"role": "assistant", "content": "Boa tarde! 😊 Como posso te ajudar?"},
+          ]
+          decision = asyncio.run(
+              service.respond(
+                  "E qual é o valor atual do iPhone 18 Pro Max bordo",
+                  history=history,
+              )
+          )
+          assert not decision.handoff, decision
+          assert decision.product_references == ["ready-18-pro-max-256"], decision
+          assert decision.image_urls == [], decision
+          assert "BORDO" in decision.reply, decision.reply
+          assert "R$ 10.000,00" in decision.reply, decision.reply
+          assert "os preços podem ser alterados" not in decision.reply.casefold(), decision.reply
+          print("IPHONE_18_PRO_MAX_BORDO_CURRENT_PRICE_GUARD_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
           settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
           cache = StoreCatalogCache(
               EmptyMercadoClient(),

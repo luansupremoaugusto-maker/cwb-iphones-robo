@@ -2479,7 +2479,11 @@ def _is_cash_discount_question(text: str) -> bool:
 
 def _is_price_validity_question(text: str) -> bool:
     normalized = _normalize(text)
-    if not normalized or not re.search(r"\b(?:valor|preco|precos|cotacao)\b", normalized):
+    if (
+        not normalized
+        or _is_explicit_catalog_price_request(text)
+        or not re.search(r"\b(?:valor|preco|precos|cotacao)\b", normalized)
+    ):
         return False
     return any(
         phrase in normalized
