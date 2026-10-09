@@ -192,6 +192,32 @@ async def test_ipad_offered_to_offset_catalog_macbook_sends_evaluation_form_with
 
 
 @pytest.mark.asyncio
+async def test_explicit_buyback_question_can_identify_device_from_attached_image(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês pegam esse?"
+
+    decision = await service.respond(
+        text,
+        image_description="Foto de um iPad 11 A16 128 GB usado e completo.",
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_iphone_buyback_with_battery_percentage_after_battery_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(

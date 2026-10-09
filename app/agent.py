@@ -4167,9 +4167,21 @@ class AgentService:
                     confidence="high",
                 )
             )
+        # OCR may append catalog copy that masks a clear offer in the customer's text.
+        # Keep the combined fallback for buyback questions whose device is identified by the image.
+        text_trade_in_context = is_trade_in_context_request(text, history)
+        combined_trade_in_context = is_trade_in_context_request(
+            combined_request, history
+        )
         if (
-            not is_purchase_without_trade_in_request(text)
-            and is_trade_in_context_request(text, history)
+            (
+                text_trade_in_context
+                and not is_purchase_without_trade_in_request(text)
+            )
+            or (
+                combined_trade_in_context
+                and not is_purchase_without_trade_in_request(combined_request)
+            )
         ):
             return AgentDecision(
                 reply=TRADE_IN_FORM,
