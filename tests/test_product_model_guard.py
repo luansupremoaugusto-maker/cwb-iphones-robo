@@ -4106,6 +4106,88 @@ async def test_color_followup_after_256_pro_max_value_question_lists_all_units(t
 
 
 @pytest.mark.asyncio
+async def test_other_color_followup_explains_only_cataloged_color(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-plus-128-ultramarino",
+            name="iPhone 16 Plus",
+            category="Celular",
+            capacity="128GB",
+            color="ULTRAMARINO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3860,
+            battery_health=100,
+            search_text="iphone 16 plus ultramarino 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Tem iPhone 16 Plus seminovo de 128GB?"},
+        {
+            "role": "assistant",
+            "content": "No momento, só aparece disponível o iPhone 16 Plus seminovo de 128 GB na cor ultramarino 😊",
+        },
+        {"role": "user", "content": "Não tem o rosa?"},
+        {
+            "role": "assistant",
+            "content": "No momento, só aparece disponível o iPhone 16 Plus seminovo de 128 GB na cor ultramarino 😊",
+        },
+        {"role": "user", "content": "Teria outra cor?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 PLUS disponíveis:\n"
+                "• IPHONE 16 PLUS — ULTRAMARINO — 128GB — SEMINOVO — R$ 3.860,00 | Bat: 100%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Outra cor", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-plus-128-ultramarino"]
+    assert "outra cor" in _normalize(decision.reply)
+    assert "ULTRAMARINO" in decision.reply
+    assert "Encontrei estas opções" not in decision.reply
+
+    cache.items.append(
+        InventoryItem(
+            external_id="iphone-16-plus-128-preto",
+            name="iPhone 16 Plus",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3900,
+            battery_health=100,
+            search_text="iphone 16 plus preto 128gb celular seminovo",
+        )
+    )
+    alternatives = await agent.respond("Teria outra cor?", history=history)
+
+    assert alternatives.handoff is False
+    assert set(alternatives.product_references) == {
+        "iphone-16-plus-128-ultramarino",
+        "iphone-16-plus-128-preto",
+    }
+    assert "ULTRAMARINO" in alternatives.reply
+    assert "PRETO" in alternatives.reply
+
+
+@pytest.mark.asyncio
 async def test_specific_pro_max_price_includes_cheaper_ready_sealed_unit(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
