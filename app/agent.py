@@ -1203,6 +1203,20 @@ def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
             simple_prefix = all(word in simple_prefix_words for word in prefix.split())
             if availability_phrase or not (preference_phrase or simple_prefix):
                 continue
+        if negation.group() == "nao" and not scoped_colors and clause_break:
+            previous_colors = [
+                (start, end)
+                for start, end, _color in selected
+                if end <= negation.start()
+            ]
+            next_clause_start = scope_start + clause_break.end()
+            has_following_color = any(
+                start >= next_clause_start for start, end, _color in selected
+            )
+            if previous_colors and has_following_color:
+                previous_color = max(previous_colors, key=lambda span: span[1])
+                if not normalized[previous_color[1] : negation.start()].strip():
+                    negated_color_spans.add(previous_color)
         negated_color_spans.update(
             scoped_colors
         )
@@ -5673,16 +5687,25 @@ class AgentService:
             *list(getattr(getattr(self.cache, "sealed_cache", None), "items", []) or []),
         ]
         exploring_colors = _is_other_color_request(text) or _is_catalog_color_list_request(text)
-        current_color_query = _current_catalog_context(text, image_description)
-        requested_catalog_colors = (
-            ()
-            if exploring_colors
-            else _latest_catalog_color_request(
-                current_color_query,
-                customer_request_context,
+        requested_catalog_colors: tuple[str, ...] = ()
+        if not exploring_colors:
+            requested_catalog_colors = _latest_catalog_color_request(
+                text,
+                "",
                 color_catalog_items,
             )
-        )
+            if not requested_catalog_colors and image_description:
+                requested_catalog_colors = _latest_catalog_color_request(
+                    image_description,
+                    "",
+                    color_catalog_items,
+                )
+            if not requested_catalog_colors:
+                requested_catalog_colors = _latest_catalog_color_request(
+                    "",
+                    customer_request_context,
+                    color_catalog_items,
+                )
         single_catalog_model_request = (
             len(requested_models) <= 1
             and len(requested_ipad_models) <= 1

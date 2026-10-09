@@ -4179,6 +4179,22 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
             search_text="iphone 14 azul 128gb celular seminovo",
         )
     )
+    image_color_conflict = await agent._try_product_availability(
+        "iPhone 14 roxo 128 GB está disponível?",
+        image_description="iPhone 14 azul 128GB",
+    )
+
+    assert image_color_conflict is not None
+    assert image_color_conflict.handoff is False
+    assert "roxo" in image_color_conflict.reply.lower()
+    assert "não está disponível" in image_color_conflict.reply.lower()
+    assert not image_color_conflict.reply.lower().startswith("sim")
+    assert set(image_color_conflict.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
+
     corrected_color_history = [
         {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
         {
@@ -4202,6 +4218,28 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
         "iphone-14-blue-128",
     }
     assert "AZUL" in corrected_unavailable.reply
+
+    corrected_before_negation_history = [
+        {"role": "user", "content": "Seria o iPhone 14 azul 128 GB"},
+        {
+            "role": "user",
+            "content": "Na verdade, o iPhone 14 azul não, é roxo 128 GB",
+        },
+    ]
+    corrected_before_negation = await agent.respond(
+        "Ele está disponível?",
+        history=corrected_before_negation_history,
+    )
+
+    assert corrected_before_negation.handoff is False
+    assert "roxo" in corrected_before_negation.reply.lower()
+    assert "não está disponível" in corrected_before_negation.reply.lower()
+    assert not corrected_before_negation.reply.lower().startswith("sim")
+    assert set(corrected_before_negation.product_references) == {
+        "iphone-14-starlight-128",
+        "iphone-14-midnight-128",
+        "iphone-14-blue-128",
+    }
 
     cache.items.append(
         InventoryItem(
