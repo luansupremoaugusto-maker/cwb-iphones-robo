@@ -578,6 +578,8 @@ def _is_generic_iphone_list_request(text: str) -> bool:
         return False
     if _is_accessory_catalog_request(normalized):
         return False
+    if _requested_catalog_colors(text, []):
+        return False
     if (
         re.search(r"\bate\b", normalized)
         or any(
@@ -1290,18 +1292,33 @@ def _is_catalog_color_either_or_request(
     return False
 
 
+def _catalog_color_key(value: Any) -> str:
+    normalized = _normalize(str(value or ""))
+    normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE)
+    aliases = {
+        "amarela": "amarelo",
+        "branca": "branco",
+        "dourada": "dourado",
+        "prateada": "prateado",
+        "preta": "preto",
+        "roxa": "roxo",
+        "vermelha": "vermelho",
+    }
+    return " ".join(aliases.get(word, word) for word in normalized.split())
+
+
 def _item_matches_catalog_colors(item: Any, requested_colors: tuple[str, ...]) -> bool:
     raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
     if isinstance(raw_colors, (list, tuple, set)):
         values = raw_colors
     else:
         values = re.split(r"\s*[|;/,]\s*", str(raw_colors or ""))
-    item_colors = [_normalize(str(value or "")).strip() for value in values]
+    item_colors = [_catalog_color_key(value) for value in values]
     return any(
-        color
+        color and requested_color
         and re.search(rf"(?<!\w){re.escape(requested_color)}(?!\w)", color)
         for color in item_colors
-        for requested_color in requested_colors
+        for requested_color in map(_catalog_color_key, requested_colors)
     )
 
 

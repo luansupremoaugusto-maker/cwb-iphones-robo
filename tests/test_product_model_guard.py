@@ -4377,6 +4377,108 @@ async def test_unavailable_requested_color_is_disclosed_before_other_available_c
     assert "MEIA NOITE" not in available.reply
 
 
+@pytest.mark.asyncio
+async def test_catalog_color_aliases_match_canonical_inventory_labels(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-color-aliases.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-white-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="BRANCO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            source="mercado_phone",
+            search_text="iphone 14 branca 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-intense-blue-256",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="256GB",
+            color="AZUL-INTENSO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2150,
+            source="mercado_phone",
+            search_text="iphone 14 azul intenso 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    white = await agent.respond("O iPhone 14 na cor branca 128 GB está disponível?")
+    intense_blue = await agent.respond("O iPhone 14 azul intenso 256 GB está disponível?")
+
+    assert white.handoff is False
+    assert white.reply.lower().startswith("sim")
+    assert white.product_references == ["iphone-14-white-128"]
+    assert "BRANCO" in white.reply
+    assert intense_blue.handoff is False
+    assert intense_blue.reply.lower().startswith("sim")
+    assert intense_blue.product_references == ["iphone-14-intense-blue-256"]
+    assert "AZUL-INTENSO" in intense_blue.reply
+
+
+@pytest.mark.asyncio
+async def test_broad_unavailable_color_reply_keeps_requested_iphone_family(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-family-color.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-blue-128",
+            name="IPHONE 11",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1350,
+            source="mercado_phone",
+            search_text="iphone 11 azul 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-black-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1650,
+            source="mercado_phone",
+            search_text="iphone 12 preto 128gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("O iPhone roxo está disponível?")
+
+    assert decision.handoff is False
+    assert decision.reply.startswith(
+        "No momento, o iPhone roxo não está disponível."
+    )
+    assert "iPhone 11 roxo" not in decision.reply
+    assert "IPHONE 11" in decision.reply
+    assert "IPHONE 12" in decision.reply
+
+
 def test_unavailable_color_header_uses_family_when_model_is_not_specific():
     header = _unavailable_catalog_color_header(
         selected=[SimpleNamespace(name="IPHONE 14")],
