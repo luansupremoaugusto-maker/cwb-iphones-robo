@@ -2620,6 +2620,15 @@ def _parse_brl_amount(raw_value: str) -> float | None:
     return amount if amount >= 0 else None
 
 
+def _parse_budget_amount(raw_value: str) -> float | None:
+    """Parse a price ceiling, accepting comma-separated thousands from customers."""
+    # Brazilian currency uses two decimal places; three digits after a comma in
+    # a budget ("3,200") therefore indicates a thousands separator.
+    if re.fullmatch(r"\d+,\d{3}", raw_value or ""):
+        return float(raw_value.replace(",", ""))
+    return _parse_brl_amount(raw_value)
+
+
 def _extract_budget_limit(text: str) -> float | None:
     """Extract a maximum price from a natural-language budget request."""
     normalized = _normalize(text)
@@ -2632,13 +2641,14 @@ def _extract_budget_limit(text: str) -> float | None:
         r"(?:(?:o|a)\s+)?(?:iphones?\s*)?(?P<end>1[0-9])\b",
         normalized,
     )
+    latest_budget_limit = None
     for marker in marker_pattern.finditer(normalized):
         amount_match = re.search(
             r"(?:r\$\s*)?(?P<value>\d+(?:[.,]\d+)?)(?:\s*(?P<scale>mil|k))?",
             normalized[marker.end() :],
         )
         if not amount_match:
-            return None
+            continue
         amount_start = marker.end() + amount_match.start("value")
         if (
             iphone_model_range is not None
@@ -2652,9 +2662,9 @@ def _extract_budget_limit(text: str) -> float | None:
             # sixteen-real budget limit. Keep looking for a later price marker.
             continue
 
-        amount = _parse_brl_amount(amount_match.group("value"))
+        amount = _parse_budget_amount(amount_match.group("value"))
         if amount is None:
-            return None
+            continue
         # Do not treat delivery deadlines, installment counts, or quantities as
         # prices. This matters when a previous catalog answer is part of the
         # follow-up context, for example: "entrega em até 1 semana".
@@ -2667,18 +2677,28 @@ def _extract_budget_limit(text: str) -> float | None:
         if re.search(r"\biphones?\s*$", prefix) or re.match(
             r"\s*(?:pro(?:\s+max)?|max|plus|mini|air|e)\b", suffix
         ):
-            return None
+            continue
         if re.match(
             r"\s*(?:x\b|semanas?\b|dias?\b|horas?\b|mes(?:es)?\b|"
             r"vez(?:es)?\b|parcelas?\b|unidades?\b|aparelhos?\b|"
             r"celulares?\b|telefones?\b|iphones?\b|gb\b|tb\b|%)",
             suffix,
         ):
-            return None
+            continue
         if amount_match.group("scale") and amount < 1000:
             amount *= 1000
-        return amount
-    return None
+        latest_budget_limit = amount
+    return latest_budget_limit
+
+
+def _extract_latest_budget_limit(text: str) -> float | None:
+    """Return the latest ceiling from newline-delimited customer context."""
+    latest_limit = None
+    for customer_message in (text or "").splitlines():
+        amount = _extract_budget_limit(customer_message)
+        if amount is not None:
+            latest_limit = amount
+    return latest_limit
 
 
 def _requested_device_quantity(text: str) -> int | None:
@@ -5229,17 +5249,17 @@ class AgentService:
         ):
             return None
 
-        requested_budget = (
-            None
-            if installment_budget_context
-            else _extract_budget_limit(text if allow_buyer_interest_with_image else query)
-        )
-        requested_quantity = _requested_device_quantity(
-            text if allow_buyer_interest_with_image else query
-        )
         customer_request_context = installment_budget_context or _customer_product_request_context_query(
             text,
             history,
+        )
+        requested_budget = None
+        if not installment_budget_context:
+            requested_budget = _extract_latest_budget_limit(text)
+            if requested_budget is None and not allow_buyer_interest_with_image:
+                requested_budget = _extract_latest_budget_limit(customer_request_context)
+        requested_quantity = _requested_device_quantity(
+            text if allow_buyer_interest_with_image else query
         )
         customer_condition_context = _customer_product_condition_context_query(text, history)
         pronta_entrega_only = _is_pronta_entrega_only_request(

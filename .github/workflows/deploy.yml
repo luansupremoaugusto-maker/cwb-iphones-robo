@@ -1316,6 +1316,112 @@ jobs:
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService, _extract_budget_limit
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(
+              openai_api_key=None,
+              google_sheets_enabled=True,
+              mercado_cache_ttl_seconds=60,
+          )
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/comma-thousands-budget-guard.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-15-under-budget",
+                  name="iPhone 15",
+                  category="Celular",
+                  capacity="128GB",
+                  color="AZUL",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=2820,
+                  battery_health=88,
+                  search_text="iphone 15 azul 128gb seminovo celular disponível para venda",
+              ),
+              InventoryItem(
+                  external_id="iphone-15-over-budget",
+                  name="iPhone 15",
+                  category="Celular",
+                  capacity="256GB",
+                  color="PRETO",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=3360,
+                  battery_health=89,
+                  search_text="iphone 15 preto 256gb seminovo celular disponível para venda",
+              ),
+              InventoryItem(
+                  external_id="iphone-15-over-4000",
+                  name="iPhone 15",
+                  category="Celular",
+                  capacity="512GB",
+                  color="ROSA",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=4250,
+                  battery_health=90,
+                  search_text="iphone 15 rosa 512gb seminovo celular disponível para venda",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          request = "Quais iPhones vocês tem disponíveis de até uns 3,200? Por favor"
+          initial_decision = asyncio.run(
+              service.respond(
+                  "O 15 tem algum?",
+                  history=[{"role": "user", "content": request}],
+              )
+          )
+          assert _extract_budget_limit(request) == 3200
+          assert _extract_budget_limit("iPhone 15 até R$ 3,20") == 3.2
+          assert _extract_budget_limit(
+              "Quais iPhones têm até 3,200? Na verdade, pode considerar até 4,000."
+          ) == 4000
+          assert not initial_decision.handoff, initial_decision
+          assert initial_decision.product_references == ["iphone-15-under-budget"], initial_decision
+          assert "R$ 2.820,00" in initial_decision.reply, initial_decision.reply
+          assert "R$ 3.360,00" not in initial_decision.reply, initial_decision.reply
+          assert "R$ 4.250,00" not in initial_decision.reply, initial_decision.reply
+
+          revised_decision = asyncio.run(
+              service.respond(
+                  "O 15 tem algum?",
+                  history=[
+                      {"role": "user", "content": request},
+                      {"role": "assistant", "content": "Posso procurar dentro desse valor."},
+                      {"role": "user", "content": "Na verdade, pode considerar até uns 4,000."},
+                  ],
+              )
+          )
+          assert not revised_decision.handoff, revised_decision
+          assert revised_decision.product_references == [
+              "iphone-15-under-budget",
+              "iphone-15-over-budget",
+          ], revised_decision
+          assert "R$ 3.360,00" in revised_decision.reply, revised_decision.reply
+          assert "R$ 4.250,00" not in revised_decision.reply, revised_decision.reply
+          print("COMMA_THOUSANDS_CATALOG_BUDGET_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           from app.adapters.mercado_phone import InventoryCache
           from app.agent import AgentService
           from app.config import Settings
