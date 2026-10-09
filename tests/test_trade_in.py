@@ -5,16 +5,22 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService, TECHNICAL_ASSISTANCE_REPLY
+from app.agent import (
+    AgentService,
+    TECHNICAL_ASSISTANCE_REPLY,
+    _ensure_trade_in_form_before_handoff,
+)
 from app.config import Settings
 from app.faq import FAQStore
 from app.runtime import build_runtime
-from app.schemas import InventoryItem
+from app.schemas import AgentDecision, InventoryItem
 from app.trade_in import (
     NON_APPLE_TRADE_IN_REPLY,
     PARTS_BUYBACK_REPLY,
+    PURCHASE_WITHOUT_TRADE_IN_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
+    TRADE_IN_REASON,
     is_completed_trade_in_form,
     is_trade_in_negotiation,
     is_trade_in_context_request,
@@ -3405,3 +3411,67 @@ async def test_age_and_catalog_model_do_not_combine_into_owned_iphone_profile(tm
     assert is_trade_in_request(text) is False
     assert decision.handoff is False
     assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Vocês tem loja física??"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim, temos loja física. Hoje é sexta-feira, 09/10/2026. "
+                "Atendemos hoje das 09:00 às 18:00, com horário marcado. "
+                "Endereço: Avenida Nossa Senhora da Luz, 1341 - Jardim Social, "
+                "Curitiba - PR, 82520-060. Posso marcar uma visita para hoje? "
+                "Qual horário fica melhor para você?"
+            ),
+        },
+        {"role": "user", "content": "Pode me mandar fotos do celular??"},
+        {"role": "user", "content": "Pq aí vou na loja comprar já"},
+    ]
+    text = "Preciso de um cell até terça feira 😬"
+
+    decision = await service.respond(text, history=history)
+    model_trade_in_candidate = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+            product_references=["iphone-13-128"],
+            image_urls=["https://example.test/iphone-13.jpg"],
+        ),
+        text,
+        history,
+    )
+    explicit_buyback_text = "Vocês compram iPhone 13? Vou na loja comprar outro."
+    explicit_buyback_decision = await service.respond(explicit_buyback_text)
+
+    recent_user_context = " ".join(
+        item["content"] for item in history if item["role"] == "user"
+    )
+    assert is_trade_in_request(recent_user_context) is False
+    assert decision.reply == PURCHASE_WITHOUT_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert model_trade_in_candidate.reply == PURCHASE_WITHOUT_TRADE_IN_REPLY
+    assert model_trade_in_candidate.handoff is False
+    assert model_trade_in_candidate.product_references == []
+    assert model_trade_in_candidate.image_urls == []
+    assert is_trade_in_request(explicit_buyback_text) is True
+    assert explicit_buyback_decision.reply == TRADE_IN_FORM
+    assert explicit_buyback_decision.handoff is True
