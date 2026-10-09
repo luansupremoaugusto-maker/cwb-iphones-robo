@@ -1587,6 +1587,96 @@ jobs:
           )
           print("IPAD_PART_PAYMENT_IMAGE_CONTEXT_EVALUATION_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-16-plus-other-color-guard.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-16-plus-128-ultramarino",
+                  name="iPhone 16 Plus",
+                  category="Celular",
+                  capacity="128GB",
+                  color="ULTRAMARINO",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=3860,
+                  battery_health=100,
+                  search_text="iphone 16 plus ultramarino 128gb celular seminovo",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "user", "content": "Tem iPhone 16 Plus seminovo de 128GB?"},
+              {
+                  "role": "assistant",
+                  "content": "No momento, só aparece disponível o iPhone 16 Plus seminovo de 128 GB na cor ultramarino 😊",
+              },
+              {"role": "user", "content": "Não tem o rosa?"},
+              {
+                  "role": "assistant",
+                  "content": "No momento, só aparece disponível o iPhone 16 Plus seminovo de 128 GB na cor ultramarino 😊",
+              },
+              {"role": "user", "content": "Teria outra cor?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 16 PLUS disponíveis:\n"
+                      "• IPHONE 16 PLUS — ULTRAMARINO — 128GB — SEMINOVO — R$ 3.860,00 | Bat: 100%"
+                  ),
+              },
+          ]
+          only_color = asyncio.run(service.respond("Outra cor", history=history))
+          assert not only_color.handoff, only_color
+          assert only_color.product_references == ["iphone-16-plus-128-ultramarino"], only_color
+          assert not only_color.image_urls, only_color
+          assert "outra cor" in only_color.reply.lower(), only_color
+          assert "ULTRAMARINO" in only_color.reply, only_color
+          assert "Encontrei estas opções" not in only_color.reply, only_color
+
+          cache.items.append(
+              InventoryItem(
+                  external_id="iphone-16-plus-128-preto",
+                  name="iPhone 16 Plus",
+                  category="Celular",
+                  capacity="128GB",
+                  color="PRETO",
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=3900,
+                  battery_health=100,
+                  search_text="iphone 16 plus preto 128gb celular seminovo",
+              )
+          )
+          more_colors = asyncio.run(service.respond("Teria outra cor?", history=history))
+          assert not more_colors.handoff, more_colors
+          assert set(more_colors.product_references) == {
+              "iphone-16-plus-128-ultramarino",
+              "iphone-16-plus-128-preto",
+          }, more_colors
+          assert "ULTRAMARINO" in more_colors.reply and "PRETO" in more_colors.reply, more_colors
+          print("IPHONE_16_PLUS_OTHER_COLOR_FOLLOWUP_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

@@ -403,6 +403,10 @@ def _is_catalog_followup(text: str) -> bool:
     )
 
 
+def _is_other_color_request(text: str) -> bool:
+    return bool(re.search(r"\boutra(?:s)?\s+cor(?:es)?\b", _normalize(text)))
+
+
 def _is_battery_detail_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized or "bateria" not in normalized:
@@ -1049,6 +1053,33 @@ def _has_requested_catalog_color(text: str, items: list[Any]) -> bool:
             if color and re.search(rf"(?<!\w){re.escape(color)}(?!\w)", normalized):
                 return True
     return False
+
+
+def _catalog_color_map(items: list[Any]) -> dict[str, str]:
+    colors: dict[str, str] = {}
+    for item in items:
+        raw_colors = getattr(item, "color", None) or getattr(item, "colors", None)
+        if isinstance(raw_colors, (list, tuple, set)):
+            values = raw_colors
+        else:
+            values = re.split(r"\s*[|;/,]\s*", str(raw_colors or ""))
+        for value in values:
+            color = str(value or "").strip()
+            normalized_color = _normalize(color)
+            if normalized_color:
+                colors.setdefault(normalized_color, color)
+    return colors
+
+
+def _strip_catalog_color_references(query: str, items: list[Any]) -> str:
+    normalized_query = _normalize(query)
+    for color in sorted(_catalog_color_map(items), key=len, reverse=True):
+        normalized_query = re.sub(
+            rf"(?<!\w){re.escape(color)}(?!\w)",
+            " ",
+            normalized_query,
+        )
+    return re.sub(r"\s+", " ", normalized_query).strip()
 
 
 def _current_catalog_color(text: str, items: list[Any]) -> str | None:
@@ -5234,6 +5265,11 @@ class AgentService:
             # stock question or remain an active intent marker.
             query = re.sub(r"\b(?:foto|fotos|imagem|imagens)\b", " ", query)
             query = re.sub(r"\s+", " ", query).strip()
+        if _is_other_color_request(text):
+            query = _strip_catalog_color_references(
+                query,
+                list(getattr(self.cache, "items", []) or []),
+            )
         visual_search_query = (
             _visual_catalog_search_query(
                 image_description,
@@ -5670,6 +5706,15 @@ class AgentService:
             installment_quotes=installment_quotes,
             entry_amount=entry_amount,
         )
+        if selected and _is_other_color_request(text):
+            available_colors = _catalog_color_map(selected)
+            if len(available_colors) == 1:
+                available_color = next(iter(available_colors.values()))
+                model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
+                reply = (
+                    f"No momento, só encontrei o {model_name} na cor {available_color} 😊. "
+                    "Não aparece outra cor disponível no catálogo."
+                )
         bare_model_price_request = (
             not re.search(r"\biphones?\b", _normalize(catalog_filter_query))
             and bool(
