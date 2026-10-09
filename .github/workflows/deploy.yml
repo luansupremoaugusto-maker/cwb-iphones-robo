@@ -1367,6 +1367,120 @@ jobs:
           assert catalog.reply != TRADE_IN_FORM, catalog
           print("BARE_IPHONE_PROFILE_TRADE_EVALUATION_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.trade_in import (
+            NON_APPLE_TRADE_IN_REPLY,
+            PARTS_BUYBACK_REPLY,
+            TRADE_IN_FORM,
+            is_parts_buyback_request,
+            is_trade_in_request,
+          )
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/ipad-part-payment-image-context-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          text = "Na compra do macbook NEO, vocês aceitam ipad pra abater o valor?"
+          image_description = (
+              "Catálogo com ofertas do MacBook Air 2026 M5 e do MacBook Neo 2026, "
+              "ambos produtos completos da Apple."
+          )
+          history = [
+              {"role": "user", "content": "Olá"},
+              {
+                  "role": "assistant",
+                  "content": "Olá! 😊 Sou o Steve, da cwb.iphones. Como posso te ajudar?",
+              },
+              {
+                  "role": "assistant",
+                  "content": "MacBook Air 2026 M5 por R$ 9.700 e MacBook Neo 2026 por R$ 5.000.",
+              },
+          ]
+          decision = asyncio.run(
+              service.respond(text, history=history, image_description=image_description)
+          )
+          assert is_trade_in_request(text), text
+          assert not is_parts_buyback_request(text), text
+          assert decision.reply == TRADE_IN_FORM, decision
+          assert decision.handoff, decision
+          assert not decision.product_references and not decision.image_urls, decision
+
+          non_apple = asyncio.run(
+              service.respond(
+                  "Me interessei nesse Galaxy, vocês aceitam?",
+                  image_description="Anúncio da loja: iPhone 15 Pro Max 256 GB da Apple.",
+              )
+          )
+          assert non_apple.reply == NON_APPLE_TRADE_IN_REPLY, non_apple
+          assert not non_apple.handoff, non_apple
+          assert not non_apple.product_references and not non_apple.image_urls, non_apple
+
+          mixed_non_apple = asyncio.run(
+              service.respond(
+                  "Na compra do MacBook Neo, vocês aceitam meu Samsung para abater o valor?",
+                  image_description=image_description,
+              )
+          )
+          assert mixed_non_apple.reply == NON_APPLE_TRADE_IN_REPLY, mixed_non_apple
+          assert not mixed_non_apple.handoff, mixed_non_apple
+
+          owned_non_apple = asyncio.run(
+              service.respond(
+                  "Meu Samsung, vocês aceitam para abater o valor na compra do MacBook Neo?",
+                  image_description=image_description,
+              )
+          )
+          assert owned_non_apple.reply == NON_APPLE_TRADE_IN_REPLY, owned_non_apple
+          assert not owned_non_apple.handoff, owned_non_apple
+
+          apple_offer = asyncio.run(
+              service.respond(
+                  "Na compra do Samsung, vocês aceitam meu iPad para abater o valor?"
+              )
+          )
+          assert apple_offer.reply == TRADE_IN_FORM, apple_offer
+          assert apple_offer.handoff, apple_offer
+          assert not apple_offer.product_references and not apple_offer.image_urls
+
+          loose_part = asyncio.run(
+              service.respond(
+                  "Vocês compram bateria de Samsung?",
+                  image_description="Anúncio da loja: iPhone 15 Pro Max 256 GB da Apple.",
+              )
+          )
+          assert loose_part.reply == PARTS_BUYBACK_REPLY, loose_part
+          assert not loose_part.handoff, loose_part
+          assert not loose_part.product_references and not loose_part.image_urls, loose_part
+
+          purchase = asyncio.run(
+              service.respond(
+                  "Me interessei nesse MacBook Neo, quero comprar.",
+                  image_description=image_description,
+              )
+          )
+          assert purchase.reply != TRADE_IN_FORM, purchase
+          assert (
+              purchase.handoff_reason
+              != "Avaliação de aparelho usado para parte do pagamento"
+          )
+          print("IPAD_PART_PAYMENT_IMAGE_CONTEXT_EVALUATION_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

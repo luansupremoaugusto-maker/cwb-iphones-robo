@@ -11,6 +11,7 @@ from app.faq import FAQStore
 from app.runtime import build_runtime
 from app.schemas import InventoryItem
 from app.trade_in import (
+    NON_APPLE_TRADE_IN_REPLY,
     PARTS_BUYBACK_REPLY,
     TRADE_IN_FORM,
     TRADE_IN_NEGOTIATION_REPLY,
@@ -19,6 +20,7 @@ from app.trade_in import (
     is_trade_in_context_request,
     is_trade_in_request,
     is_parts_buyback_request,
+    is_non_apple_trade_in_request,
     trade_in_em_andamento,
 )
 from app.adapters.mercado_phone import InventoryCache
@@ -144,6 +146,257 @@ async def test_shop_offer_for_detailed_iphone_profile_sends_evaluation_form(tmp_
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_ipad_offered_to_offset_catalog_macbook_sends_evaluation_form_with_image_context(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Na compra do macbook NEO, vocês aceitam ipad pra abater o valor?"
+    history = [
+        {"role": "user", "content": "Olá"},
+        {
+            "role": "assistant",
+            "content": "Olá! 😊 Sou o Steve, da cwb.iphones. Como posso te ajudar?",
+        },
+        {
+            "role": "assistant",
+            "content": "MacBook Air 2026 M5 por R$ 9.700 e MacBook Neo 2026 por R$ 5.000.",
+        },
+    ]
+
+    decision = await service.respond(
+        text,
+        history=history,
+        image_description=(
+            "Catálogo com ofertas do MacBook Air 2026 M5 e do MacBook Neo 2026, "
+            "ambos produtos completos da Apple."
+        ),
+    )
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_buyback_question_can_identify_device_from_attached_image(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês pegam esse?"
+
+    decision = await service.respond(
+        text,
+        image_description="Foto de um iPad 11 A16 128 GB usado e completo.",
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_trade_in_text_wins_over_catalog_image_model(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês pegam um Samsung na troca?"
+    image_description = "Anúncio da loja com iPhone 15 Pro Max 256 GB da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert is_non_apple_trade_in_request(f"{text} {image_description}") is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_apple_device_offer_is_kept_when_purchase_target_is_non_apple(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Na compra do Samsung, vocês aceitam meu iPad para abater o valor?"
+
+    decision = await service.respond(text)
+
+    assert is_non_apple_trade_in_request(text) is False
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_offer_is_not_confused_with_apple_purchase_target(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Na compra do MacBook Neo, vocês aceitam meu Samsung para abater o valor?"
+    )
+    image_description = "Anúncio da loja: MacBook Neo 2026, produto completo da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_owned_non_apple_device_before_buyback_verb_stays_out_of_evaluation(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Meu Samsung, vocês aceitam para abater o valor na compra do MacBook Neo?"
+
+    decision = await service.respond(
+        text,
+        image_description="Anúncio da loja: MacBook Neo 2026, produto completo da Apple.",
+    )
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_acceptance_question_precedes_catalog_interest_image_route(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Me interessei nesse Galaxy, vocês aceitam?"
+    image_description = "Anúncio da loja: iPhone 15 Pro Max 256 GB da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_non_apple_trade_in_request(text) is True
+    assert decision.reply == NON_APPLE_TRADE_IN_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_non_apple_loose_part_request_keeps_parts_reply_with_catalog_image(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês compram bateria de Samsung?"
+
+    decision = await service.respond(
+        text,
+        image_description="Anúncio da loja: iPhone 15 Pro Max 256 GB da Apple.",
+    )
+
+    assert is_parts_buyback_request(text) is True
+    assert decision.reply == PARTS_BUYBACK_REPLY
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_purchase_interest_with_image_does_not_start_trade_in(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Me interessei nesse MacBook Neo, quero comprar."
+    image_description = "Anúncio da loja: MacBook Neo 2026, produto completo da Apple."
+
+    decision = await service.respond(text, image_description=image_description)
+
+    assert is_trade_in_request(text) is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff_reason != "Avaliação de aparelho usado para parte do pagamento"
 
 
 @pytest.mark.asyncio
