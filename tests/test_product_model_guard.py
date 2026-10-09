@@ -2079,6 +2079,20 @@ async def test_comma_thousands_budget_keeps_iphone_15_within_r3200(tmp_path):
             search_text="iphone 15 azul 128gb seminovo celular disponivel para venda",
         ),
         InventoryItem(
+            external_id="iphone-15-base-256-over-budget",
+            name="iPhone 15",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3360,
+            battery_health=89,
+            search_text="iphone 15 preto 256gb seminovo celular disponivel para venda",
+        ),
+        InventoryItem(
             external_id="iphone-15-pro-128",
             name="iPhone 15 Pro",
             category="Celular",
@@ -2106,6 +2120,7 @@ async def test_comma_thousands_budget_keeps_iphone_15_within_r3200(tmp_path):
     assert _extract_budget_limit(request) == 3200
     assert _extract_budget_limit("iPhone 15 até R$ 3,20") == 3.2
     assert "R$ 2.820,00" in decision.reply
+    assert "R$ 3.360,00" not in decision.reply
     assert "R$ 3.530,00" not in decision.reply
 
 

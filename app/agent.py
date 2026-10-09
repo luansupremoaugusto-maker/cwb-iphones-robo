@@ -5238,17 +5238,17 @@ class AgentService:
         ):
             return None
 
-        requested_budget = (
-            None
-            if installment_budget_context
-            else _extract_budget_limit(text if allow_buyer_interest_with_image else query)
-        )
-        requested_quantity = _requested_device_quantity(
-            text if allow_buyer_interest_with_image else query
-        )
         customer_request_context = installment_budget_context or _customer_product_request_context_query(
             text,
             history,
+        )
+        requested_budget = None
+        if not installment_budget_context:
+            requested_budget = _extract_budget_limit(text)
+            if requested_budget is None and not allow_buyer_interest_with_image:
+                requested_budget = _extract_budget_limit(customer_request_context)
+        requested_quantity = _requested_device_quantity(
+            text if allow_buyer_interest_with_image else query
         )
         customer_condition_context = _customer_product_condition_context_query(text, history)
         pronta_entrega_only = _is_pronta_entrega_only_request(
