@@ -959,6 +959,54 @@ jobs:
           assert "r$ 9,00" not in decision.reply.lower(), decision.reply
           print("VISIT_BOOKING_AFTER_CATALOG_OK")
           '
+          docker compose --env-file .env.local exec -T app python -c '
+          import asyncio
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import app.agent as agent_module
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          agent_module._store_now = lambda: datetime(
+              2026, 10, 10, 19, 2, tzinfo=ZoneInfo("America/Sao_Paulo")
+          )
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  object(),
+                  settings,
+                  cache_path="/tmp/visit-weekday-context.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          decision = asyncio.run(
+              service.respond(
+                  "pode marca 10h",
+                  history=[
+                      {"role": "user", "content": "segunda-feira é aberto?"},
+                      {
+                          "role": "assistant",
+                          "content": (
+                              "Entendi 🙂 Podemos marcar sua visita para segunda-feira, "
+                              "12/10/2026, das 09:00 às 18:00, com horário marcado. "
+                              "Qual horário fica melhor para você?"
+                          ),
+                      },
+                  ],
+              )
+          )
+          assert (
+              decision.handoff
+              and "segunda-feira, 12/10/2026" in decision.reply
+              and "às 10:00" in decision.reply
+              and "sábado, 10/10/2026" not in decision.reply.lower()
+          ), decision
+          print("VISIT_WEEKDAY_CONTEXT_GUARD_OK")
+          '
           docker compose --env-file .env.local exec -T app python -c 'from datetime import timedelta; from app.agent import _is_today_store_status_request; from app.processor import AGENT_CONTEXT_WINDOW; assert AGENT_CONTEXT_WINDOW == timedelta(hours=12); assert _is_today_store_status_request("Hoje você trabalha?"); assert _is_today_store_status_request("Vocês trabalham hoje?"); assert not _is_today_store_status_request("Eu trabalho hoje?"); print("Conversation topic and store-status guards: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_unresolved_iphone_model_selection; generic = "Tenho um modelo em mente de iPhone que quero comprar lacrado"; specific = "Quero comprar iPhone 16 lacrado"; assert _is_unresolved_iphone_model_selection(generic); assert not _is_unresolved_iphone_model_selection(specific); print("Unspecified iPhone model clarification: ok")'
           docker compose --env-file .env.local exec -T app python -c '
