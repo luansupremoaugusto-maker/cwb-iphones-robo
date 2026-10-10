@@ -105,6 +105,68 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
     assert not is_trade_in_request("Quero trocar a película do meu iPhone")
 
 
+@pytest.mark.asyncio
+async def test_bare_iphone_models_shop_take_question_sends_evaluation_form(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Pega um 15 pro max e um 14 pro?"
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "IPHONE 16 PRO - TITÂNIO DESERTO - 256GB - SEMINOVO — "
+                "R$ 4.400,00 | Bat: 87%\n"
+                "IPHONE 16 PRO MAX - TITÂNIO DESERTO - 256GB - SEMINOVO — "
+                "R$ 5.170,00 | Bat: 89%"
+            ),
+        }
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_bare_iphone_models_explicit_purchase_stays_out_of_evaluation(tmp_path):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Pega um 15 Pro Max e um 14 Pro pra mim? Quero comprar os dois."
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff is False
+
+
 def test_purchase_context_keeps_owned_iphone_buyback_offer():
     assert is_trade_in_request("Vocês compram meu iPhone pra compra de um novo?")
 

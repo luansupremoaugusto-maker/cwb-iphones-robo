@@ -251,6 +251,12 @@ _BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_BARE_IPHONE_BUYBACK_QUESTION_RE = re.compile(
+    _BUYBACK_VERB_RE.pattern
+    + r"\s+(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?\d{1,2}\s+"
+    + r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
 _CONTEXTUAL_IPHONE_BUYBACK_PRICE_RE = re.compile(
     r"\b(?:pega|pegam|pegaria|pegariam)\s+(?:(?:o|meu)\s+)?"
     r"(?:iphone\s*)?(?P<model>\d{1,2})\s+"
@@ -716,6 +722,15 @@ def _has_device_offer(text: str) -> bool:
         return True
 
     if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
+        return True
+
+    # A short "pega um 15 Pro Max?" buyback question may omit both "iPhone"
+    # and an ownership phrase. Keep explicit purchase phrasing in the catalog.
+    if (
+        _BARE_IPHONE_BUYBACK_QUESTION_RE.search(text)
+        and not _PURCHASE_INTENT_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+    ):
         return True
 
     # Some customers imply the exchange by describing their owned iPhone and
