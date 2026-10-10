@@ -6108,3 +6108,87 @@ async def test_bare_iphone_followup_with_friendly_suffix_reports_model_unavailab
         "no momento, nao localizei o iphone 14 pro disponivel no estoque. "
         "posso verificar outro modelo ou capacidade?"
     )
+
+
+@pytest.mark.asyncio
+async def test_explicit_availability_question_checks_models_shown_in_catalog_image(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16-128-ultramarine",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128GB",
+            color="Ultramarine",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3790,
+            battery_health=91,
+            source="mercado_phone",
+            search_text="iPhone 16 128GB Ultramarine seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-16-256-black",
+            name="iPhone 16",
+            category="Celular",
+            capacity="256GB",
+            color="Preto Espacial",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3990,
+            battery_health=93,
+            source="mercado_phone",
+            search_text="iPhone 16 256GB Preto Espacial seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-256-black",
+            name="iPhone 14 Pro",
+            category="Celular",
+            capacity="256GB",
+            color="Preto Espacial",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3190,
+            battery_health=89,
+            source="mercado_phone",
+            search_text="iPhone 14 Pro 256GB Preto Espacial seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-16-128-sealed",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128GB",
+            color="Preto",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4590,
+            source="mercado_phone",
+            search_text="iPhone 16 128GB Preto lacrado disponível para venda",
+        ),
+    ]
+    image_description = (
+        "Story de seminovos: iPhone 16 128GB Ultramarine R$ 3.630,00, bateria 90%, "
+        "3 meses de garantia; iPhone 16 256GB Preto Espacial R$ 3.850,00, bateria 88%; "
+        "iPhone 14 Pro 256GB Preto Espacial R$ 3.080,00, bateria 85%."
+    )
+    decision = await agent.respond(
+        "Tem algum desses disponível ainda?",
+        image_description=image_description,
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-128-ultramarine",
+        "iphone-16-256-black",
+        "iphone-14-pro-256-black",
+    }
+    assert decision.image_urls == []
+    assert "iPhone 16" in decision.reply
+    assert "não localizei o iphone 16" not in decision.reply.lower()
+    assert "R$ 3.790,00" in decision.reply
+    assert "R$ 3.990,00" in decision.reply
+    assert "R$ 3.190,00" in decision.reply
