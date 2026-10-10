@@ -1971,6 +1971,26 @@ def _has_visit_time_reference(text: str) -> bool:
     )
 
 
+def _visit_time_for_request(text: str) -> str | None:
+    if not _has_visit_time_reference(text):
+        return None
+    normalized = _normalize(text)
+    patterns = (
+        r"\b(?P<hour>[01]?\d|2[0-3])\s*:\s*(?P<minute>[0-5]\d)\b",
+        r"\b(?P<hour>[01]?\d|2[0-3])\s*h\s*(?P<minute>[0-5]\d)?\b",
+        r"\b(?P<hour>[01]?\d|2[0-3])\s*horas?\b",
+        r"\bas\s*(?P<hour>[01]?\d|2[0-3])\b",
+    )
+    for pattern in patterns:
+        matches = list(re.finditer(pattern, normalized))
+        if matches:
+            match = matches[-1]
+            hour = int(match.group("hour"))
+            minute = match.groupdict().get("minute") or "00"
+            return f"{hour:02d}:{minute}"
+    return None
+
+
 def _has_appointment_prompt(history: list[dict[str, str]] | None) -> bool:
     return any(
         entry.get("role") == "assistant"
@@ -1988,6 +2008,35 @@ def _has_today_visit_offer(history: list[dict[str, str]] | None) -> bool:
         and "visita para hoje" in _normalize(entry.get("content", ""))
         for entry in (history or [])
     )
+
+
+def _latest_appointment_date_offer(
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    last_assistant = next(
+        (
+            entry
+            for entry in reversed(history or [])
+            if entry.get("role") == "assistant"
+        ),
+        None,
+    )
+    if last_assistant is None:
+        return None
+
+    content = last_assistant.get("content", "")
+    offer = re.search(
+        r"\b(?:marcar|solicitar)\s+(?:sua\s+|uma\s+)?visita\s+para\s+([^,\r\n.!?]+)",
+        content,
+        re.IGNORECASE,
+    )
+    if (
+        not _has_appointment_prompt([last_assistant])
+        or offer is None
+        or not _has_visit_date_reference(offer.group(1))
+    ):
+        return None
+    return offer.group(1)
 
 
 def _has_unanswered_reservation_request(history: list[dict[str, str]] | None) -> bool:
@@ -2101,7 +2150,11 @@ def _appointment_context(text: str, history: list[dict[str, str]] | None) -> str
         if entry.get("role") == "user" and entry.get("content", "").strip()
         and not _is_today_store_status_request(entry.get("content", ""))
     ]
-    return "\n".join([*previous_user_text[-4:], text.strip()]).strip()
+    context_parts = [*previous_user_text[-4:]]
+    latest_offer = _latest_appointment_date_offer(history)
+    if latest_offer:
+        context_parts.insert(0, latest_offer)
+    return "\n".join([*context_parts, text.strip()]).strip()
 
 
 def _store_address(faq: FAQStore) -> str:
@@ -6313,12 +6366,21 @@ class AgentService:
             address = self.faq.get("address") or (
                 "Avenida Nossa Senhora da Luz, 1341 - Jardim Social, Curitiba - PR, 82520-060"
             )
-            reply = (
-                "Perfeito 😊 Vou registrar a solicitação da sua visita para o dia e horário "
-                "informados e encaminhar para um atendente confirmar. O atendimento é feito "
-                "com horário marcado. "
-                f"Endereço: {address}"
-            )
+            visit_time = _visit_time_for_request(text)
+            if visit_day is not None and visit_time is not None:
+                reply = (
+                    "Perfeito 😊 Vou registrar a solicitação da sua visita para "
+                    f"{_today_label(visit_day)}, às {visit_time}, e encaminhar para um "
+                    "atendente confirmar. O atendimento é feito com horário marcado. "
+                    f"Endereço: {address}"
+                )
+            else:
+                reply = (
+                    "Perfeito 😊 Vou registrar a solicitação da sua visita para o dia e horário "
+                    "informados e encaminhar para um atendente confirmar. O atendimento é feito "
+                    "com horário marcado. "
+                    f"Endereço: {address}"
+                )
             if is_reservation:
                 reply = (
                     f"{_reservation_policy(self.faq)} Não consigo garantir que o aparelho "
