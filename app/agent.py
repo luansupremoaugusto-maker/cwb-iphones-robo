@@ -362,6 +362,71 @@ def _visual_catalog_search_query(
     return " ".join(part for part in parts if part)
 
 
+def _visual_iphone_model_keys(
+    image_description: str,
+) -> tuple[tuple[int | str, str], ...]:
+    """Read every explicitly labeled iPhone model from a catalog image description."""
+    models: list[tuple[int | str, str]] = []
+    for match in _MODEL_PATTERN.finditer(_normalize(image_description)):
+        if not match.group(0).lower().startswith("iphone"):
+            continue
+        legacy = match.group("legacy")
+        model = (
+            (legacy.lower(), "")
+            if legacy
+            else (
+                int(match.group("number")),
+                " ".join((match.group("variant") or "").split()).lower(),
+            )
+        )
+        if model not in models:
+            models.append(model)
+    return tuple(models)
+
+
+def _explicit_image_availability_query(
+    text: str,
+    image_description: str | None,
+) -> str | None:
+    """Use only model identity from a photo when the customer clearly asks about stock."""
+    normalized_text = _normalize(text)
+    if (
+        not image_description
+        or not re.search(r"\b(?:disponivel|disponibilidade|estoque)\b", normalized_text)
+        or not re.search(r"\b(?:tem|teria|possui|sobrou|restou)\b", normalized_text)
+    ):
+        return None
+    if re.search(
+        r"\b(?:foto|fotos|imagem|imagens|parcel\w*|entrada|sinal|garantia|"
+        r"reserva|endereco|horario|nota\s+fiscal|preco|valor|quanto|"
+        r"bateria|cor|\d+\s*(?:gb|tb))\b",
+        normalized_text,
+    ):
+        return None
+    if not re.search(
+        r"\b(?:desse|desses|dessa|dessas|dele|deles|dela|delas)\b",
+        normalized_text,
+    ):
+        return None
+
+    normalized_image = _normalize(image_description)
+    if any(family != "iphone" for family in _catalog_families(normalized_image)):
+        return None
+    models = _visual_iphone_model_keys(image_description)
+    if not models:
+        return ""
+    query = ", ".join(
+        " ".join(part for part in ("iPhone", str(number), variant) if part)
+        for number, variant in models
+    )
+    if not _has_seminovo_reference(text) and not _has_explicit_sealed_condition(text):
+        image_seminovos = _has_seminovo_reference(image_description)
+        image_sealed = _has_explicit_sealed_condition(image_description)
+        if image_seminovos != image_sealed:
+            query += " seminovo" if image_seminovos else " lacrado"
+    return query
+
+
 def _is_catalog_followup(text: str) -> bool:
     """Recognize a short price/condition/color follow-up for a prior product."""
     normalized = _normalize(text)
@@ -4495,6 +4560,26 @@ class AgentService:
     ) -> AgentDecision:
         if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
+        image_availability_models = _explicit_image_availability_query(
+            text,
+            image_description,
+        )
+        if image_availability_models is not None:
+            if image_availability_models:
+                decision = await self._try_product_availability(
+                    f"{text} {image_availability_models}",
+                    history=history,
+                )
+                if decision is not None:
+                    return protect_customer_decision(decision)
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=CATALOG_BUYER_DETAILS_REPLY,
+                    handoff=True,
+                    handoff_reason=CATALOG_BUYER_DETAILS_REASON,
+                    confidence="high",
+                )
+            )
         if (
             image_description
             and _has_product_reference(_normalize(image_description))
