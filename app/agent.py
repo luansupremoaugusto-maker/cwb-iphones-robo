@@ -5188,6 +5188,9 @@ class AgentService:
         if not _is_generic_installment_count_question(text):
             return None
 
+        if _is_payment_link_followup(text, history):
+            return await self._try_payment_link(text, history)
+
         contextual_query = _installment_context_query(text, history)
         if _has_product_reference(_normalize(contextual_query)):
             installment = await self._try_full_installment_table(text, history)
