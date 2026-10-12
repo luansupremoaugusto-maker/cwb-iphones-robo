@@ -3640,12 +3640,86 @@ def _product_context_query(
     return "\n".join(parts[-6:]).strip()
 
 
+def _pending_multi_model_product_request_context(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Keep all iPhone models requested before the bot answers the batch."""
+    entries = [
+        (index, entry.get("role"), entry.get("content", "").strip())
+        for index, entry in enumerate(history or [])
+        if entry.get("content", "").strip()
+    ]
+    latest_assistant_index = max(
+        (index for index, role, _content in entries if role == "assistant"),
+        default=-1,
+    )
+    pending_users = [
+        (index, content)
+        for index, role, content in entries
+        if role == "user" and index > latest_assistant_index
+    ]
+    current = text.strip()
+    candidate_messages = [*pending_users, (len(entries), current)]
+    current_models = ()
+    if (
+        _has_product_reference(_normalize(current))
+        or _extract_bare_catalog_model_reference(current)
+    ):
+        current_models = _requested_iphone_model_keys(current)
+
+    requested_models: list[tuple[int | str, str]] = []
+    model_message_indexes: list[int] = []
+    for index, content in candidate_messages:
+        if not (
+            _has_product_reference(_normalize(content))
+            or _extract_bare_catalog_model_reference(content)
+        ):
+            continue
+        models = _requested_iphone_model_keys(content)
+        if not models:
+            continue
+        model_message_indexes.append(index)
+        for model in models:
+            if model not in requested_models:
+                requested_models.append(model)
+
+    if (
+        len(requested_models) <= 1
+        or len(set(model_message_indexes)) <= 1
+        or set(requested_models).issubset(current_models)
+    ):
+        return None
+
+    def model_label(model: tuple[int | str, str]) -> str:
+        generation, variant = model
+        generation_label = (
+            str(generation).upper() if isinstance(generation, str) else str(generation)
+        )
+        return " ".join(part for part in ("iPhone", generation_label, variant.title()) if part)
+
+    first_model_message = min(model_message_indexes)
+    context_messages = [
+        content
+        for index, content in pending_users
+        if index >= first_model_message
+    ]
+    if current and (not context_messages or current != context_messages[-1]):
+        context_messages.append(current)
+    model_header = " / ".join(model_label(model) for model in requested_models)
+    return "\n".join([model_header, *context_messages]).strip()
+
+
 def _customer_product_request_context_query(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> str:
     """Keep customer requests within the current product conversation."""
     current = text.strip()
+    pending_multi_model_context = _pending_multi_model_product_request_context(text, history)
+    if pending_multi_model_context:
+        return pending_multi_model_context
+
     user_entries = [
         (index, entry.get("content", "").strip())
         for index, entry in enumerate(history or [])
@@ -5752,6 +5826,13 @@ class AgentService:
                 query,
                 list(getattr(self.cache, "items", []) or []),
             )
+        if not allow_buyer_interest_with_image and not installment_budget_context:
+            pending_multi_model_context = _pending_multi_model_product_request_context(
+                text,
+                history,
+            )
+            if pending_multi_model_context:
+                query = pending_multi_model_context
         visual_search_query = (
             _visual_catalog_search_query(
                 image_description,
