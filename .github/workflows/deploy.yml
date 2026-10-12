@@ -2055,6 +2055,58 @@ jobs:
           assert decision.handoff and decision.product_references == [] and decision.image_urls == [], decision
           print("IPHONE_14_PRO_MAX_17_PRO_MAX_TRADE_EVALUATION_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          import app.agent as agent_module
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/saturday-open-status-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          agent_module._store_now = lambda: datetime(
+              2026, 10, 10, 15, 7, tzinfo=ZoneInfo("America/Sao_Paulo")
+          )
+          history = [
+              {"role": "user", "content": "Oi"},
+              {
+                  "role": "assistant",
+                  "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+              },
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                      "mas entraremos em contato assim que possível."
+                  ),
+              },
+              {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+          ]
+          decision = asyncio.run(service.respond("Estão abertos ?", history=history))
+          assert not decision.handoff, decision
+          assert "sábado, 10/10/2026" in decision.reply.lower(), decision.reply
+          assert "hoje a loja está fechada" in decision.reply.lower(), decision.reply
+          assert "atendente" not in decision.reply.lower(), decision.reply
+          assert not decision.product_references and not decision.image_urls, decision
+          print("SATURDAY_OPEN_STATUS_REPLY_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE
