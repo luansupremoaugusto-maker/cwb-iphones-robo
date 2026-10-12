@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from app.adapters.catalog_cache import StoreCatalogCache
+from app.adapters.catalog_cache import StoreCatalogCache, _requested_battery_health
 from app.agent import (
     AgentService,
     _extract_installment_budget,
@@ -105,6 +105,18 @@ def test_installment_budget_parser_uses_latest_revised_ceiling():
     )
 
     assert _extract_installment_budget(text) == (12, 300.0)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("iPhone 16 Pro Max 91 de bateria", 91.0),
+        ("iPhone 16 Pro Max com bateria de 91%", 91.0),
+        ("91 de bateria, depois 89% de bateria", 89.0),
+    ],
+)
+def test_requested_battery_health_accepts_customer_word_order(text, expected):
+    assert _requested_battery_health(text) == expected
 
 
 @pytest.mark.asyncio
@@ -452,6 +464,103 @@ async def test_installment_count_followup_keeps_capacity_from_previous_simulatio
     assert "10x de R$ 629,00" in decision.reply
     assert "256GB" not in decision.reply
     assert "R$ 5.170,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_question_after_delivery_keeps_unique_battery_matched_iphone(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-desert-89",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max 256 gb titanio deserto seminovo bateria 89",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-black-85",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5280,
+            battery_health=85,
+            search_text="iphone 16 pro max 256 gb titanio preto seminovo bateria 85",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-512-natural-91",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="512GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5510,
+            battery_health=91,
+            search_text="iphone 16 pro max 512 gb titanio natural seminovo bateria 91",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-max-256",
+            name="IPHONE 17 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="PRATEADO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=6600,
+            battery_health=100,
+            search_text="iphone 17 pro max 256 gb prateado seminovo bateria 100",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_path), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vocês parcelam em quantas vezes?",
+        history=[
+            {
+                "role": "user",
+                "content": "Olá queria saber os valores do iPhone 16 Pro Max e do 17 Pro Max",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontrei o iPhone 16 Pro Max 256GB seminovo por R$ 5.170,00, bateria 89%; "
+                    "iPhone 16 Pro Max 256GB seminovo por R$ 5.280,00, bateria 85%; "
+                    "iPhone 16 Pro Max 512GB seminovo por R$ 5.510,00, bateria 91%; "
+                    "e iPhone 17 Pro Max 256GB seminovo por R$ 6.600,00, bateria 100%."
+                ),
+            },
+            {"role": "user", "content": "iPhone 16 Pro Max 91 de bateria"},
+            {"role": "user", "content": "Vocês entregam?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, "
+                    "enviamos por Sedex."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "Parcelamento do IPHONE 16 PRO MAX 512GB" in decision.reply
+    assert "Preço à vista: R$ 5.510,00" in decision.reply
+    assert "256GB" not in decision.reply
+    assert "IPHONE 17 PRO MAX" not in decision.reply
 
 
 @pytest.mark.asyncio
