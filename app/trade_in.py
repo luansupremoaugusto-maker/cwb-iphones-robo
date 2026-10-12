@@ -203,6 +203,24 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"|\b(?:em|com)\s+\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
+_BOX_INCLUSION_PHRASE_RE = re.compile(
+    r"\b(?:vem|acompanha|inclui)\b.{0,24}\bcaix(?:a|inha)\b"
+    r"|\bcaix(?:a|inha)\b.{0,24}\b(?:vem|acompanha|inclui)\b",
+    re.IGNORECASE,
+)
+_BOX_INCLUSION_QUESTION_LEAD_RE = re.compile(
+    r"^\s*(?:(?:oi|ola|e)\s*[,!]*\s*)?"
+    r"(?:esse|essa|este|esta|ele|ela|vem|acompanha|inclui|tem|"
+    r"(?:voce|voces|vcs?)\s+(?:sabe|sabem)\s+se)\b",
+    re.IGNORECASE,
+)
+_OWNED_BOX_DEVICE_RE = re.compile(
+    r"\b(?:tenho|possuo|estou\s+com|to\s+com|comprei)\s+"
+    r"(?:(?:um|uma|o|a)\s+)?(?:iphone|ipad|macbook|celular|aparelho)\b"
+    r"|\b(?:meu|minha|meus|minhas)\s+"
+    r"(?:iphone|ipad|macbook|celular|aparelho)\b",
+    re.IGNORECASE,
+)
 _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}"
     + _BUYBACK_VERB_RE.pattern
@@ -675,6 +693,22 @@ def _has_complete_owned_device_profile(text: str) -> bool:
     )
 
 
+def is_box_inclusion_question(text: str | None) -> bool:
+    """Recognize a buyer asking whether a listed device includes its box."""
+    normalized = _normalize(text)
+    match = _BOX_INCLUSION_PHRASE_RE.search(normalized)
+    if (
+        not match
+        or _OWNED_BOX_DEVICE_RE.search(normalized)
+        or _OWNED_BARE_IPHONE_VARIANT_RE.search(normalized)
+    ):
+        return False
+    return bool(
+        _BOX_INCLUSION_QUESTION_LEAD_RE.search(normalized)
+        or "?" in normalized[match.end() : match.end() + 40]
+    )
+
+
 def _has_detailed_device_entry_offer(text: str) -> bool:
     """Recognize an owned iPhone offered "na volta" after the target is named."""
     return bool(
@@ -1087,7 +1121,9 @@ def is_trade_in_request(text: str | None) -> bool:
     ):
         return True
 
-    if _has_complete_owned_device_profile(normalized):
+    if _has_complete_owned_device_profile(normalized) and not is_box_inclusion_question(
+        normalized
+    ):
         return True
 
     if _is_store_buyback_question(normalized):

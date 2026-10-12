@@ -54,6 +54,7 @@ from app.trade_in import (
     TRADE_IN_REASON,
     is_trade_in_negotiation,
     is_completed_trade_in_form,
+    is_box_inclusion_question,
     is_trade_in_context_request,
     is_trade_in_request,
     has_explicit_trade_in_cue,
@@ -2568,12 +2569,20 @@ def _is_catalog_buyer_details_question(
         and re.search(r"\b(?:bateria|tela|display|vidro|pecas?)\b", normalized)
         and re.search(r"\b(?:trocad\w*|substituid\w*)\b", normalized)
     )
+    box_inclusion_question = bool(
+        _has_product_reference(normalized)
+        and is_box_inclusion_question(normalized)
+    )
     if (
         not buyer_context
         and not (has_catalog_context and state_question)
         and not named_product_state_question
+        and not box_inclusion_question
     ):
         return False
+
+    if box_inclusion_question:
+        return True
 
     detail_groups = (
         re.search(r"\b(?:bateria|tela|display|vidro|pecas?)\b", normalized),

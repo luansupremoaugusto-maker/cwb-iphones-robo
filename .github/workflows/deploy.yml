@@ -1288,6 +1288,67 @@ jobs:
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
           from app.adapters.mercado_phone import InventoryCache
+          from app.agent import (
+              AgentService,
+              CATALOG_BUYER_DETAILS_REASON,
+              CATALOG_BUYER_DETAILS_REPLY,
+          )
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.trade_in import TRADE_IN_FORM, is_trade_in_request
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/catalog-box-inclusion-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          image_description = (
+              "iPhone 16 Plus 128 GB ultramarino, R$ 3.860,00, "
+              "bateria 100%, garantia de 3 meses."
+          )
+          history = [
+              {"role": "user", "content": "Olá boa noite"},
+              {"role": "assistant", "content": "Olá, boa noite! Como posso te ajudar?"},
+          ]
+          for box_word in ("caixa", "caixinha"):
+              text = f"Esse iPhone vem com a {box_word}?"
+              combined = f"{text} {image_description}"
+              assert not is_trade_in_request(combined), combined
+              decision = asyncio.run(
+                  service.respond(
+                      text,
+                      history=history,
+                      image_description=image_description,
+                  )
+              )
+              assert decision.reply == CATALOG_BUYER_DETAILS_REPLY, decision
+              assert decision.handoff, decision
+              assert decision.handoff_reason == CATALOG_BUYER_DETAILS_REASON, decision
+              assert not decision.product_references and not decision.image_urls, decision
+
+          for profile in (
+              "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa",
+              "Tenho um iPhone 13, 128gb, bateria 88% e acompanha caixa",
+          ):
+              profile_decision = asyncio.run(service.respond(profile, history=history))
+              assert profile_decision.reply == TRADE_IN_FORM, profile_decision
+              assert profile_decision.handoff, profile_decision
+              assert not profile_decision.product_references and not profile_decision.image_urls
+          print("CATALOG_BOX_INCLUSION_ROUTING_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          from app.adapters.mercado_phone import InventoryCache
           from app.agent import AgentService
           from app.config import Settings
           from app.faq import FAQStore
