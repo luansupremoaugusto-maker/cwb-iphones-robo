@@ -317,6 +317,55 @@ async def test_unqualified_store_open_question_uses_current_store_date(tmp_path,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("current", "expected_date", "expected_status"),
+    [
+        (
+            datetime(2026, 10, 10, 15, 7, tzinfo=ZoneInfo("America/Sao_Paulo")),
+            "sábado, 10/10/2026",
+            "hoje a loja está fechada",
+        ),
+        (
+            datetime(2026, 10, 12, 15, 7, tzinfo=ZoneInfo("America/Sao_Paulo")),
+            "segunda-feira, 12/10/2026",
+            "atendemos hoje das 09:00 às 18:00",
+        ),
+    ],
+)
+async def test_plural_unqualified_open_question_uses_current_store_status(
+    tmp_path, monkeypatch, current, expected_date, expected_status
+):
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Estão abertos ?",
+        history=[
+            {"role": "user", "content": "Oi"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                    "mas entraremos em contato assim que possível."
+                ),
+            },
+            {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert expected_date in decision.reply.lower()
+    assert expected_status in decision.reply.lower()
+    assert "atendente" not in decision.reply.lower()
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_store_open_question_with_hours_uses_faq_hours(tmp_path, monkeypatch):
     current = datetime(2026, 9, 14, 14, 31, tzinfo=ZoneInfo("America/Sao_Paulo"))
     monkeypatch.setattr(agent_module, "_store_now", lambda: current)

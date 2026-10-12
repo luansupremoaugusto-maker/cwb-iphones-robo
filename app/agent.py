@@ -1886,9 +1886,16 @@ def _is_today_store_status_request(text: str) -> bool:
     # asks for the current-day status. Keep hour questions on the FAQ path.
     if _is_store_hours_request(text):
         return False
+    implicit_open_status = re.fullmatch(
+        r"(?:(?:voces|vcs)\s+)?(?:estao|estamos)\s+abert\w*",
+        normalized.strip(" ?!.,"),
+    )
     return bool(
-        "loja" in normalized
-        and re.search(r"\b(?:abert\w*|fechad\w*)\b", normalized)
+        (
+            "loja" in normalized
+            and re.search(r"\b(?:abert\w*|fechad\w*)\b", normalized)
+        )
+        or implicit_open_status
     )
 
 
