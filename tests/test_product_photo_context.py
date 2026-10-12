@@ -228,6 +228,57 @@ async def test_pronoun_photo_followup_keeps_historical_case_context(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_image_described_device_photo_followup_uses_phone_context(tmp_path):
+    agent = _build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Quero o iPhone 15 Pro Max seminovo"},
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone 15 Pro Max 512GB seminovo está disponível por R$ 4.230,00."
+            ),
+        },
+        {"role": "user", "content": "E a capinha para ele, quanto custa?"},
+        {"role": "assistant", "content": "A capinha sai por R$ 10,00."},
+    ]
+
+    decision = await agent.respond(
+        "Manda foto dele",
+        history=history,
+        image_description="Descrição visual da imagem recebida: um celular preto visto de frente.",
+    )
+
+    assert decision.image_urls == ["https://photos.example/15-pro-max-512.jpg"]
+    assert decision.product_references == ["9902333"]
+
+
+@pytest.mark.asyncio
+async def test_image_described_case_does_not_send_previous_iphone_photos(tmp_path):
+    agent = _build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Quero o iPhone 15 Pro Max seminovo"},
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone 15 Pro Max 512GB seminovo está disponível por R$ 4.230,00."
+            ),
+        },
+        {"role": "user", "content": "E a capinha para ele, quanto custa?"},
+        {"role": "assistant", "content": "A capinha sai por R$ 10,00."},
+    ]
+
+    decision = await agent.respond(
+        "Manda foto dela",
+        history=history,
+        image_description=(
+            "Descrição visual da imagem recebida: uma capinha para iPhone 15 Pro Max."
+        ),
+    )
+
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_generic_cellphone_photo_followup_sends_previous_used_iphone_photos(tmp_path):
     agent = _build_agent(tmp_path)
     photo_url = "https://photos.example/16-pro-max-512.jpg"

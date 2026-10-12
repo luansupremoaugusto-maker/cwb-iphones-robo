@@ -2653,22 +2653,51 @@ def _is_photo_request(text: str) -> bool:
     )
 
 
+def _has_explicit_photo_device_reference(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        _catalog_families(normalized)
+        or _has_product_reference(normalized)
+        or _requested_capacity_keys(text)
+        or re.search(
+            r"\b(?:celular(?:es)?|aparelhos?|smartphones?|telefones?)\b",
+            normalized,
+        )
+    )
+
+
 def _strip_historical_accessory_terms_from_photo_query(
     query: str,
     current_query: str,
     request_text: str,
+    image_description: str | None = None,
 ) -> str:
-    """Keep old accessory questions out only when the current request names a device."""
-    normalized_request = _normalize(request_text)
-    explicitly_names_device = bool(
-        _catalog_families(normalized_request)
-        or _has_product_reference(normalized_request)
-        or _requested_capacity_keys(request_text)
-        or re.search(
-            r"\b(?:celular(?:es)?|aparelhos?|smartphones?|telefones?)\b",
-            normalized_request,
+    """Use visual device context without replacing an accessory target."""
+    explicitly_names_device = _has_explicit_photo_device_reference(request_text)
+    if image_description and not explicitly_names_device:
+        normalized_visual = _normalize(image_description)
+        visual_subject = re.sub(
+            r"^(?:descricao visual da imagem recebida\s*:\s*)",
+            "",
+            normalized_visual,
         )
-    )
+        visual_subject = re.sub(
+            r"^(?:foto|imagem)(?:\s+(?:mostra|mostrando|de|do|da))?\s*",
+            "",
+            visual_subject,
+        )
+        visual_subject = re.sub(r"^(?:um|uma|o|a)\s+", "", visual_subject)
+        image_describes_accessory = bool(
+            re.match(
+                r"(?:capinhas?|capas?|cases?|peliculas?|fontes?|cabos?|"
+                r"carregadores?|protetores?(?:\s+de\s+camera)?|suportes?)\b",
+                visual_subject,
+            )
+        )
+        explicitly_names_device = (
+            not image_describes_accessory
+            and _has_explicit_photo_device_reference(image_description)
+        )
     if not explicitly_names_device:
         return query
     if not current_query or not query.endswith(current_query):
@@ -6693,6 +6722,7 @@ class AgentService:
             query,
             current_query,
             request_text=text,
+            image_description=image_description,
         )
         # A previous assistant answer can list several capacities. When the
         # current turn contains one explicit choice, make that choice the
