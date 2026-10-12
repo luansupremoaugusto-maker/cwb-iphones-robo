@@ -14,7 +14,7 @@ from app.agent import (
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
-from app.trade_in import is_trade_in_request
+from app.trade_in import TRADE_IN_FORM, is_trade_in_request
 
 
 class EmptyMercadoClient:
@@ -987,9 +987,10 @@ async def test_charger_inclusion_question_uses_accessories_policy_without_listin
 
 
 @pytest.mark.asyncio
-async def test_catalog_box_question_avoids_trade_evaluation(tmp_path):
+@pytest.mark.parametrize("box_word", ["caixa", "caixinha"])
+async def test_catalog_box_question_avoids_trade_evaluation(tmp_path, box_word):
     agent = build_agent(tmp_path)
-    text = "Esse iPhone vem com a caixa?"
+    text = f"Esse iPhone vem com a {box_word}?"
     image_description = (
         "iPhone 16 Plus 128 GB ultramarino — R$ 3.860,00 — "
         "bateria 100% — 3 meses de garantia"
@@ -1015,6 +1016,16 @@ async def test_catalog_box_question_avoids_trade_evaluation(tmp_path):
     assert decision.handoff_reason == CATALOG_BUYER_DETAILS_REASON
     assert decision.product_references == []
     assert decision.image_urls == []
+
+    accompanied_box_profile = (
+        "Tenho um iPhone 13, 128gb, bateria 88% e acompanha caixa"
+    )
+    assert is_trade_in_request(accompanied_box_profile) is True
+    profile_decision = await agent.respond(accompanied_box_profile, history=history)
+    assert profile_decision.reply == TRADE_IN_FORM
+    assert profile_decision.handoff is True
+    assert profile_decision.product_references == []
+    assert profile_decision.image_urls == []
     assert is_trade_in_request(
         "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa"
     ) is True
