@@ -499,13 +499,27 @@ def _battery_key(value: Any) -> float | None:
 
 def _requested_battery_health(value: Any) -> float | None:
     normalized = _score_text(value)
-    matches = re.findall(
-        r"(?:saude\s+(?:da\s+)?bateria|bateria|bat|battery\s*health)"
-        r"\s*(?:de|em|com|:|-)?\s*(\d{1,3}(?:[.,]\d+)?)\s*%?",
-        normalized,
-        flags=re.IGNORECASE,
+    matches = [
+        (match.start(), match.group(1))
+        for match in re.finditer(
+            r"(?:saude\s+(?:da\s+)?bateria|bateria|bat|battery\s*health)"
+            r"\s*(?:de|em|com|:|-)?\s*(\d{1,3}(?:[.,]\d+)?)\s*%?",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    ]
+    # Customers also describe the percentage as "91 de bateria".
+    matches.extend(
+        (match.start(), match.group(1))
+        for match in re.finditer(
+            r"\b(\d{1,3}(?:[.,]\d+)?)\s+de\s+bateria\b",
+            normalized,
+            flags=re.IGNORECASE,
+        )
     )
-    return _battery_key(matches[-1]) if matches else None
+    if not matches:
+        return None
+    return _battery_key(max(matches, key=lambda match: match[0])[1])
 
 
 def _catalog_score(query: str, item: Any) -> int:

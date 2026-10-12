@@ -3594,6 +3594,38 @@ def _installment_context_query(
             part for part in (current_capacity_hint, current, history_condition) if part
         ).strip()
 
+    # A customer may select one unit from a broad offer, ask about delivery,
+    # then ask for installments. Keep that selection ahead of the older list.
+    for item in reversed(history or []):
+        if item.get("role") != "user":
+            continue
+        customer_context = item.get("content", "").strip()
+        if not customer_context or is_trade_in_request(customer_context):
+            continue
+        if len(_requested_iphone_model_keys(customer_context)) != 1:
+            continue
+        normalized_selection = _normalize(customer_context)
+        has_selection_detail = (
+            len(_requested_capacity_keys(customer_context)) == 1
+            or _requested_battery_health(customer_context) is not None
+            or bool(_requested_catalog_colors(customer_context, []))
+            or _has_explicit_sealed_condition(normalized_selection)
+            or _has_seminovo_reference(normalized_selection)
+        )
+        if not has_selection_detail:
+            continue
+        history_condition = _history_installment_condition(customer_context, history)
+        return "\n".join(
+            part
+            for part in (
+                current_capacity_hint,
+                customer_context,
+                history_condition,
+                current,
+            )
+            if part
+        ).strip()
+
     for item in reversed(history or []):
         assistant_context = item.get("content", "")
         # Word boundaries keep "antecipado" from matching the substring "ipad".
