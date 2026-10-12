@@ -3118,6 +3118,18 @@ def _is_full_installment_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases)
 
 
+def _is_generic_installment_count_question(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and "quantas vezes" in normalized
+        and re.search(r"\bparcel\w*\b", normalized)
+        and not _has_product_reference(normalized)
+        and not _is_payment_link_request(text)
+        and not _is_boleto_payment_request(text)
+    )
+
+
 def _is_specific_installment_request(text: str) -> bool:
     normalized = _normalize(text)
     return _requested_installments(text) is not None and bool(
@@ -3583,10 +3595,12 @@ def _installment_context_query(
         ).strip()
 
     for item in reversed(history or []):
-        if item.get("role") == "assistant" and any(
-            marker in _normalize(item.get("content", "")) for marker in ("iphone", "ipad", "produto")
+        assistant_context = item.get("content", "")
+        # Word boundaries keep "antecipado" from matching the substring "ipad".
+        if item.get("role") == "assistant" and re.search(
+            r"\b(?:iphone|ipad|produto)\w*\b",
+            _normalize(assistant_context),
         ):
-            assistant_context = item.get("content", "")
             if strip_assistant_constraints:
                 assistant_context = _strip_catalog_history_constraints(assistant_context)
             # Keep a unique capacity from the selected offer/table ahead of catalog ranking.
@@ -4975,6 +4989,13 @@ class AgentService:
             if installment_budget_decision is not None:
                 return protect_customer_decision(installment_budget_decision)
 
+        installment_count_decision = await self._try_generic_installment_count_question(
+            text,
+            history,
+        )
+        if installment_count_decision is not None:
+            return protect_customer_decision(installment_count_decision)
+
         combined_catalog_installment_decision = await self._try_combined_catalog_installment(
             text,
             history,
@@ -5158,6 +5179,22 @@ class AgentService:
             ),
             confidence="high",
         )
+
+    async def _try_generic_installment_count_question(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not _is_generic_installment_count_question(text):
+            return None
+
+        contextual_query = _installment_context_query(text, history)
+        if _has_product_reference(_normalize(contextual_query)):
+            installment = await self._try_full_installment_table(text, history)
+            if installment is not None:
+                return installment
+
+        return AgentDecision(reply=PAYMENT_ONLY_CREDIT_REPLY, confidence="high")
 
     async def _try_rate_model_followup(
         self,
