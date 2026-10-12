@@ -217,6 +217,43 @@ async def test_shop_offer_for_detailed_iphone_profile_sends_evaluation_form(tmp_
 
 
 @pytest.mark.asyncio
+async def test_complete_iphone_upgrade_with_battery_health_sends_form_on_first_turn(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Tenho um 14 pro max .80 de bateria nunca aberto, queria pegar um 17 pro max . "
+        "Vcs pegam na troca?"
+    )
+    history = [
+        {"role": "user", "content": "Bom dia"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                "mas entraremos em contato assim que possível."
+            ),
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
 async def test_ipad_offered_to_offset_catalog_macbook_sends_evaluation_form_with_image_context(
     tmp_path,
 ):
