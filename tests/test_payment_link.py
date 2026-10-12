@@ -80,6 +80,35 @@ async def test_payment_link_installment_request_is_rejected_without_simulation(t
     assert_no_payment_link_fee_or_table(decision.reply)
 
 
+@pytest.mark.asyncio
+async def test_generic_installment_count_after_link_table_stays_in_link_mode(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {
+            "role": "user",
+            "content": "Queria parcelar o iPhone 16 Pro Max 256 GB pelo link.",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Para pagar parcelado à distância, usamos link de pagamento:\n"
+                "1x de R$ 7.600,00\n"
+                "2x de R$ 3.900,00\n"
+                "O aparelho é o iPhone 16 Pro Max 256 GB, por R$ 7.600,00 à vista."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Vocês parcelam em quantas vezes?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "não aceitamos mais link de pagamento" in decision.reply.lower()
+    assert_no_payment_link_fee_or_table(decision.reply)
+
+
 
 @pytest.mark.asyncio
 async def test_payment_link_rate_question_is_rejected_without_percentages(tmp_path):

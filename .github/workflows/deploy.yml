@@ -1047,6 +1047,37 @@ jobs:
           '
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          from types import SimpleNamespace
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.installments import simulate_installment_table
+
+          class InstallmentContextGuardCache:
+              async def simulate_all_installments(self, query):
+                  if "iphone 16 pro max" not in query.lower():
+                      return {"encontrado": False, "motivo": "Modelo não encontrado"}
+                  item = SimpleNamespace(name="iPhone 16 Pro Max", capacity="256 GB", price_brl=7600.0)
+                  return simulate_installment_table(item)
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(InstallmentContextGuardCache(), FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "user", "content": "iPhone 16 Pro Max 91 de bateria"},
+              {"role": "assistant", "content": "iPhone 16 Pro Max — Prateado — 256 GB — NOVO LACRADO — R$ 7.600,00. Os lacrados são por encomenda, com prazo de 1 semana."},
+              {"role": "user", "content": "Vocês entregam"},
+              {"role": "assistant", "content": "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex. O pagamento deve ser antecipado antes do despacho."},
+          ]
+          decision = asyncio.run(service.respond("Vocês parcelam em quantas vezes", history=history))
+          assert not decision.handoff, decision
+          assert "Parcelamento do iPhone 16 Pro Max 256 GB" in decision.reply, decision.reply
+          assert "Preço à vista: R$ 7.600,00" in decision.reply, decision.reply
+          assert "Apple Watch" not in decision.reply, decision.reply
+          assert "iPhone 17 Air" not in decision.reply, decision.reply
+          print("GENERIC_INSTALLMENT_COUNT_AFTER_DELIVERY_CONTEXT_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
           from app.agent import AgentService
@@ -2353,7 +2384,14 @@ jobs:
               async def get(self, product_id):
                   return None
 
-          settings = Settings(openai_api_key=None, google_sheets_enabled=True)
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=True,
+              mercado_cache_ttl_seconds=60,
+              google_sheets_cache_ttl_seconds=3600,
+              faq_path="/app/config/faq.yaml",
+          )
           sealed_catalog = EmptySealedCatalog()
           sealed_catalog.items = [
               InventoryItem(
