@@ -2146,6 +2146,7 @@ jobs:
                   condition="novo lacrado",
                   availability="Preço confirmado",
                   price_brl=7600,
+                  source="google_sheets",
                   search_text="iPhone 17 Pro Max 256 GB novo lacrado",
               ),
               InventoryItem(
@@ -2156,6 +2157,7 @@ jobs:
                   condition="novo lacrado",
                   availability="Preço confirmado",
                   price_brl=10800,
+                  source="google_sheets",
                   search_text="iPhone 18 Pro Max 256 GB novo lacrado",
               ),
           ]
