@@ -2656,8 +2656,21 @@ def _is_photo_request(text: str) -> bool:
 def _strip_historical_accessory_terms_from_photo_query(
     query: str,
     current_query: str,
+    request_text: str,
 ) -> str:
-    """Keep old accessory questions from excluding a current device photo lookup."""
+    """Keep old accessory questions out only when the current request names a device."""
+    normalized_request = _normalize(request_text)
+    explicitly_names_device = bool(
+        _catalog_families(normalized_request)
+        or _has_product_reference(normalized_request)
+        or _requested_capacity_keys(request_text)
+        or re.search(
+            r"\b(?:celular(?:es)?|aparelhos?|smartphones?|telefones?)\b",
+            normalized_request,
+        )
+    )
+    if not explicitly_names_device:
+        return query
     if not current_query or not query.endswith(current_query):
         return query
 
@@ -6676,7 +6689,11 @@ class AgentService:
             if followup_model:
                 current_query = f"{followup_model} {current_query}".strip()
         query = _product_context_query(current_query, history)
-        query = _strip_historical_accessory_terms_from_photo_query(query, current_query)
+        query = _strip_historical_accessory_terms_from_photo_query(
+            query,
+            current_query,
+            request_text=text,
+        )
         # A previous assistant answer can list several capacities. When the
         # current turn contains one explicit choice, make that choice the
         # first capacity seen by the photo resolver instead of letting the
