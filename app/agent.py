@@ -3621,9 +3621,9 @@ def _installment_context_query(
                 entry.get("content", "")
                 for entry in reversed(history or [])
                 if entry.get("role") == "assistant"
-                and any(
-                    marker in _normalize(entry.get("content", ""))
-                    for marker in ("iphone", "ipad", "produto")
+                and re.search(
+                    r"\b(?:iphone|ipad|produto)\w*\b",
+                    _normalize(entry.get("content", "")),
                 )
             ),
             "",
