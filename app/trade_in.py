@@ -898,6 +898,15 @@ def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
     if _has_abbreviated_iphone_buyback_profile(text):
         return True
+    if (
+        _OWNED_BARE_IPHONE_VARIANT_RE.search(text)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+        and _BUYBACK_VERB_RE.search(text)
+        and _has_explicit_device_exchange_context(text)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+    ):
+        return True
     # Parts detection runs before trade-in routing. Preserve battery details
     # when an owned iPhone and its explicit upgrade target are both present.
     if _has_implicit_device_upgrade_offer(text):
