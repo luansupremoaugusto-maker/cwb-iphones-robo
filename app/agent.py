@@ -3479,8 +3479,21 @@ def _installment_context_query(
             assistant_context = item.get("content", "")
             if strip_assistant_constraints:
                 assistant_context = _strip_catalog_history_constraints(assistant_context)
+            # Keep a unique capacity from the selected offer/table ahead of catalog ranking.
+            assistant_capacity_keys = _requested_capacity_keys(assistant_context)
+            assistant_capacity_hint = (
+                f"capacidade solicitada: {assistant_capacity_keys[0]}"
+                if not current_capacity_hint and len(assistant_capacity_keys) == 1
+                else ""
+            )
             return "\n".join(
-                part for part in (current_capacity_hint, assistant_context, current) if part
+                part
+                for part in (
+                    current_capacity_hint or assistant_capacity_hint,
+                    assistant_context,
+                    current,
+                )
+                if part
             ).strip()
     previous_user_text = [
         item.get("content", "").strip()

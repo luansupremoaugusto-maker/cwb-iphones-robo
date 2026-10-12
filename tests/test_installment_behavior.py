@@ -376,6 +376,85 @@ async def test_contextual_installment_question_returns_full_table(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_installment_count_followup_keeps_capacity_from_previous_simulation(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-natural",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITANIO NATURAL",
+            condition="NOVO LACRADO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5170.0,
+            source="google_sheets",
+            search_text=(
+                "iphone 16 pro max 256 gb titanio natural celular novo lacrado"
+            ),
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-512-natural",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="512GB",
+            color="TITANIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5510.0,
+            battery_health=91,
+            search_text=(
+                "iphone 16 pro max 512 gb titanio natural celular seminovo bateria 91"
+            ),
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "10 vezes",
+        history=[
+            {
+                "role": "user",
+                "content": "Tem o iPhone 16 Pro Max seminovo de 512GB?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                    "• IPHONE 16 PRO MAX — TITÂNIO NATURAL — 512GB — SEMINOVO — "
+                    "R$ 5.510,00 | Bat: 91%"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "Vocês parcelam em quantas vezes?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Parcelamento do IPHONE 16 PRO MAX 512GB\n"
+                    "Preço à vista: R$ 5.510,00\n"
+                    "10x de R$ 629,00 (total R$ 6.289,95)\n"
+                    "Valores calculados para pagamento no cartão de crédito."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "Parcelamento do IPHONE 16 PRO MAX 512GB" in decision.reply
+    assert "Preço à vista: R$ 5.510,00" in decision.reply
+    assert "10x de R$ 629,00" in decision.reply
+    assert "256GB" not in decision.reply
+    assert "R$ 5.170,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_chat_followup_quantas_vezes_simulates_requested_sealed_iphone_15(tmp_path):
     cache, settings = build_cache(tmp_path)
     cache.items = [
