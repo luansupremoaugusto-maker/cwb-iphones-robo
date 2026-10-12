@@ -203,6 +203,11 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"|\b(?:em|com)\s+\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
+_BOX_INCLUSION_QUESTION_RE = re.compile(
+    r"\b(?:vem|acompanha|inclui)\b.{0,24}\bcaixa\b"
+    r"|\bcaixa\b.{0,24}\b(?:vem|acompanha|inclui)\b",
+    re.IGNORECASE,
+)
 _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE = re.compile(
     r"\b(?:voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}"
     + _BUYBACK_VERB_RE.pattern
@@ -675,6 +680,11 @@ def _has_complete_owned_device_profile(text: str) -> bool:
     )
 
 
+def is_box_inclusion_question(text: str | None) -> bool:
+    """Recognize a buyer asking whether a listed device includes its box."""
+    return bool(_BOX_INCLUSION_QUESTION_RE.search(_normalize(text)))
+
+
 def _has_detailed_device_entry_offer(text: str) -> bool:
     """Recognize an owned iPhone offered "na volta" after the target is named."""
     return bool(
@@ -1078,7 +1088,9 @@ def is_trade_in_request(text: str | None) -> bool:
     ):
         return True
 
-    if _has_complete_owned_device_profile(normalized):
+    if _has_complete_owned_device_profile(normalized) and not is_box_inclusion_question(
+        normalized
+    ):
         return True
 
     if _is_store_buyback_question(normalized):

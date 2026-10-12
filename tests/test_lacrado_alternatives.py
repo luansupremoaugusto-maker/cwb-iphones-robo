@@ -5,7 +5,12 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService, _normalize
+from app.agent import (
+    CATALOG_BUYER_DETAILS_REASON,
+    CATALOG_BUYER_DETAILS_REPLY,
+    AgentService,
+    _normalize,
+)
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -979,6 +984,40 @@ async def test_charger_inclusion_question_uses_accessories_policy_without_listin
     assert "lista completa" not in _normalize(decision.reply)
     assert "cabo e fonte novos" in decision.reply
     assert "apenas o cabo original" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_catalog_box_question_avoids_trade_evaluation(tmp_path):
+    agent = build_agent(tmp_path)
+    text = "Esse iPhone vem com a caixa?"
+    image_description = (
+        "iPhone 16 Plus 128 GB ultramarino — R$ 3.860,00 — "
+        "bateria 100% — 3 meses de garantia"
+    )
+    history = [
+        {"role": "user", "content": "Olá boa noite"},
+        {
+            "role": "assistant",
+            "content": "Olá, boa noite! 😊 Como posso te ajudar?",
+        },
+    ]
+
+    assert is_trade_in_request(f"{text} {image_description}") is False
+
+    decision = await agent.respond(
+        text,
+        history=history,
+        image_description=image_description,
+    )
+
+    assert decision.reply == CATALOG_BUYER_DETAILS_REPLY
+    assert decision.handoff is True
+    assert decision.handoff_reason == CATALOG_BUYER_DETAILS_REASON
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request(
+        "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa"
+    ) is True
 
 
 @pytest.mark.asyncio
