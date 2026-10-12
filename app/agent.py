@@ -3615,10 +3615,29 @@ def _installment_context_query(
         if not has_selection_detail:
             continue
         history_condition = _history_installment_condition(customer_context, history)
+        selected_capacity_keys = _requested_capacity_keys(customer_context)
+        assistant_context = next(
+            (
+                entry.get("content", "")
+                for entry in reversed(history or [])
+                if entry.get("role") == "assistant"
+                and any(
+                    marker in _normalize(entry.get("content", ""))
+                    for marker in ("iphone", "ipad", "produto")
+                )
+            ),
+            "",
+        )
+        assistant_capacity_keys = _requested_capacity_keys(assistant_context)
+        selection_capacity_hint = current_capacity_hint
+        if not selection_capacity_hint and len(selected_capacity_keys) == 1:
+            selection_capacity_hint = f"capacidade solicitada: {selected_capacity_keys[0]}"
+        elif not selection_capacity_hint and len(assistant_capacity_keys) == 1:
+            selection_capacity_hint = f"capacidade solicitada: {assistant_capacity_keys[0]}"
         return "\n".join(
             part
             for part in (
-                current_capacity_hint,
+                selection_capacity_hint,
                 customer_context,
                 history_condition,
                 current,
