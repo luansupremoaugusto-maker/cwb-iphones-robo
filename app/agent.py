@@ -2653,6 +2653,31 @@ def _is_photo_request(text: str) -> bool:
     )
 
 
+def _strip_historical_accessory_terms_from_photo_query(
+    query: str,
+    current_query: str,
+) -> str:
+    """Keep old accessory questions from excluding a current device photo lookup."""
+    if not current_query or not query.endswith(current_query):
+        return query
+
+    history_context = query[: -len(current_query)]
+    if not history_context.strip():
+        return query
+
+    history_context = re.sub(
+        r"\b(?:pel[ií]culas?|capas?|capinhas?|cases?|fontes?|cabos?|"
+        r"carregadores?|protetores?|suportes?)\b",
+        " ",
+        history_context,
+        flags=re.IGNORECASE,
+    )
+    history_context = re.sub(r"[ \t]+", " ", history_context)
+    history_context = re.sub(r" *\n *", "\n", history_context)
+    history_context = re.sub(r"\n{2,}", "\n", history_context).strip()
+    return "\n".join(part for part in (history_context, current_query) if part)
+
+
 def _is_broad_promotion_photo_request(text: str) -> bool:
     """Recognize a category-level photo request for promotional iPhones."""
     normalized = _normalize(text)
@@ -6651,6 +6676,7 @@ class AgentService:
             if followup_model:
                 current_query = f"{followup_model} {current_query}".strip()
         query = _product_context_query(current_query, history)
+        query = _strip_historical_accessory_terms_from_photo_query(query, current_query)
         # A previous assistant answer can list several capacities. When the
         # current turn contains one explicit choice, make that choice the
         # first capacity seen by the photo resolver instead of letting the

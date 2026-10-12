@@ -207,6 +207,86 @@ async def test_ambiguous_used_photo_request_does_not_fall_back_to_unrelated_seal
 
 
 @pytest.mark.asyncio
+async def test_generic_cellphone_photo_followup_sends_previous_used_iphone_photos(tmp_path):
+    agent = _build_agent(tmp_path)
+    photo_url = "https://photos.example/16-pro-max-512.jpg"
+    target_item = InventoryItem(
+        external_id="iphone-16-pro-max-512-seminovo",
+        name="IPHONE 16 PRO MAX",
+        category="Celular",
+        capacity="512GB",
+        color="PRETO",
+        condition="SEMINOVO",
+        availability="Disponível para venda",
+        quantity=1,
+        price_brl=5510.0,
+        battery_health=90,
+        source="mercado_phone",
+        search_text="iphone 16 pro max preto 512gb celular seminovo",
+        photo_urls=[photo_url],
+    )
+    agent.cache.items = [
+        target_item,
+        target_item.model_copy(
+            update={
+                "external_id": "iphone-16-pro-max-256-seminovo",
+                "capacity": "256GB",
+                "color": "AZUL",
+                "search_text": "iphone 16 pro max azul 256gb celular seminovo",
+                "photo_urls": ["https://photos.example/16-pro-max-256.jpg"],
+            }
+        ),
+        target_item.model_copy(
+            update={
+                "external_id": "iphone-15-pro-max-512-seminovo",
+                "name": "IPHONE 15 PRO MAX",
+                "search_text": "iphone 15 pro max preto 512gb celular seminovo",
+                "photo_urls": ["https://photos.example/15-pro-max-512.jpg"],
+            }
+        ),
+        target_item.model_copy(
+            update={
+                "external_id": "iphone-16-pro-max-512-lacrado",
+                "condition": "LACRADO",
+                "search_text": "iphone 16 pro max preto 512gb celular lacrado",
+                "photo_urls": ["https://photos.example/16-pro-max-512-sealed.jpg"],
+            }
+        ),
+    ]
+    history = [
+        {"role": "user", "content": "Quero o iPhone 16 Pro Max 512GB seminovo"},
+        {
+            "role": "assistant",
+            "content": (
+                "Parcelamento do IPHONE 16 PRO MAX 512GB\n"
+                "Preço à vista: R$ 5.510,00\n"
+                "1x de R$ 5.796,95 (total R$ 5.796,95)"
+            ),
+        },
+        {"role": "user", "content": "Já vem com capinha e película"},
+        {"role": "user", "content": "?"},
+        {
+            "role": "assistant",
+            "content": (
+                "O seminovo acompanha cabo e fonte novos, homologados pela Anatel. "
+                "Capinha e película são vendidas separadamente por R$ 10,00 cada."
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Consegue mandar foto do celular", history=history)
+
+    assert decision.handoff is False
+    assert decision.image_urls == [photo_url]
+    assert decision.product_references == ["iphone-16-pro-max-512-seminovo"]
+    assert "não localizei esse produto seminovo" not in decision.reply.lower()
+
+    accessory_photo = await agent.respond("Consegue mandar foto da capinha", history=history)
+
+    assert accessory_photo.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_used_and_insistence_followups_keep_the_previous_photo_context(tmp_path):
     agent = _build_agent(tmp_path)
     history = [
