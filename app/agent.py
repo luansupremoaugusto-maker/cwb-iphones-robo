@@ -2703,6 +2703,73 @@ def _is_photo_request(text: str) -> bool:
     )
 
 
+def _has_explicit_photo_device_reference(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        _catalog_families(normalized)
+        or _has_product_reference(normalized)
+        or _requested_capacity_keys(text)
+        or re.search(
+            r"\b(?:celular(?:es)?|aparelhos?|smartphones?|telefones?)\b",
+            normalized,
+        )
+    )
+
+
+def _strip_historical_accessory_terms_from_photo_query(
+    query: str,
+    current_query: str,
+    request_text: str,
+    image_description: str | None = None,
+) -> str:
+    """Use visual device context without replacing an accessory target."""
+    explicitly_names_device = _has_explicit_photo_device_reference(request_text)
+    if image_description and not explicitly_names_device:
+        normalized_visual = _normalize(image_description)
+        visual_subject = re.sub(
+            r"^(?:descricao visual da imagem recebida\s*:\s*)",
+            "",
+            normalized_visual,
+        )
+        visual_subject = re.sub(
+            r"^(?:foto|imagem)(?:\s+(?:mostra|mostrando|de|do|da))?\s*",
+            "",
+            visual_subject,
+        )
+        visual_subject = re.sub(r"^(?:um|uma|o|a)\s+", "", visual_subject)
+        image_describes_accessory = bool(
+            re.match(
+                r"(?:capinhas?|capas?|cases?|peliculas?|fontes?|cabos?|"
+                r"carregadores?|protetores?(?:\s+de\s+camera)?|suportes?)\b",
+                visual_subject,
+            )
+        )
+        explicitly_names_device = (
+            not image_describes_accessory
+            and _has_explicit_photo_device_reference(image_description)
+        )
+    if not explicitly_names_device:
+        return query
+    if not current_query or not query.endswith(current_query):
+        return query
+
+    history_context = query[: -len(current_query)]
+    if not history_context.strip():
+        return query
+
+    history_context = re.sub(
+        r"\b(?:pel[ií]culas?|capas?|capinhas?|cases?|fontes?|cabos?|"
+        r"carregadores?|protetores?|suportes?)\b",
+        " ",
+        history_context,
+        flags=re.IGNORECASE,
+    )
+    history_context = re.sub(r"[ \t]+", " ", history_context)
+    history_context = re.sub(r" *\n *", "\n", history_context)
+    history_context = re.sub(r"\n{2,}", "\n", history_context).strip()
+    return "\n".join(part for part in (history_context, current_query) if part)
+
+
 def _is_broad_promotion_photo_request(text: str) -> bool:
     """Recognize a category-level photo request for promotional iPhones."""
     normalized = _normalize(text)
@@ -6839,6 +6906,12 @@ class AgentService:
             if followup_model:
                 current_query = f"{followup_model} {current_query}".strip()
         query = _product_context_query(current_query, history)
+        query = _strip_historical_accessory_terms_from_photo_query(
+            query,
+            current_query,
+            request_text=text,
+            image_description=image_description,
+        )
         # A previous assistant answer can list several capacities. When the
         # current turn contains one explicit choice, make that choice the
         # first capacity seen by the photo resolver instead of letting the
