@@ -5329,6 +5329,28 @@ class AgentService:
                         entry for entry in result.get("lacrados", []) if is_iphone_entry(entry)
                     ],
                 }
+        requested_capacities = set(_requested_capacity_keys(text))
+        if requested_capacities:
+            def has_requested_capacity(entry: dict[str, Any]) -> bool:
+                capacities = _requested_capacity_keys(
+                    str(entry.get("capacidade") or entry.get("nome") or "")
+                )
+                return bool(requested_capacities.intersection(capacities))
+
+            result = {
+                **result,
+                "seminovos": [
+                    entry for entry in result.get("seminovos", []) if has_requested_capacity(entry)
+                ],
+                "lacrados_pronta_entrega": [
+                    entry
+                    for entry in result.get("lacrados_pronta_entrega", [])
+                    if has_requested_capacity(entry)
+                ],
+                "lacrados": [
+                    entry for entry in result.get("lacrados", []) if has_requested_capacity(entry)
+                ],
+            }
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
     def _try_case_accessory_information(self, text: str) -> AgentDecision | None:
