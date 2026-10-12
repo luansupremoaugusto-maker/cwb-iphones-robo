@@ -2384,7 +2384,14 @@ jobs:
               async def get(self, product_id):
                   return None
 
-          settings = Settings(openai_api_key=None, google_sheets_enabled=True)
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=True,
+              mercado_cache_ttl_seconds=60,
+              google_sheets_cache_ttl_seconds=3600,
+              faq_path="/app/config/faq.yaml",
+          )
           sealed_catalog = EmptySealedCatalog()
           sealed_catalog.items = [
               InventoryItem(
