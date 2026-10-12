@@ -3313,7 +3313,11 @@ def _has_installment_rate_prompt(history: list[dict[str, str]] | None) -> bool:
 
 
 def _is_rate_model_followup(text: str, history: list[dict[str, str]] | None) -> bool:
-    if _is_installment_rate_question(text) or not _has_installment_rate_prompt(history):
+    if (
+        _is_photo_request(text)
+        or _is_installment_rate_question(text)
+        or not _has_installment_rate_prompt(history)
+    ):
         return False
     return _has_installment_product_context(text)
 
@@ -3382,8 +3386,12 @@ def _is_installment_model_followup(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> bool:
-    """Let a model/capacity answer continue an explicit installment prompt."""
-    return _has_installment_model_prompt(history) and _has_installment_product_context(text)
+    """Continue an installment prompt unless the customer explicitly requests photos."""
+    return (
+        not _is_photo_request(text)
+        and _has_installment_model_prompt(history)
+        and _has_installment_product_context(text)
+    )
 
 
 def _format_ambiguous_installment_decision(result: dict[str, Any]) -> AgentDecision | None:
