@@ -1487,6 +1487,37 @@ async def test_generic_iphone_list_filters_an_explicit_capacity(tmp_path):
     assert "IPHONE 15" in unfiltered.reply.upper()
     assert "IPHONE 17" in unfiltered.reply.upper()
 
+    missing = await agent.respond("Quais iPhones vocês têm de 512 GB?")
+
+    assert missing.handoff is False
+    assert missing.product_references == []
+    assert missing.image_urls == []
+    assert "iPhones com 512 GB disponíveis" in missing.reply
+    assert "encaminhar" not in missing.reply.lower()
+
+    sealed_missing = await agent.respond("Quais iPhones lacrados vocês têm de 512 GB?")
+
+    assert sealed_missing.handoff is False
+    assert sealed_missing.product_references == []
+    assert sealed_missing.image_urls == []
+    assert "iPhones lacrados com 512 GB disponíveis" in sealed_missing.reply
+    assert "encaminhar" not in sealed_missing.reply.lower()
+
+    mixed_family_missing = await agent.respond(
+        "Quais iPhones e iPads vocês têm de 512 GB?"
+    )
+
+    assert mixed_family_missing.handoff is False
+    assert "modelos com 512 GB disponíveis" in mixed_family_missing.reply
+    assert "iPhones com 512 GB disponíveis" not in mixed_family_missing.reply
+
+    sealed.items = []
+    no_sealed_stock = await agent.respond("Quais iPhones lacrados vocês têm de 512 GB?")
+
+    assert no_sealed_stock.handoff is False
+    assert "iPhones lacrados com 512 GB disponíveis" in no_sealed_stock.reply
+    assert "encaminhar" not in no_sealed_stock.reply.lower()
+
 
 @pytest.mark.asyncio
 async def test_generic_availability_followup_does_not_inherit_prior_sealed_offer(tmp_path):
