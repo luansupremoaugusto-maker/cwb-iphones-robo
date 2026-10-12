@@ -5993,6 +5993,66 @@ async def test_multi_model_interest_keeps_capacity_on_the_last_requested_model(t
 
 
 @pytest.mark.asyncio
+async def test_values_followup_preserves_models_asked_before_the_bot_replies(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 7600),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 10800),
+    ]
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Rafael, um ano se passou desde que você adquiriu seu aparelho conosco!"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Olá tenho interesse em um novo modelo do iPhone 17 pro Max lacrado "
+                "Você tem?"
+            ),
+        },
+        {"role": "user", "content": "E o 18 pro Max já tem?"},
+    ]
+
+    second_model_decision = await agent.respond(
+        "E o 18 pro Max já tem?",
+        history=history[:2],
+    )
+    assert set(second_model_decision.product_references) == {
+        "iphone-17-pro-max-256",
+        "iphone-18-pro-max-256",
+    }
+
+    decision = await agent.respond("Valores??", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-17-pro-max-256",
+        "iphone-18-pro-max-256",
+    }
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "iPhone 18 Pro Max" in decision.reply
+    assert "R$ 7.600,00" in decision.reply
+    assert "R$ 10.800,00" in decision.reply
+
+    answered_history = [
+        *history[:2],
+        {
+            "role": "assistant",
+            "content": "Encontrei o iPhone 17 Pro Max por R$ 7.600,00.",
+        },
+        history[2],
+    ]
+    after_bot_answer = await agent.respond("Valores??", history=answered_history)
+
+    assert after_bot_answer.product_references == ["iphone-18-pro-max-256"]
+    assert "iPhone 17 Pro Max" not in after_bot_answer.reply
+    assert "iPhone 18 Pro Max" in after_bot_answer.reply
+
+
+@pytest.mark.asyncio
 async def test_batched_used_iphone_request_keeps_available_pro_after_missing_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
