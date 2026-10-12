@@ -1079,6 +1079,40 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def _capacity_list_no_match_reply(text: str, *, sealed_only: bool = False) -> str | None:
+    requested_capacity_keys = _requested_capacity_keys(text)
+    if not requested_capacity_keys:
+        return None
+
+    normalized = _normalize(text)
+    other_family_requested = bool(
+        re.search(r"\b(?:ipads?|mac(?:books?)?|airpods?|apple\s+watch)\b", normalized)
+    )
+    is_iphone = bool(re.search(r"\biphones?\b", normalized))
+    if is_iphone and not other_family_requested:
+        subject = (
+            "iPhones lacrados"
+            if sealed_only or (_has_sealed_reference(normalized) and not _has_seminovo_reference(normalized))
+            else "iPhones"
+        )
+    else:
+        subject = "modelos novos/lacrados" if sealed_only else "modelos"
+
+    capacity_labels = [
+        re.sub(
+            r"(\d+(?:[.,]\d+)?)(gb|tb)",
+            lambda match: f"{match.group(1)} {match.group(2).upper()}",
+            capacity,
+            flags=re.IGNORECASE,
+        )
+        for capacity in requested_capacity_keys
+    ]
+    return (
+        f"No momento, não encontrei {subject} com {' e '.join(capacity_labels)} "
+        "disponíveis no catálogo. Posso verificar outras capacidades?"
+    )
+
+
 def _requested_capacity_key(text: str) -> str | None:
     keys = _requested_capacity_keys(text)
     return keys[0] if keys else None
@@ -5272,6 +5306,9 @@ class AgentService:
             lacrados_pronta_entrega = result.get("lacrados_pronta_entrega") or []
             lacrados = result.get("lacrados") or []
             if not lacrados_pronta_entrega and not lacrados:
+                capacity_no_match = _capacity_list_no_match_reply(text, sealed_only=True)
+                if capacity_no_match:
+                    return AgentDecision(reply=capacity_no_match, confidence="medium")
                 if _is_new_model_list_request(text):
                     return AgentDecision(
                         reply=(
@@ -5342,6 +5379,39 @@ class AgentService:
                         entry for entry in result.get("lacrados", []) if is_iphone_entry(entry)
                     ],
                 }
+        requested_capacity_keys = _requested_capacity_keys(text)
+        requested_capacities = set(requested_capacity_keys)
+        if requested_capacities:
+            def has_requested_capacity(entry: dict[str, Any]) -> bool:
+                capacities = _requested_capacity_keys(
+                    str(entry.get("capacidade") or entry.get("nome") or "")
+                )
+                return bool(requested_capacities.intersection(capacities))
+
+            result = {
+                **result,
+                "seminovos": [
+                    entry for entry in result.get("seminovos", []) if has_requested_capacity(entry)
+                ],
+                "lacrados_pronta_entrega": [
+                    entry
+                    for entry in result.get("lacrados_pronta_entrega", [])
+                    if has_requested_capacity(entry)
+                ],
+                "lacrados": [
+                    entry for entry in result.get("lacrados", []) if has_requested_capacity(entry)
+                ],
+            }
+            is_category_iphone_list = (
+                _is_generic_iphone_list_request(text) or sealed_iphone_only
+            )
+            if is_category_iphone_list and not any(
+                result.get(key)
+                for key in ("seminovos", "lacrados_pronta_entrega", "lacrados")
+            ):
+                capacity_no_match = _capacity_list_no_match_reply(text, sealed_only=sealed_only)
+                if capacity_no_match:
+                    return AgentDecision(reply=capacity_no_match, confidence="medium")
         return AgentDecision(reply=_format_available_products(result), confidence="high")
 
     def _try_case_accessory_information(self, text: str) -> AgentDecision | None:

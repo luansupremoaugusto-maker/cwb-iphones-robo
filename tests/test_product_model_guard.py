@@ -1421,6 +1421,105 @@ async def test_generic_iphone_models_request_lists_every_iphone_without_other_ca
 
 
 @pytest.mark.asyncio
+async def test_generic_iphone_list_filters_an_explicit_capacity(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("iphone-15-lacrado-256", "iPhone 15", "256 GB", 4100),
+        _sealed_item("iphone-17-lacrado-128", "iPhone 17", "128 GB", 5200),
+        _sealed_item("macbook-256", "MacBook Air", "256 GB", 4900),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-capacity-filter.json",
+        sealed_cache=sealed,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-256",
+            name="iPhone 14 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3080,
+            search_text="iphone 14 pro preto espacial 256 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-128",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3750,
+            search_text="iphone 16 preto 128 gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    filtered = await agent.respond("Qual são os iPhones que vocês tem de 256 Gb ?")
+
+    assert filtered.handoff is False
+    assert filtered.product_references == []
+    assert filtered.image_urls == []
+    assert "IPHONE 14 PRO" in filtered.reply.upper()
+    assert "IPHONE 15" in filtered.reply.upper()
+    assert "256 GB" in filtered.reply.upper()
+    assert "IPHONE 16" not in filtered.reply.upper()
+    assert "IPHONE 17" not in filtered.reply.upper()
+    assert "128 GB" not in filtered.reply.upper()
+    assert "MACBOOK" not in filtered.reply.upper()
+
+    unfiltered = await agent.respond("Quais iPhones vocês têm disponíveis?")
+
+    assert unfiltered.handoff is False
+    assert unfiltered.product_references == []
+    assert unfiltered.image_urls == []
+    assert "IPHONE 14 PRO" in unfiltered.reply.upper()
+    assert "IPHONE 16" in unfiltered.reply.upper()
+    assert "IPHONE 15" in unfiltered.reply.upper()
+    assert "IPHONE 17" in unfiltered.reply.upper()
+
+    missing = await agent.respond("Quais iPhones vocês têm de 512 GB?")
+
+    assert missing.handoff is False
+    assert missing.product_references == []
+    assert missing.image_urls == []
+    assert "iPhones com 512 GB disponíveis" in missing.reply
+    assert "encaminhar" not in missing.reply.lower()
+
+    sealed_missing = await agent.respond("Quais iPhones lacrados vocês têm de 512 GB?")
+
+    assert sealed_missing.handoff is False
+    assert sealed_missing.product_references == []
+    assert sealed_missing.image_urls == []
+    assert "iPhones lacrados com 512 GB disponíveis" in sealed_missing.reply
+    assert "encaminhar" not in sealed_missing.reply.lower()
+
+    mixed_family_missing = await agent.respond(
+        "Quais iPhones e iPads vocês têm de 512 GB?"
+    )
+
+    assert mixed_family_missing.handoff is False
+    assert "modelos com 512 GB disponíveis" in mixed_family_missing.reply
+    assert "iPhones com 512 GB disponíveis" not in mixed_family_missing.reply
+
+    sealed.items = []
+    no_sealed_stock = await agent.respond("Quais iPhones lacrados vocês têm de 512 GB?")
+
+    assert no_sealed_stock.handoff is False
+    assert "iPhones lacrados com 512 GB disponíveis" in no_sealed_stock.reply
+    assert "encaminhar" not in no_sealed_stock.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_generic_availability_followup_does_not_inherit_prior_sealed_offer(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
