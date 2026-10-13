@@ -4272,6 +4272,69 @@ def _product_interest_model_context(
     return model, _product_interest_default_condition(previous_assistant)
 
 
+_CATALOG_BATTERY_UNIT_SELECTION_RE = re.compile(
+    r"^\s*(?:quero|queria|vou\s+querer|prefiro|escolho|escolheria|"
+    r"fico\s+com|vou\s+ficar\s+com)\s+"
+    r"(?:(?:a|o|uma|um|essa|esse|esta|este)\s+)?(?:de\s+)?"
+    r"(?P<health>\d{1,3}(?:[.,]\d+)?)\s*(?:%|por\s+cento)?[.!?]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _catalog_battery_unit_selection_query(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Resolve a short battery-health choice against the immediately offered unit."""
+    match = _CATALOG_BATTERY_UNIT_SELECTION_RE.fullmatch(text or "")
+    if not match or not history or history[-1].get("role") != "assistant":
+        return None
+
+    try:
+        requested_health = float(match.group("health").replace(",", "."))
+    except ValueError:
+        return None
+    if not 0 <= requested_health <= 100:
+        return None
+
+    offer = history[-1].get("content", "")
+    models = _requested_iphone_model_keys(offer)
+    capacities = _requested_capacity_keys(offer)
+    has_seminovo = _has_seminovo_reference(offer)
+    has_sealed = _has_explicit_sealed_condition(offer)
+    if len(models) != 1 or len(capacities) != 1 or has_seminovo == has_sealed:
+        return None
+
+    offered_healths: list[float] = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\r?\n", offer):
+        normalized_sentence = _normalize(sentence)
+        if not re.search(r"\bbateria\b", normalized_sentence):
+            continue
+        for health_match in re.finditer(
+            r"\b(\d{1,3}(?:[.,]\d+)?)\s*(?:%|por\s+cento)(?!\w)",
+            normalized_sentence,
+        ):
+            try:
+                offered_health = float(health_match.group(1).replace(",", "."))
+            except ValueError:
+                continue
+            if 0 <= offered_health <= 100:
+                offered_healths.append(round(offered_health, 2))
+
+    if offered_healths.count(round(requested_health, 2)) != 1:
+        return None
+
+    model_number, variant = models[0]
+    model_label = f"iPhone {model_number}"
+    if variant:
+        model_label += f" {variant}"
+    condition = "seminovo" if has_seminovo else "lacrado"
+    return (
+        f"{model_label} {capacities[0].upper()} {condition} "
+        f"bateria {requested_health:g}%"
+    )
+
+
 def _battery_detail_context_query(text: str, history: list[dict[str, str]] | None) -> str | None:
     normalized = _normalize(text)
     model_reference = _extract_bare_catalog_model_reference(text)
@@ -6074,6 +6137,10 @@ class AgentService:
         image_description: str | None = None,
         allow_buyer_interest_with_image: bool = False,
     ) -> AgentDecision | None:
+        battery_unit_selection_query = _catalog_battery_unit_selection_query(
+            text,
+            history,
+        )
         ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
             text,
             history,
@@ -6082,9 +6149,15 @@ class AgentService:
         # selection, even when it contains availability wording such as
         # "tem um 11 verde". Let the photo resolver preserve that context.
         capacity_availability_followup = _is_capacity_availability_followup(text, history)
-        if _is_photo_context_followup(text, history) and not capacity_availability_followup:
+        if (
+            _is_photo_context_followup(text, history)
+            and not capacity_availability_followup
+            and battery_unit_selection_query is None
+        ):
             return None
         current_query = _current_catalog_context(text, image_description)
+        if battery_unit_selection_query is not None:
+            current_query = battery_unit_selection_query
         installment_budget_context = (
             _customer_product_request_context_query(text, history)
             if _is_installment_budget_options_request(text, history)
@@ -6093,10 +6166,10 @@ class AgentService:
         product_interest_context = _product_interest_model_context(text, history)
         selected_model = product_interest_context[0] if product_interest_context else None
         default_condition = product_interest_context[1] if product_interest_context else None
-        selection_context_used = bool(
+        selection_context_used = battery_unit_selection_query is not None or bool(
             selected_model and not _has_product_reference(_normalize(current_query))
         )
-        if selection_context_used:
+        if selection_context_used and battery_unit_selection_query is None:
             normalized_text = _normalize(text)
             selected_conditions: list[str] = []
             if _has_seminovo_reference(normalized_text):
@@ -6137,6 +6210,7 @@ class AgentService:
                 or _is_catalog_availability_confirmation(current_query, history)
                 or _is_catalog_model_confirmation(current_query, history)
                 or capacity_availability_followup
+                or battery_unit_selection_query is not None
                 or _is_contextual_pronta_entrega_followup(current_query, history)
             )
         ):
@@ -6188,6 +6262,7 @@ class AgentService:
                 buyer_interest_text=text,
             )
             or _is_contextual_pronta_entrega_followup(text, history)
+            or battery_unit_selection_query is not None
         ):
             return None
 
