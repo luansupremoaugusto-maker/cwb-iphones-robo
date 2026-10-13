@@ -388,6 +388,71 @@ async def test_contextual_installment_question_returns_full_table(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_general_installment_question_after_multi_model_list_answers_payment_policy(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-pro-128-black-used",
+            name="iPhone 14 Pro",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2910.0,
+            battery_health=92,
+            search_text="iphone 14 pro preto espacial 128 gb seminovo bateria 92",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-256-black-used",
+            name="iPhone 14 Pro",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO ESPACIAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3080.0,
+            battery_health=84,
+            search_text="iphone 14 pro preto espacial 256 gb seminovo bateria 84",
+        ),
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "e como funciona o parcelamento? da pra parcelar em quantas vezes?",
+        history=[
+            {
+                "role": "user",
+                "content": "queria mais informações sobre os iphones disponíveis 14 normal 14 pro e 15",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Boa noite! 😊 Entre esses modelos, temos disponíveis:\n"
+                    "📱 iPhone 14 Pro seminovo, preto espacial, 128GB — bateria 92% — R$ 2.910\n"
+                    "📱 iPhone 14 Pro seminovo, preto espacial, 256GB — bateria 84% — R$ 3.080\n"
+                    "No momento, não encontrei iPhone 14 normal nem iPhone 15 disponíveis no catálogo. "
+                    "Se quiser, também posso te passar opções de modelos próximos."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "em até 18 vezes" in decision.reply
+    assert "máquina física" in decision.reply
+    assert "variáveis conforme" in decision.reply
+    assert "Lista completa de produtos" not in decision.reply
+    assert "AirPods" not in decision.reply
+    assert "Não localizei esse produto" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_installment_count_followup_keeps_capacity_from_previous_simulation(tmp_path):
     cache, settings = build_cache(tmp_path)
     cache.items = [

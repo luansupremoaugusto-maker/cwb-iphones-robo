@@ -3572,6 +3572,32 @@ def _strip_catalog_history_constraints(value: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def _has_recent_specific_installment_selection(
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Keep a customer's specific model choice across later delivery questions."""
+    for item in reversed(history or []):
+        if item.get("role") != "user":
+            continue
+        selection = item.get("content", "").strip()
+        if not selection or is_trade_in_request(selection):
+            continue
+        models = _requested_iphone_model_keys(selection)
+        if not models:
+            continue
+        if len(models) != 1:
+            return False
+        normalized = _normalize(selection)
+        return bool(
+            len(_requested_capacity_keys(selection)) == 1
+            or _requested_battery_health(selection) is not None
+            or _requested_catalog_colors(selection, [])
+            or _has_explicit_sealed_condition(normalized)
+            or _has_seminovo_reference(normalized)
+        )
+    return False
+
+
 def _installment_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -5243,7 +5269,14 @@ class AgentService:
             return await self._try_payment_link(text, history)
 
         contextual_query = _installment_context_query(text, history)
-        if _has_product_reference(_normalize(contextual_query)):
+        has_single_product = (
+            len(_requested_iphone_model_keys(contextual_query)) == 1
+            and (
+                len(_requested_capacity_keys(contextual_query)) == 1
+                or _has_recent_specific_installment_selection(history)
+            )
+        )
+        if has_single_product:
             installment = await self._try_full_installment_table(text, history)
             if installment is not None:
                 return installment
