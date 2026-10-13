@@ -3572,6 +3572,69 @@ def _strip_catalog_history_constraints(value: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def _has_recent_specific_installment_selection(
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Keep a customer's specific model choice across later delivery questions."""
+    for item in reversed(history or []):
+        if item.get("role") != "user":
+            continue
+        selection = item.get("content", "").strip()
+        if not selection or is_trade_in_request(selection):
+            continue
+        models = _requested_iphone_model_keys(selection)
+        if not models:
+            continue
+        if len(models) != 1:
+            return False
+        normalized = _normalize(selection)
+        return bool(
+            len(_requested_capacity_keys(selection)) == 1
+            or _requested_battery_health(selection) is not None
+            or _requested_catalog_colors(selection, [])
+            or _has_explicit_sealed_condition(normalized)
+            or _has_seminovo_reference(normalized)
+        )
+    return False
+
+
+def _requested_installment_product_keys(value: str) -> tuple[str, ...]:
+    """Return specific product models for catalog families with installment pricing."""
+    families = _catalog_families(value)
+    if len(families) != 1:
+        return ()
+
+    family = families[0]
+    if family == "iphone":
+        return tuple(str(model) for model in _requested_iphone_model_keys(value))
+    if family == "ipad":
+        return _requested_ipad_model_keys(value)
+
+    patterns = {
+        "macbook": (
+            r"\bmacbooks?\s+(?:air|pro|neo)(?:\s+m\d+)?"
+            r"(?:\s+\d{2}(?:\s*(?:inch|in|pol))?)?\b"
+        ),
+        "airpods": (
+            r"\bair\s*pods?\s+(?:pro(?:\s+\d+)?|max(?:\s+\d+)?|"
+            r"\d+(?:\s+(?:anc|usb\s*c))?)\b"
+        ),
+        "apple_watch": (
+            r"\bapple\s+watch\s+(?:(?:series|se|ultra)\s+\d+|se|ultra)"
+            r"(?:\s+\d{2}\s*mm)?\b"
+        ),
+    }
+    pattern = patterns.get(family)
+    if not pattern:
+        return ()
+    return tuple(
+        dict.fromkeys(
+            re.sub(r"\s+", " ", match.group(0)).strip()
+            for match in re.finditer(pattern, _normalize(value))
+        )
+    )
+
+
 def _installment_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -5243,7 +5306,25 @@ class AgentService:
             return await self._try_payment_link(text, history)
 
         contextual_query = _installment_context_query(text, history)
-        if _has_product_reference(_normalize(contextual_query)):
+        requested_families = _catalog_families(contextual_query)
+        single_product_key = _requested_installment_product_keys(contextual_query)
+        family_has_model_key_without_capacity = requested_families in (
+            ("macbook",),
+            ("airpods",),
+            ("apple_watch",),
+        )
+        has_single_product = (
+            len(single_product_key) == 1
+            and (
+                len(_requested_capacity_keys(contextual_query)) == 1
+                or (
+                    requested_families == ("iphone",)
+                    and _has_recent_specific_installment_selection(history)
+                )
+                or family_has_model_key_without_capacity
+            )
+        )
+        if has_single_product:
             installment = await self._try_full_installment_table(text, history)
             if installment is not None:
                 return installment
