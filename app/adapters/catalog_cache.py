@@ -999,7 +999,16 @@ class StoreCatalogCache(InventoryCache):
             else:
                 return None
 
-        target_capacity = _capacity_key(query)
+        current_photo_color = re.search(
+            r"(?im)^\s*foto_cor_atual\s*:",
+            str(query or ""),
+        )
+        target_capacity = _explicit_capacity_hint(query)
+        if target_capacity is None and current_photo_color is None:
+            # A color-only follow-up selects a unit from the previous product
+            # list. Do not let that list's first capacity override the color;
+            # an explicitly selected current capacity still uses the hint above.
+            target_capacity = _capacity_key(query)
         if target_capacity is not None:
             candidates = [
                 item

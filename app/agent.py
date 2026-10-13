@@ -7167,7 +7167,7 @@ class AgentService:
         if len(explicit_capacity_keys) != 1:
             explicit_capacity_keys = _requested_capacity_keys(image_description or "")
         if len(explicit_capacity_keys) == 1:
-            query = f"capacidade solicitada {explicit_capacity_keys[0]}\n{query}".strip()
+            query = f"capacidade solicitada: {explicit_capacity_keys[0]}\n{query}".strip()
         current_color = _current_catalog_color(
             text,
             list(getattr(self.cache, "items", []) or []),
@@ -7359,7 +7359,7 @@ class AgentService:
                 )
                 if len(explicit_capacity_keys) == 1:
                     relaxed_query = (
-                        f"capacidade solicitada {explicit_capacity_keys[0]}\n{relaxed_query}"
+                        f"capacidade solicitada: {explicit_capacity_keys[0]}\n{relaxed_query}"
                     ).strip()
                 relaxed_query = f"foto_cor_atual: {current_color}\n{relaxed_query}".strip()
                 if relaxed_query != query:

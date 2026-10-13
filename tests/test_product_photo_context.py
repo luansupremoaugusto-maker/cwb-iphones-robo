@@ -1026,6 +1026,78 @@ async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_ultramarine_photo_followup_ignores_first_capacity_in_previous_list(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-16-ultramarino.json",
+        sealed_cache=None,
+    )
+    black_256_url = "https://photos.example/iphone-16-black-256.jpg"
+    ultramarine_128_url = "https://photos.example/iphone-16-ultramarino-128.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-black-256",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3850.0,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 16 preto 256 gb celular seminovo",
+            photo_urls=[black_256_url],
+        ),
+        InventoryItem(
+            external_id="iphone-16-ultramarino-128",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="128GB",
+            color="ULTRAMARINO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3630.0,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iphone 16 ultramarino 128 gb celular seminovo",
+            photo_urls=[ultramarine_128_url],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Pode me manda umas fotos do ultramarino",
+        history=[
+            {"role": "user", "content": "Queria saber do 16 normal"},
+            {"role": "user", "content": "Quantos q está saindo"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Olá! Tudo bem 😊 O iPhone 16 normal está assim:\n"
+                    "Seminovos em estoque:\n"
+                    "• 256 GB, preto, bateria 88%: R$ 3.850\n"
+                    "• 128 GB, preto, bateria 90%: R$ 3.750\n"
+                    "• 128 GB, preto, bateria 88%: R$ 3.630\n"
+                    "• 128 GB, ultramarino, bateria 90%: R$ 3.630\n"
+                    "Novo lacrado: 128 GB por R$ 4.700."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [ultramarine_128_url], decision.reply
+    assert decision.product_references == ["iphone-16-ultramarino-128"]
+    assert black_256_url not in decision.image_urls
+
+
+@pytest.mark.asyncio
 async def test_blue_iphone_15_photo_followup_uses_latest_model_after_iphone_14_photo_history(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
