@@ -3598,6 +3598,43 @@ def _has_recent_specific_installment_selection(
     return False
 
 
+def _requested_installment_product_keys(value: str) -> tuple[str, ...]:
+    """Return specific product models for catalog families with installment pricing."""
+    families = _catalog_families(value)
+    if len(families) != 1:
+        return ()
+
+    family = families[0]
+    if family == "iphone":
+        return tuple(str(model) for model in _requested_iphone_model_keys(value))
+    if family == "ipad":
+        return _requested_ipad_model_keys(value)
+
+    patterns = {
+        "macbook": (
+            r"\bmacbooks?\s+(?:air|pro|neo)(?:\s+m\d+)?"
+            r"(?:\s+\d{2}(?:\s*(?:inch|in|pol))?)?\b"
+        ),
+        "airpods": (
+            r"\bair\s*pods?\s+(?:pro(?:\s+\d+)?|max(?:\s+\d+)?|"
+            r"\d+(?:\s+(?:anc|usb\s*c))?)\b"
+        ),
+        "apple_watch": (
+            r"\bapple\s+watch\s+(?:(?:series|se|ultra)\s+\d+|se|ultra)"
+            r"(?:\s+\d{2}\s*mm)?\b"
+        ),
+    }
+    pattern = patterns.get(family)
+    if not pattern:
+        return ()
+    return tuple(
+        dict.fromkeys(
+            re.sub(r"\s+", " ", match.group(0)).strip()
+            for match in re.finditer(pattern, _normalize(value))
+        )
+    )
+
+
 def _installment_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -5269,11 +5306,22 @@ class AgentService:
             return await self._try_payment_link(text, history)
 
         contextual_query = _installment_context_query(text, history)
+        requested_families = _catalog_families(contextual_query)
+        single_product_key = _requested_installment_product_keys(contextual_query)
+        family_has_model_key_without_capacity = requested_families in (
+            ("macbook",),
+            ("airpods",),
+            ("apple_watch",),
+        )
         has_single_product = (
-            len(_requested_iphone_model_keys(contextual_query)) == 1
+            len(single_product_key) == 1
             and (
                 len(_requested_capacity_keys(contextual_query)) == 1
-                or _has_recent_specific_installment_selection(history)
+                or (
+                    requested_families == ("iphone",)
+                    and _has_recent_specific_installment_selection(history)
+                )
+                or family_has_model_key_without_capacity
             )
         )
         if has_single_product:

@@ -449,6 +449,85 @@ async def test_general_installment_question_after_multi_model_list_answers_payme
     assert "variáveis conforme" in decision.reply
     assert "Lista completa de produtos" not in decision.reply
     assert "AirPods" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_question_after_specific_ipad_offer_returns_table(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:ipad-11-128",
+            name="iPad 11 A16",
+            capacity="128 GB",
+            price_brl=3100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 11 a16 128 gb novo lacrado",
+        )
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vocês parcelam em quantas vezes?",
+        history=[
+            {
+                "role": "assistant",
+                "content": "iPad 11 A16 128 GB novo lacrado por R$ 3.100,00.",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPad 11 A16 128 GB" in decision.reply
+    assert "Preço à vista: R$ 3.100,00" in decision.reply
+    assert "1x de" in decision.reply
+    assert "18x de" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_general_installment_question_after_multi_ipad_offer_answers_payment_policy(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:ipad-10-128",
+            name="iPad 10",
+            capacity="128 GB",
+            price_brl=2700.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 10 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:ipad-11-128",
+            name="iPad 11 A16",
+            capacity="128 GB",
+            price_brl=3100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 11 a16 128 gb novo lacrado",
+        ),
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vocês parcelam em quantas vezes?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos iPad 10 128 GB por R$ 2.700,00 e iPad 11 A16 128 GB "
+                    "por R$ 3.100,00."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "em até 18 vezes" in decision.reply
+    assert "Parcelamento do iPad" not in decision.reply
     assert "Não localizei esse produto" not in decision.reply
 
 
