@@ -4285,7 +4285,7 @@ def _catalog_battery_unit_selection_query(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> str | None:
-    """Resolve a short battery-health choice against the immediately offered unit."""
+    """Resolve a short battery-health choice against the recent product offer."""
     match = _CATALOG_BATTERY_UNIT_SELECTION_RE.fullmatch(text or "")
     if not match or not history or history[-1].get("role") != "assistant":
         return None
@@ -4297,16 +4297,9 @@ def _catalog_battery_unit_selection_query(
     if not 0 <= requested_health <= 100:
         return None
 
-    offer = history[-1].get("content", "")
-    models = _requested_iphone_model_keys(offer)
-    capacities = _requested_capacity_keys(offer)
-    has_seminovo = _has_seminovo_reference(offer)
-    has_sealed = _has_explicit_sealed_condition(offer)
-    if len(models) != 1 or len(capacities) != 1 or has_seminovo == has_sealed:
-        return None
-
+    latest_offer = history[-1].get("content", "")
     offered_healths: list[float] = []
-    for sentence in re.split(r"(?<=[.!?])\s+|\r?\n", offer):
+    for sentence in re.split(r"(?<=[.!?])\s+|\r?\n", latest_offer):
         normalized_sentence = _normalize(sentence)
         if not re.search(r"\bbateria\b", normalized_sentence):
             continue
@@ -4324,13 +4317,71 @@ def _catalog_battery_unit_selection_query(
     if offered_healths.count(round(requested_health, 2)) != 1:
         return None
 
-    model_number, variant = models[0]
+    latest_seminovo = _has_seminovo_reference(latest_offer)
+    latest_sealed = _has_explicit_sealed_condition(latest_offer)
+    if latest_seminovo and latest_sealed:
+        return None
+    latest_condition = (
+        "seminovo" if latest_seminovo else "lacrado" if latest_sealed else None
+    )
+
+    recent_entries = list(enumerate(history[max(0, len(history) - 8) :], start=max(0, len(history) - 8)))
+    context: tuple[tuple[int | str, str], str, str] | None = None
+    for context_index, entry in reversed(recent_entries):
+        if entry.get("role") != "assistant":
+            continue
+        candidate_offer = entry.get("content", "")
+        models = _requested_iphone_model_keys(candidate_offer)
+        capacities = _requested_capacity_keys(candidate_offer)
+        candidate_seminovo = _has_seminovo_reference(candidate_offer)
+        candidate_sealed = _has_explicit_sealed_condition(candidate_offer)
+        if (
+            len(models) != 1
+            or len(capacities) != 1
+            or candidate_seminovo == candidate_sealed
+        ):
+            continue
+
+        candidate_condition = "seminovo" if candidate_seminovo else "lacrado"
+        if latest_condition and latest_condition != candidate_condition:
+            continue
+
+        context_is_stale = False
+        for _user_index, user_entry in recent_entries:
+            if not (context_index < _user_index < len(history) - 1):
+                continue
+            if user_entry.get("role") != "user":
+                continue
+            user_content = user_entry.get("content", "")
+            user_families = _catalog_families(user_content)
+            user_models = _requested_iphone_model_keys(user_content)
+            user_capacities = _requested_capacity_keys(user_content)
+            if (
+                (user_families and user_families != ("iphone",))
+                or (
+                    _has_product_reference(_normalize(user_content))
+                    and user_models
+                    and user_models != models
+                )
+                or (user_capacities and user_capacities != capacities)
+            ):
+                context_is_stale = True
+                break
+        if context_is_stale:
+            continue
+
+        context = (models[0], capacities[0], latest_condition or candidate_condition)
+        break
+
+    if context is None:
+        return None
+
+    (model_number, variant), capacity, condition = context
     model_label = f"iPhone {model_number}"
     if variant:
         model_label += f" {variant}"
-    condition = "seminovo" if has_seminovo else "lacrado"
     return (
-        f"{model_label} {capacities[0].upper()} {condition} "
+        f"{model_label} {capacity.upper()} {condition} "
         f"bateria {requested_health:g}%"
     )
 
