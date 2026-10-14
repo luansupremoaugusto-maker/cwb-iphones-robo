@@ -2268,6 +2268,72 @@ jobs:
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.trade_in import PARTS_BUYBACK_REPLY, TRADE_IN_FORM
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/iphone-14-pro-upgrade-context-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          history = [
+              {"role": "user", "content": "oii, tudo bem?"},
+              {
+                  "role": "assistant",
+                  "content": "Oi! Tudo bem 😊 E com você? Como posso te ajudar?",
+              },
+              {
+                  "role": "user",
+                  "content": (
+                      "gostaria de me informar sobre valores e saber como funciona "
+                      "o upgrade do aparelho antigo"
+                  ),
+              },
+          ]
+
+          async def verify():
+              text = "meu aparelho atual é um 14 pro com 76% de bateria e 128GB"
+              decision = await service.respond(text, history=history)
+              assert decision.reply == TRADE_IN_FORM, decision
+              assert decision.handoff and decision.product_references == []
+              assert decision.image_urls == []
+
+              catalog = await service.respond(
+                  "Quanto custa o iPhone 14 Pro de 128 GB?", history=history
+              )
+              assert catalog.reply != TRADE_IN_FORM, catalog
+
+              repair = await service.respond(
+                  "Meu aparelho atual é um 14 Pro com 76% de bateria e 128 GB; "
+                  "preciso trocar só a bateria.",
+                  history=history,
+              )
+              assert repair.reply != TRADE_IN_FORM, repair
+
+              parts = await service.respond(
+                  "Vocês compram só a bateria do iPhone 14 Pro?", history=history
+              )
+              assert parts.reply == PARTS_BUYBACK_REPLY and not parts.handoff, parts
+
+          asyncio.run(verify())
+          print("IPHONE_14_PRO_CONTEXTUAL_UPGRADE_EVALUATION_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
