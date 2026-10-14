@@ -2791,6 +2791,69 @@ jobs:
           assert "128 GB" not in decision.reply.upper(), decision.reply
           print("IPHONE_CAPACITY_LIST_FILTER_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService, _normalize
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/first-iphone-budget-negation-guard.json",
+              sealed_cache=None,
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-15-pro-under-budget",
+                  name="iPhone 15 Pro",
+                  category="Celular",
+                  capacity="256GB",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=4800,
+                  source="mercado_phone",
+                  search_text="iphone 15 pro 256gb seminovo celular",
+              ),
+              InventoryItem(
+                  external_id="iphone-17-pro-over-budget",
+                  name="iPhone 17 Pro",
+                  category="Celular",
+                  capacity="256GB",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=5200,
+                  source="mercado_phone",
+                  search_text="iphone 17 pro 256gb seminovo celular",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+          budget = asyncio.run(
+              service.respond("É meu primeiro iPhone e quero comprar até R$ 5.000")
+          )
+          assert not budget.handoff, budget
+          assert budget.product_references == ["iphone-15-pro-under-budget"], budget
+          assert "R$ 4.800,00" in budget.reply, budget.reply
+          assert "iPhone 17 Pro" not in budget.reply, budget.reply
+
+          negated = asyncio.run(
+              service.respond("Não é meu primeiro iPhone, mas quero comprar um novo")
+          )
+          assert "como e seu primeiro iphone" not in _normalize(negated.reply), negated.reply
+          print("FIRST_IPHONE_BUDGET_NEGATION_ROUTING_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

@@ -216,6 +216,56 @@ async def test_first_iphone_purchase_deadline_asks_before_listing_catalog(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_first_iphone_with_explicit_budget_returns_matching_catalog_items(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache = None
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-under-budget",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4800,
+            source="mercado_phone",
+            search_text="iphone 15 pro 256gb seminovo celular",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-over-budget",
+            name="iPhone 17 Pro",
+            category="Celular",
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            source="mercado_phone",
+            search_text="iphone 17 pro 256gb seminovo celular",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond("É meu primeiro iPhone e quero comprar até R$ 5.000")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-pro-under-budget"]
+    assert "iPhone 15 Pro" in decision.reply
+    assert "R$ 4.800,00" in decision.reply
+    assert "iPhone 17 Pro" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_negated_first_iphone_claim_does_not_receive_first_time_reply(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Não é meu primeiro iPhone, mas quero comprar um novo")
+
+    assert "como e seu primeiro iphone" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_orcamento_do_iphone_15_pro_max_nao_vira_limite_de_15_reais(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
