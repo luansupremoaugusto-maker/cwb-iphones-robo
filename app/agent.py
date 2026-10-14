@@ -430,6 +430,33 @@ def _visual_iphone_model_keys(
     return tuple(models)
 
 
+def _visual_iphone_model_segments(
+    image_description: str,
+) -> dict[tuple[int | str, str], tuple[str, ...]]:
+    """Keep each product's visual attributes with its labeled iPhone model."""
+    normalized = _normalize(image_description)
+    mentions: list[tuple[tuple[int | str, str], int]] = []
+    for match in _MODEL_PATTERN.finditer(normalized):
+        if not match.group(0).lower().startswith("iphone"):
+            continue
+        legacy = match.group("legacy")
+        model = (
+            (legacy.lower(), "")
+            if legacy
+            else (
+                int(match.group("number")),
+                " ".join((match.group("variant") or "").split()).lower(),
+            )
+        )
+        mentions.append((model, match.start()))
+
+    segments: dict[tuple[int | str, str], list[str]] = {}
+    for index, (model, start) in enumerate(mentions):
+        end = mentions[index + 1][1] if index + 1 < len(mentions) else len(normalized)
+        segments.setdefault(model, []).append(normalized[start:end].strip(" ,;"))
+    return {model: tuple(values) for model, values in segments.items()}
+
+
 def _explicit_image_availability_query(
     text: str,
     image_description: str | None,
@@ -1368,7 +1395,7 @@ _COMMON_CATALOG_COLOR_NAMES = (
 
 def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
     """Find color names in a customer request, even when none are in stock."""
-    normalized = _normalize(text)
+    normalized = re.sub(r"\s*[-‐‑–—]\s*", " ", _normalize(text))
     if not normalized:
         return ()
 
@@ -1378,7 +1405,7 @@ def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:
     }
     matches: list[tuple[int, int, str]] = []
     for color in known_colors:
-        normalized_color = _normalize(color).strip()
+        normalized_color = re.sub(r"\s*[-‐‑–—]\s*", " ", _normalize(color)).strip()
         if not normalized_color:
             continue
         match = re.search(
@@ -7136,14 +7163,86 @@ class AgentService:
             *list(getattr(self.cache, "items", []) or []),
             *list(getattr(getattr(self.cache, "sealed_cache", None), "items", []) or []),
         ]
-        requested_model_scopes = (
-            _requested_model_attribute_scopes(
+        requested_model_scopes = {}
+        if len(requested_models) > 1:
+            requested_model_scopes = _requested_model_attribute_scopes(
                 requested_model_segments,
                 model_attribute_items,
             )
-            if len(requested_models) > 1
+
+        visual_context = image_description or ""
+        image_history_index: int | None = None
+        if not visual_context:
+            for index in range(len(history or []) - 1, -1, -1):
+                entry = (history or [])[index]
+                content = entry.get("content", "").strip()
+                if entry.get("role") == "user" and _is_image_history_entry(content):
+                    visual_context = content
+                    image_history_index = index
+                    break
+        visual_model_segments = (
+            _visual_iphone_model_segments(visual_context)
+            if visual_context
             else {}
         )
+        visual_model_scope_applied = False
+        visual_model_scoped_colors: tuple[str, ...] = ()
+        has_later_user_colors = False
+        if (
+            len(requested_models) == 1
+            and not _is_other_color_request(text)
+            and not _is_catalog_color_list_request(text)
+        ):
+            selected_model = requested_models[0]
+            selected_visual_segments = visual_model_segments.get(selected_model, ())
+            later_user_messages = [
+                entry.get("content", "").strip()
+                for index, entry in enumerate(history or [])
+                if image_history_index is not None
+                and index > image_history_index
+                and entry.get("role") == "user"
+                and entry.get("content", "").strip()
+                and not _is_image_history_entry(entry.get("content", ""))
+            ]
+            has_later_user_colors = any(
+                _requested_catalog_colors(message, model_attribute_items)
+                for message in later_user_messages
+            )
+            has_later_user_capacities = any(
+                _requested_capacity_keys(message)
+                for message in later_user_messages
+            )
+            if selected_visual_segments:
+                visual_scopes = _requested_model_attribute_scopes(
+                    {selected_model: selected_visual_segments},
+                    model_attribute_items,
+                ).get(selected_model, ())
+                explicit_text_colors = _requested_catalog_colors(text, model_attribute_items)
+                explicit_text_capacities = _requested_capacity_keys(text)
+                scoped_visual_attributes = []
+                scoped_colors: list[str] = []
+                for segment, capacities, colors in visual_scopes:
+                    if explicit_text_capacities or has_later_user_capacities:
+                        capacities = ()
+                    if (
+                        explicit_text_colors
+                        or has_later_user_colors
+                        or explicit_text_capacities
+                        or has_later_user_capacities
+                    ):
+                        colors = ()
+                    if capacities or colors:
+                        scoped_visual_attributes.append((segment, capacities, colors))
+                    for color in colors:
+                        if color not in scoped_colors:
+                            scoped_colors.append(color)
+                requested_model_scopes = (
+                    {selected_model: tuple(scoped_visual_attributes)}
+                    if scoped_visual_attributes
+                    else {}
+                )
+                visual_model_scope_applied = True
+                visual_model_scoped_colors = tuple(scoped_colors)
 
         def matches_model_attributes(
             item: Any,
@@ -7276,6 +7375,12 @@ class AgentService:
                     customer_request_context,
                     color_catalog_items,
                 )
+        if (
+            visual_model_scope_applied
+            and not _requested_catalog_colors(text, color_catalog_items)
+            and not has_later_user_colors
+        ):
+            requested_catalog_colors = visual_model_scoped_colors
         color_either_or_request = (
             not exploring_colors
             and _is_catalog_color_either_or_request(
