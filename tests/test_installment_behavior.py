@@ -113,11 +113,54 @@ def test_installment_budget_parser_uses_latest_revised_ceiling():
     [
         ("iPhone 16 Pro Max 91 de bateria", 91.0),
         ("iPhone 16 Pro Max com bateria de 91%", 91.0),
+        ("O de 91 a saúde da bateria", 91.0),
         ("91 de bateria, depois 89% de bateria", 89.0),
     ],
 )
 def test_requested_battery_health_accepts_customer_word_order(text, expected):
     assert _requested_battery_health(text) == expected
+
+
+@pytest.mark.asyncio
+async def test_battery_choice_after_installment_offer_simulates_selected_iphone14(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id=f"iphone-14-128-battery-{battery}",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            battery_health=battery,
+            search_text=f"iphone 14 azul 128 gb seminovo bateria {battery}",
+        )
+        for battery in (90, 91)
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    offer = (
+        "O iPhone 14 seminovo de 128 GB está por R$ 1.870. Temos duas unidades, "
+        "uma com 90% e outra com 91% de saúde da bateria. Qual delas você quer "
+        "que eu use para simular as parcelas?"
+    )
+
+    decision = await agent.respond(
+        "O de 91 a saúde da bateria",
+        history=[
+            {"role": "user", "content": "Em quantas vezes vc faz o iPhone 14"},
+            {"role": "assistant", "content": offer},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "parcelamento do iphone 14 128 gb" in decision.reply.lower()
+    assert "preço à vista: r$ 1.870,00" in decision.reply.lower()
+    assert "qual delas você quer simular" not in decision.reply.lower()
+    assert "iphone 91" not in decision.reply.lower()
 
 
 @pytest.mark.asyncio
