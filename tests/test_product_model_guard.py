@@ -480,6 +480,54 @@ async def test_iphone15_price_followup_after_photos_keeps_seminovo_context(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_iphone14_price_followup_after_photo_request_keeps_model_context(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-14-128-seminovo",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            battery_health=91,
+            photo_urls=["https://photos.example/iphone-14-azul-128.jpg"],
+            search_text="iphone 14 azul 128 gb celular seminovo bateria 91",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(
+        "E qual o valor dele?",
+        history=[
+            {
+                "role": "user",
+                "content": "E queria saber se vc consegue me mandar fotos do iPhone 14",
+            },
+            {
+                "role": "assistant",
+                "content": "Claro! Seguem as fotos do IPHONE 14 128GB.",
+            },
+            {"role": "assistant", "content": "[imagem enviada]"},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-14-128-seminovo"]
+    assert "iPhone 14" in decision.reply
+    assert "1.870,00" in decision.reply
+    assert decision.reply != CATALOG_BUYER_DETAILS_REPLY
+
+
+def test_battery_health_followup_number_is_not_extracted_as_iphone_model():
+    assert _extract_bare_catalog_model_reference("O de 91 a saúde da bateria") is None
+
+
+@pytest.mark.asyncio
 async def test_iphone15_explicit_photo_and_sealed_requests_keep_their_conditions(tmp_path):
     agent = _iphone15_price_followup_agent(tmp_path)
 

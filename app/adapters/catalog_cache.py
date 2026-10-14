@@ -531,6 +531,15 @@ def _requested_battery_health(value: Any) -> float | None:
             flags=re.IGNORECASE,
         )
     )
+    matches.extend(
+        (match.start(), match.group(1))
+        for match in re.finditer(
+            r"\b(\d{1,3}(?:[.,]\d+)?)\s+(?:(?:a|de)\s+)?"
+            r"saude(?:\s+da)?\s+bateria\b",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
     if not matches:
         return None
     return _battery_key(max(matches, key=lambda match: match[0])[1])

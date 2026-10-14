@@ -486,6 +486,32 @@ def _is_catalog_followup(text: str) -> bool:
     )
 
 
+def _is_catalog_price_followup(text: str) -> bool:
+    normalized = _normalize(text)
+    if not re.search(
+        r"\b(?:valor(?:es)?|precos?|custa|quanto\s+(?:custa|fica|sai))\b",
+        normalized,
+    ):
+        return False
+    if (
+        _has_product_reference(normalized)
+        or _is_accessory_catalog_request(normalized)
+        or re.search(r"\b(?:parcel\w*|juros|\d+\s*x|entrada)\b", normalized)
+    ):
+        return False
+    has_deictic_reference = bool(
+        re.search(r"\b(?:dele|dela|desse|dessa|esse|essa|disto|disso)\b", normalized)
+    )
+    short_price_question = bool(
+        re.fullmatch(
+            r"(?:e\s+)?(?:(?:qual|me\s+fala)\s+)?(?:o\s+)?(?:valor|precos?)\s*[?!.,]*"
+            r"|(?:e\s+)?quanto(?:\s+(?:ele|ela))?\s+(?:custa|fica|sai)\s*[?!.,]*",
+            normalized,
+        )
+    )
+    return has_deictic_reference or short_price_question
+
+
 def _is_other_color_request(text: str) -> bool:
     return bool(re.search(r"\boutra(?:s)?\s+cor(?:es)?\b", _normalize(text)))
 
@@ -835,7 +861,10 @@ def _is_product_availability_request(
     normalized = _normalize(text)
     accessory_request = _is_accessory_catalog_request(normalized)
     bare_model_request = _is_bare_model_availability_request(text)
-    catalog_followup = _is_bare_model_catalog_followup(text, history)
+    catalog_followup = _is_bare_model_catalog_followup(text, history) or (
+        _is_catalog_price_followup(text)
+        and _has_recent_catalog_product_context(history)
+    )
     contextual_ready_stock_followup = _is_contextual_pronta_entrega_followup(text, history)
     ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
         text,
@@ -2481,10 +2510,14 @@ def _is_technical_assistance_request(text: str) -> bool:
 
 def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) -> bool:
     for entry in reversed(history or []):
+        if entry.get("role") == "user":
+            break
         if entry.get("role") != "assistant" or not entry.get("content"):
             continue
         answer = _normalize(entry.get("content", ""))
-        return bool(
+        if answer in {"imagem enviada", "foto enviada", "fotos enviadas"}:
+            continue
+        if (
             _has_product_reference(answer)
             and any(
                 marker in answer
@@ -2499,7 +2532,8 @@ def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) ->
                     "lacrado",
                 )
             )
-        )
+        ):
+            return True
     return False
 
 
@@ -4212,6 +4246,12 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
             continue
         if re.match(r"\s*%|\s+por\s+cento\b", amount_tail, flags=re.IGNORECASE):
             continue
+        if re.match(
+            r"\s*(?:(?:a|de)\s+)?saude(?:\s+da)?\s+bateria\b",
+            _normalize(amount_tail),
+            flags=re.IGNORECASE,
+        ):
+            continue
         matches.append(match)
     if not matches:
         return None
@@ -4441,10 +4481,11 @@ def _product_interest_model_context(
 
 
 _CATALOG_BATTERY_UNIT_SELECTION_RE = re.compile(
-    r"^\s*(?:quero|queria|vou\s+querer|prefiro|escolho|escolheria|"
-    r"fico\s+com|vou\s+ficar\s+com)\s+"
+    r"^\s*(?:(?:quero|queria|vou\s+querer|prefiro|escolho|escolheria|"
+    r"fico\s+com|vou\s+ficar\s+com)\s+)?"
     r"(?:(?:a|o|uma|um|essa|esse|esta|este)\s+)?(?:de\s+)?"
-    r"(?P<health>\d{1,3}(?:[.,]\d+)?)\s*(?:%|por\s+cento)?[.!?]*\s*$",
+    r"(?P<health>\d{1,3}(?:[.,]\d+)?)\s*(?:%|por\s+cento)?"
+    r"(?:\s+(?:(?:a|de)\s+)?saude(?:\s+da)?\s+bateria)?[.!?]*\s*$",
     re.IGNORECASE,
 )
 
@@ -4454,7 +4495,7 @@ def _catalog_battery_unit_selection_query(
     history: list[dict[str, str]] | None,
 ) -> str | None:
     """Resolve a short battery-health choice against the recent product offer."""
-    match = _CATALOG_BATTERY_UNIT_SELECTION_RE.fullmatch(text or "")
+    match = _CATALOG_BATTERY_UNIT_SELECTION_RE.fullmatch(_normalize(text))
     if not match or not history or history[-1].get("role") != "assistant":
         return None
 
@@ -5472,6 +5513,13 @@ class AgentService:
         if model_installment_decision is not None:
             return protect_customer_decision(model_installment_decision)
 
+        battery_installment_selection = await self._try_battery_installment_selection(
+            text,
+            history,
+        )
+        if battery_installment_selection is not None:
+            return protect_customer_decision(battery_installment_selection)
+
         case_accessory_decision = self._try_case_accessory_information(text)
         if case_accessory_decision is not None:
             return protect_customer_decision(case_accessory_decision)
@@ -5649,6 +5697,57 @@ class AgentService:
         if not _is_installment_model_followup(text, history):
             return None
         return await self._try_full_installment_table(text, history)
+
+    async def _try_battery_installment_selection(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not history or history[-1].get("role") != "assistant":
+            return None
+
+        offer = _normalize(history[-1].get("content", ""))
+        asks_which_unit = bool(
+            re.search(r"\b(?:qual\s+delas|qual\s+das\s+duas|qual\s+unidade)\b", offer)
+        )
+        asks_to_simulate = bool(re.search(r"\b(?:simul\w*|parcel\w*)\b", offer))
+        if not asks_which_unit or not asks_to_simulate:
+            return None
+
+        query = _catalog_battery_unit_selection_query(text, history)
+        if not query:
+            return None
+
+        method = getattr(self.cache, "simulate_all_installments", None)
+        if not callable(method):
+            return None
+        try:
+            result = await method(query)
+        except Exception:
+            return None
+        if result.get("encontrado"):
+            return AgentDecision(
+                reply=format_installment_table(result),
+                confidence="high",
+            )
+        if result.get("ambiguo"):
+            return _format_ambiguous_installment_decision(result)
+
+        models = _requested_iphone_model_keys(query)
+        if models:
+            number, variant = models[0]
+            model = f"iPhone {number}" + (f" {variant.title()}" if variant else "")
+        else:
+            model = "essa unidade"
+        battery = _requested_battery_health(query)
+        battery_label = f" com bateria {battery:g}%" if battery is not None else ""
+        return AgentDecision(
+            reply=(
+                f"Não encontrei preço confirmado para simular o {model}{battery_label} "
+                "no momento."
+            ),
+            confidence="medium",
+        )
 
     async def _try_payment_link(
         self,
@@ -6386,6 +6485,10 @@ class AgentService:
         capacity_availability_followup = _is_capacity_availability_followup(text, history)
         if (
             _is_photo_context_followup(text, history)
+            and not (
+                _is_catalog_price_followup(text)
+                and _has_recent_catalog_product_context(history)
+            )
             and not capacity_availability_followup
             and battery_unit_selection_query is None
         ):
@@ -6484,6 +6587,60 @@ class AgentService:
         if allow_buyer_interest_with_image and visual_search_query is None:
             return None
         catalog_search_query = visual_search_query or query
+        if (
+            not visual_search_query
+            and _is_catalog_price_followup(text)
+            and _has_recent_catalog_product_context(history)
+        ):
+            contextual_models = _requested_iphone_model_keys(query)
+            latest_customer_model: tuple[int | str, str] | None = None
+            for entry in reversed(history or []):
+                if entry.get("role") != "user":
+                    continue
+                customer_models = _requested_iphone_model_keys(entry.get("content", ""))
+                if len(customer_models) == 1:
+                    latest_customer_model = customer_models[0]
+                    break
+            if latest_customer_model is not None:
+                contextual_models = (latest_customer_model,)
+            if len(contextual_models) == 1 and _catalog_families(query) == ("iphone",):
+                number, variant = contextual_models[0]
+                model = "iPhone " + str(number).upper()
+                if variant:
+                    model += " " + variant.title()
+                search_parts = [model]
+
+                current_or_contextual_capacities = (
+                    _requested_capacity_keys(text) or _requested_capacity_keys(query)
+                )
+                for capacity in current_or_contextual_capacities:
+                    capacity_match = re.fullmatch(
+                        r"(?P<number>\d+(?:\.\d+)?)(?P<unit>gb|tb)",
+                        capacity,
+                    )
+                    if capacity_match:
+                        search_parts.append(
+                            f"{capacity_match.group('number')} {capacity_match.group('unit').upper()}"
+                        )
+
+                customer_context = _customer_product_request_context_query(text, history)
+                customer_normalized = _normalize(customer_context)
+                if _has_seminovo_reference(customer_normalized):
+                    search_parts.append("seminovo")
+                elif _has_explicit_sealed_condition(customer_normalized):
+                    search_parts.append("lacrado")
+                customer_battery = _requested_battery_health(customer_context)
+                if customer_battery is not None:
+                    search_parts.extend(("bateria", f"{customer_battery:g}%"))
+                customer_colors = _requested_catalog_colors(
+                    customer_context,
+                    list(getattr(self.cache, "items", []) or []),
+                )
+                if len(customer_colors) == 1:
+                    search_parts.append(customer_colors[0])
+                search_parts.append("valor")
+                catalog_search_query = " ".join(search_parts)
+                query = catalog_search_query
         catalog_filter_query = (
             _current_catalog_context(text, visual_search_query)
             if visual_search_query
@@ -6497,6 +6654,7 @@ class AgentService:
                 buyer_interest_text=text,
             )
             or _is_contextual_pronta_entrega_followup(text, history)
+            or ipad_model_alternative_price_followup
             or battery_unit_selection_query is not None
         ):
             return None
