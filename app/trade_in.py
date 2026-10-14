@@ -405,6 +405,7 @@ _BARE_MODEL_ENTRY_FOLLOWUP_RE = re.compile(
 )
 _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro)|na\s+troca|"
+    r"base\s+(?:de|para|pra)\s+troca|"
     r"parte\s+do\s+pagamento|como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
@@ -753,6 +754,16 @@ def _has_device_offer(text: str) -> bool:
     if _has_detailed_device_entry_offer(text):
         return True
     if _has_owned_iphone_business_offer(text):
+        return True
+
+    # "Queria cotar o meu iPhone" is an offer to evaluate the customer's
+    # device, even when the model and condition have not been provided yet.
+    if (
+        re.search(r"\b(?:cotar|cotacao)\b", text, flags=re.IGNORECASE)
+        and _has_personal_device_reference(text)
+        and _APPLE_PRODUCT_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+    ):
         return True
 
     # In informal Portuguese, "tem interesse em comprar um iPhone" commonly
