@@ -2347,6 +2347,59 @@ jobs:
           from app.agent import AgentService
           from app.config import Settings
           from app.faq import FAQStore
+          from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request
+
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=False,
+              faq_path="/app/config/faq.yaml",
+          )
+          service = AgentService(
+              InventoryCache(
+                  object(), settings, cache_path="/tmp/iphone-14-pro-max-owned-device-guard.json"
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          history = [
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Opções de iPhone 16 Pro Max seminovos: "
+                      "Titânio deserto, 256 GB, R$ 5.170,00, bateria 89%."
+                  ),
+              },
+              {"role": "assistant", "content": "Qual você prefere?"},
+              {"role": "user", "content": "o primeiro"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Perfeito 😊 O primeiro é o iPhone 16 Pro Max seminovo, "
+                      "titânio deserto, 256GB, bateria em 89%, por R$ 5.170,00. "
+                      "Quer enviar as fotos ou fazer uma simulação de parcelas?"
+                  ),
+              },
+          ]
+          text = (
+              "eu tenho um 14 pro max preto com 85 de bateria nunca foi aberto "
+              "vcs pegam quando nele?"
+          )
+          decision = asyncio.run(service.respond(text, history=history))
+          assert is_trade_in_request(text), text
+          assert not is_parts_buyback_request(text), text
+          assert decision.reply == TRADE_IN_FORM, decision
+          assert decision.handoff and decision.product_references == [] and decision.image_urls == [], decision
+          print("IPHONE_14_PRO_MAX_OWNED_DEVICE_AFTER_CATALOG_EVALUATION_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
           from app.trade_in import (
               PARTS_BUYBACK_REPLY,
               TRADE_IN_FORM,

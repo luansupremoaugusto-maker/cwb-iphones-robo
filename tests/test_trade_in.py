@@ -3856,3 +3856,78 @@ async def test_17e_exchange_lists_requested_seminovos_and_sends_full_evaluation_
     )
     assert is_parts_buyback_request("Vocês compram só a bateria do iPhone 17e?") is True
     assert parts_decision.reply == PARTS_BUYBACK_REPLY
+
+
+@pytest.mark.asyncio
+async def test_complete_owned_iphone_buyback_after_selecting_catalog_phone_sends_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Opções de iPhone 16 Pro Max seminovos:\n"
+                "• Titânio deserto — 256 GB — R$ 5.170,00 | bateria 89%\n"
+                "• Titânio preto — 256 GB — R$ 5.280,00 | bateria 89%\n"
+                "• Titânio natural — 512 GB — R$ 5.510,00 | bateria 91%"
+            ),
+        },
+        {"role": "assistant", "content": "Qual você prefere?"},
+        {"role": "user", "content": "o primeiro"},
+        {
+            "role": "assistant",
+            "content": (
+                "Perfeito 😊 O primeiro é o iPhone 16 Pro Max seminovo, "
+                "titânio deserto, 256GB, bateria em 89%, por R$ 5.170,00. "
+                "Quer enviar as fotos ou fazer uma simulação de parcelas?"
+            ),
+        },
+    ]
+    text = (
+        "eu tenho um 14 pro max preto com 85 de bateria nunca foi aberto "
+        "vcs pegam quando nele?"
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_parts_buyback_request(text) is False
+    assert is_trade_in_request(text) is True
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_profile_selling_only_battery_stays_in_parts_flow(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "eu tenho um 14 pro max preto com 85 de bateria, "
+        "vcs compram só a bateria dele?"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_parts_buyback_request(text) is True
+    assert is_trade_in_request(text) is False
+    assert decision.reply == PARTS_BUYBACK_REPLY
+    assert decision.handoff is False
