@@ -86,6 +86,10 @@ CATALOG_PRICE_NEGOTIATION_REPLY = (
     "confirmar essa negociação com você."
 )
 CATALOG_PRICE_NEGOTIATION_REASON = "Negociação de preço de aparelho disponível"
+CATALOG_BUDGET_OBJECTION_REPLY = (
+    "Entendo 😊 Se quiser, me diga qual faixa de valor cabe no seu orçamento "
+    "que procuro opções mais em conta."
+)
 DELIVERY_FEE_HANDOFF_REPLY = (
     "Vou encaminhar sua mensagem para um atendente confirmar a taxa e o prazo de entrega."
 )
@@ -2630,6 +2634,87 @@ def _has_recent_catalog_sale_context(history: list[dict[str, str]] | None) -> bo
             )
         )
     return False
+
+
+_CATALOG_BUDGET_OBJECTION_RE = re.compile(
+    r"\b(?:fora\s+do\s+(?:meu\s+)?orcamento|"
+    r"acima\s+do\s+(?:meu\s+)?orcamento|"
+    r"nao\s+(?:cabe|entra)\s+no\s+(?:meu\s+)?orcamento)\b",
+    re.IGNORECASE,
+)
+_CATALOG_ACKNOWLEDGEMENT_RE = re.compile(
+    r"(?:mas\s+)?(?:obrigad[oa]|valeu|agradeco)(?:\s+(?:amigo|amiga))?[.!?,\s]*"
+)
+
+
+def _has_recent_catalog_offer(
+    history: list[dict[str, str]] | None,
+    current_text: str | None = None,
+) -> bool:
+    entries = list(history or [])
+    if (
+        entries
+        and entries[-1].get("role") == "user"
+        and _normalize(entries[-1].get("content", "")) == _normalize(current_text)
+    ):
+        entries.pop()
+
+    customer_messages_after_offer = 0
+    for entry in reversed(entries[-8:]):
+        role = entry.get("role")
+        content = entry.get("content", "")
+        if role == "user":
+            customer_messages_after_offer += 1
+            if customer_messages_after_offer > 1:
+                return False
+            continue
+        if role != "assistant" or not content:
+            continue
+        answer = _normalize(content)
+        if re.search(
+            r"\b(?:lista de avaliacao|parte do pagamento|como entrada|"
+            r"para troca|na troca|compramos produtos|mediante avaliacao)\b",
+            answer,
+        ):
+            return False
+        if (
+            _has_product_reference(answer)
+            and re.search(r"\br\s*\$\s*[\d.]", answer)
+        ):
+            return True
+    return False
+
+
+def _is_catalog_budget_objection(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if re.search(
+        r"\b(?:tem|teria|mostra|mostrar|manda|mandar|envia|enviar|"
+        r"quero|queria|preciso|consegue|conseguem|faz|fazer|qual|quais|"
+        r"quanto|custa|aceita|pix|cartao|parcel\w*|foto|cor|estoque|disponivel)\b",
+        normalized,
+    ):
+        return False
+    if _CATALOG_BUDGET_OBJECTION_RE.search(normalized):
+        objection = normalized
+    elif _CATALOG_ACKNOWLEDGEMENT_RE.fullmatch(normalized):
+        objection = next(
+            (
+                _normalize(entry.get("content", ""))
+                for entry in reversed(history or [])
+                if entry.get("role") == "user"
+                and _normalize(entry.get("content", "")) != normalized
+            ),
+            "",
+        )
+    else:
+        return False
+    return bool(
+        _CATALOG_BUDGET_OBJECTION_RE.search(objection)
+        and _has_recent_catalog_offer(history, text)
+    )
 
 
 def _is_catalog_price_negotiation(
@@ -5626,6 +5711,12 @@ class AgentService:
         case_accessory_decision = self._try_case_accessory_information(text)
         if case_accessory_decision is not None:
             return protect_customer_decision(case_accessory_decision)
+
+        if _is_catalog_budget_objection(text, history):
+            return AgentDecision(
+                reply=CATALOG_BUDGET_OBJECTION_REPLY,
+                confidence="high",
+            )
 
         catalog_product_decision = await self._try_catalog_product_reference(
             text,
