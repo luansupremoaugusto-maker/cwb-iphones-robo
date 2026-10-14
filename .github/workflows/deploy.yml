@@ -1078,6 +1078,53 @@ jobs:
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  object(),
+                  settings,
+                  cache_path="/tmp/installment-fee-inclusion-followup-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          history = [
+              {
+                  "role": "user",
+                  "content": "eu queria na faixa de preço de 3000 no máximo em 18x",
+              },
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Parcelamento do IPHONE 14 PRO 256GB\n"
+                      "Preço à vista: R$ 3.080,00\n"
+                      "1x de R$ 3.240,40 (total R$ 3.240,40)\n"
+                      "18x de R$ 211,77 (total R$ 3.811,88)\n\n"
+                      "Valores calculados para pagamento no cartão de crédito."
+                  ),
+              },
+          ]
+          decision = asyncio.run(
+              service.respond("isso já com a taxa de juros?", history=history)
+          )
+          assert not decision.handoff, decision
+          assert decision.reply.lower().startswith("sim."), decision.reply
+          assert "já incluem a taxa de juros" in decision.reply.lower(), decision.reply
+          assert "qual modelo" not in decision.reply.lower(), decision.reply
+
+          generic = asyncio.run(service.respond("Mas possuem a taxa?"))
+          assert not generic.handoff, generic
+          assert "qual modelo e capacidade" in generic.reply.lower(), generic.reply
+          print("INSTALLMENT_SIMULATION_FEE_INCLUDED_FOLLOWUP_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
           from app.agent import AgentService
