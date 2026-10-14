@@ -4381,6 +4381,7 @@ def _pending_multi_model_product_request_context(
         )
         segments = re.split(
             r"\s+\b(?:mas|por[eé]m|contudo|no\s+entanto)\b\s+"
+            rf"|\?\s*(?={request_intent_start})"
             rf"|[,;]\s*(?={request_intent_start})"
             rf"|\s+\be\b\s+(?={request_intent_start})",
             content,

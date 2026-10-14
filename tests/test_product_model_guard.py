@@ -6509,6 +6509,7 @@ async def test_batched_trade_offer_is_separated_from_catalog_request(tmp_path):
         "Aceitam meu iPhone 13 Pro Max na troca? E o preço do iPhone 16 Pro Max?",
         "Aceitam meu iPhone 13 Pro Max na troca? E sabe o preço do iPhone 16 Pro Max?",
         "Aceitam meu iPhone 13 Pro Max na troca? E a loja tem o iPhone 16 Pro Max?",
+        "Aceitam meu iPhone 13 Pro Max na troca? Quanto custa o iPhone 16 Pro Max?",
     ],
 )
 async def test_batched_trade_offer_and_price_request_keep_only_catalog_models(
