@@ -293,14 +293,18 @@ def _normalize(value: str) -> str:
 
 
 def _without_installment_count_list(normalized: str) -> str:
-    if not re.search(r"\b(?:simul\w*|calcul\w*|parcel\w*)\b", normalized):
+    if not re.search(
+        r"\b(?:simul\w*|sublim\w*|calcul\w*|parcel\w*|"
+        r"(?:1[0-8]|[1-9])\s*(?:x|vezes))\b",
+        normalized,
+    ):
         return normalized
 
     count = r"(?:1[0-8]|[1-9])"
     separator = r"(?:\s*[,/]\s*|\s+(?:e|ou)\s+)"
     count_list = re.compile(
         rf"\b{count}(?:\s*x)?(?:{separator}{count}(?:\s*x)?)*"
-        rf"{separator}{count}\s*x\b"
+        rf"{separator}{count}\s*(?:x|vezes|parcelas?)\b"
     )
     return count_list.sub(" ", normalized, count=1)
 
@@ -3559,6 +3563,33 @@ def _last_requested_installments(history: list[dict[str, str]] | None) -> int | 
     return None
 
 
+def _is_both_unit_installment_request(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    recent_user_messages = [
+        item.get("content", "").strip()
+        for item in (history or [])
+        if item.get("role") == "user" and item.get("content", "").strip()
+    ][-8:]
+    messages = [*recent_user_messages, text]
+    explicitly_both = any(
+        re.search(
+            r"\b(?:os\s+dois|as\s+duas|esses?\s+dois|essas?\s+duas|"
+            r"ambos|ambas|cada\s+um|cada\s+uma)\b",
+            _normalize(message),
+        )
+        for message in messages
+    )
+    has_installment_context = bool(
+        _has_installment_model_prompt(history)
+        or _requested_installments(text) is not None
+        or _last_requested_installments(history) is not None
+        or _is_full_installment_request(text)
+    )
+    return explicitly_both and has_installment_context
+
+
 def _is_installment_selection_followup(
     text: str,
     history: list[dict[str, str]] | None,
@@ -3577,7 +3608,7 @@ def _is_installment_selection_followup(
 def _has_installment_product_context(value: str) -> bool:
     normalized = _normalize(value)
     return bool(
-        re.search(r"\b(?:iphone|ipad|macbook|airpods|apple\s+watch)\b", normalized)
+        re.search(r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\b", normalized)
         or re.search(r"\b\d{1,2}\s*(?:e|pro|max|air|mini|plus)\b", normalized)
     )
 
@@ -3613,10 +3644,7 @@ def _has_installment_model_prompt(history: list[dict[str, str]] | None) -> bool:
         normalized = _normalize(entry.get("content", ""))
         if not normalized or "capacidade" not in normalized:
             continue
-        if not re.search(
-            r"\bqual(?:\s+e)?\s+(?:o\s+)?(?:modelo|aparelho)\b",
-            normalized,
-        ):
+        if not re.search(r"\bqu(?:al|ais)\b.{0,48}\b(?:modelos?|aparelhos?)\b", normalized):
             continue
         if any(marker in normalized for marker in ("simul", "parcel", "vezes")):
             return True
@@ -3670,8 +3698,19 @@ def _is_installment_model_followup(
     history: list[dict[str, str]] | None,
 ) -> bool:
     """Continue an installment prompt unless the customer explicitly requests photos."""
+    normalized = _normalize(text)
+    refers_to_prior_photos = bool(
+        re.search(r"\b(?:esses?|essas?|os?|as?)\s+(?:dois|duas)\s+", normalized)
+        and re.search(r"\b(?:iphones?|aparelhos?|celulares?)\b", normalized)
+        and re.search(r"\b(?:foto|fotos|imagem|imagens)\b", normalized)
+        and not re.search(
+            r"\b(?:manda|mande|mandar|envia|envie|enviar|mostra|mostrar|quero\s+ver|"
+            r"tem|possui|disponivel)\b",
+            normalized,
+        )
+    )
     return (
-        not _is_photo_request(text)
+        (not _is_photo_request(text) or refers_to_prior_photos)
         and _has_installment_model_prompt(history)
         and _has_installment_product_context(text)
     )
@@ -3877,7 +3916,30 @@ def _installment_context_query(
         if len(current_capacity_keys) == 1
         else ""
     )
-    if _has_product_reference(_normalize(current)) or _is_case_accessory_request(current):
+    product_reference_text = _without_installment_count_list(_normalize(current))
+    current_families = _catalog_families(product_reference_text)
+    latest_history_families = next(
+        (
+            families
+            for item in reversed(history or [])
+            if item.get("content", "").strip()
+            for families in (_catalog_families(item.get("content", "")),)
+            if families
+        ),
+        (),
+    )
+    changed_product_family = bool(
+        current_families
+        and latest_history_families
+        and current_families != latest_history_families
+    )
+    has_specific_product = bool(
+        _requested_installment_product_keys(product_reference_text)
+        or _requested_iphone_model_keys(product_reference_text)
+        or (current_capacity_keys and _has_product_reference(product_reference_text))
+        or changed_product_family
+    )
+    if has_specific_product or _is_case_accessory_request(current):
         history_condition = _history_installment_condition(current, history)
         return "\n".join(
             part for part in (current_capacity_hint, current, history_condition) if part
@@ -4743,6 +4805,11 @@ def _is_photo_context_followup(
         return False
     normalized = _normalize(text)
     if not normalized:
+        return False
+    if _has_installment_model_prompt(history) and (
+        re.search(r"\b(?:simul\w*|sublim\w*|calcul\w*|parcel\w*)\b", normalized)
+        or re.search(r"\b(?:1[0-8]|[1-9])\s*(?:x|vezes)\b", normalized)
+    ):
         return False
     if normalized in {
         "usado",
@@ -8039,6 +8106,73 @@ class AgentService:
             confidence="high" if all_found else "medium",
         )
 
+    async def _try_both_unit_installment_tables(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+        result: dict[str, Any],
+    ) -> AgentDecision | None:
+        if not _is_both_unit_installment_request(text, history):
+            return None
+        candidates = result.get("candidatos") or []
+        if len(candidates) != 2 or any(not isinstance(item, dict) for item in candidates):
+            return None
+
+        references = [str(item.get("referencia") or "") for item in candidates]
+        if not all(references) or len(set(references)) != 2:
+            return None
+        method = getattr(self.cache, "simulate_all_installments", None)
+        if not callable(method):
+            return None
+
+        sections: list[str] = []
+        for index, candidate in enumerate(candidates, start=1):
+            name = str(candidate.get("nome") or "").strip()
+            capacity = str(candidate.get("capacidade") or "").strip()
+            condition = str(candidate.get("condicao") or "").strip()
+            color = str(candidate.get("cor") or "").strip()
+            battery = candidate.get("saude_bateria")
+            price = candidate.get("preco_brl")
+            if not name or not capacity or price is None:
+                return None
+
+            query_parts = [name, capacity, condition, color]
+            if battery is not None:
+                try:
+                    battery_value = float(battery)
+                except (TypeError, ValueError):
+                    return None
+                query_parts.append(f"bateria {battery_value:g}%")
+            try:
+                table = await method(" ".join(part for part in query_parts if part))
+            except Exception:
+                return None
+            if not table.get("encontrado"):
+                return None
+            try:
+                candidate_price = float(price)
+                simulated_price = float(table.get("preco_avista_brl"))
+            except (TypeError, ValueError):
+                return None
+            if not math.isclose(candidate_price, simulated_price, rel_tol=0.0, abs_tol=0.01):
+                return None
+
+            details = [name, capacity]
+            if condition:
+                details.append(condition.lower())
+            if battery is not None:
+                details.append(f"bateria {battery_value:g}%")
+            details.append(format_brl(candidate_price))
+            sections.append(
+                f"Opção {index} — {' — '.join(details)}\n{format_installment_table(table)}"
+            )
+
+        return AgentDecision(
+            reply="\n\n".join(sections),
+            product_references=references,
+            confidence="high",
+        )
+
     async def _try_specific_installment(
         self,
         text: str,
@@ -8071,6 +8205,13 @@ class AgentService:
                 confidence="high",
             )
         if result.get("ambiguo"):
+            both_units = await self._try_both_unit_installment_tables(
+                text,
+                history,
+                result,
+            )
+            if both_units is not None:
+                return both_units
             condition_tables = await self._try_ambiguous_condition_installment_tables(
                 query,
                 result,
@@ -8174,6 +8315,13 @@ class AgentService:
             return None
         if not result.get("encontrado"):
             if result.get("ambiguo"):
+                both_units = await self._try_both_unit_installment_tables(
+                    text,
+                    history,
+                    result,
+                )
+                if both_units is not None:
+                    return both_units
                 condition_tables = await self._try_ambiguous_condition_installment_tables(
                     query,
                     result,
