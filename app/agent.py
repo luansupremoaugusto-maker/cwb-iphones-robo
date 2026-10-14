@@ -4345,7 +4345,79 @@ def _pending_multi_model_product_request_context(
         for offset, line in enumerate(current.splitlines())
         if line.strip()
     ] or [(len(entries), current)]
-    candidate_messages = [*pending_users, *current_messages]
+    requested_messages: list[tuple[int, str]] = []
+    previous_message_was_product_request = False
+    for index, content in [*pending_users, *current_messages]:
+        has_model_reference = bool(
+            _has_product_reference(_normalize(content))
+            or _extract_bare_catalog_model_reference(content)
+        )
+        normalized_content = _normalize(content)
+        is_owned_device_context = bool(
+            re.search(
+                r"^(?:meu|minha|meus|minhas|eu\s+tenho|tenho\s+(?:um|uma)|"
+                r"possuo|atualmente\s+(?:tenho|uso)|uso\s+(?:meu|minha))\b",
+                normalized_content,
+            )
+        )
+        is_trade_context = is_trade_in_request(normalized_content)
+        has_negated_purchase_intent = bool(
+            re.search(
+                r"\bnao\s+(?:quero|queria|gostaria|vou|pretendo)\s+"
+                r"(?:comprar|ver|saber|conhecer)\b",
+                normalized_content,
+            )
+        )
+        has_catalog_purchase_intent = not has_negated_purchase_intent and any(
+            phrase in normalized_content
+            for phrase in (
+                "gostaria de ver",
+                "gostaria de saber mais",
+                "gostaria de informacoes sobre",
+                "queria ver",
+                "quero ver",
+                "quero comprar",
+                "queria comprar",
+                "gostaria de comprar",
+                "possibilidade de comprar",
+                "procuro",
+                "procurando",
+                "preciso",
+                "necessito",
+            )
+        )
+        has_request_style_availability = bool(
+            re.search(
+                r"^(?:(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,! ]+)?"
+                r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
+                r"(?:(?:sabe|sabem)\s+se\s+)?"
+                r"(?:(?:voce|voces|vcs)\s+)?"
+                r"(?:tem|teria|vende|vendem|possui|possuem)\b"
+                r"|\b(?:disponivel|disponibilidade|em\s+estoque|estoque|"
+                r"a\s+venda|encomenda)\b",
+                normalized_content,
+            )
+        )
+        explicit_product_request = has_model_reference and not (
+            is_owned_device_context or is_trade_context or has_negated_purchase_intent
+        ) and (
+            _is_explicit_catalog_price_request(content)
+            or _is_catalog_buyer_interest(content)
+            or has_catalog_purchase_intent
+            or has_request_style_availability
+        )
+        is_followup_model_request = bool(
+            has_model_reference
+            and previous_message_was_product_request
+            and re.match(r"^(?:e|ou|tambem|mais)\b", _normalize(content))
+        )
+        if explicit_product_request or is_followup_model_request:
+            requested_messages.append((index, content))
+            previous_message_was_product_request = True
+        else:
+            previous_message_was_product_request = False
+
+    candidate_messages = requested_messages
     current_models = ()
     if (
         _has_product_reference(_normalize(current))
@@ -4369,10 +4441,19 @@ def _pending_multi_model_product_request_context(
             if model not in requested_models:
                 requested_models.append(model)
 
+    all_referenced_models = {
+        model
+        for _index, content in [*pending_users, *current_messages]
+        if _has_product_reference(_normalize(content))
+        or _extract_bare_catalog_model_reference(content)
+        for model in _requested_iphone_model_keys(content)
+    }
+    contains_excluded_model = bool(all_referenced_models - set(requested_models))
     if (
-        len(requested_models) <= 1
-        or len(set(model_message_indexes)) <= 1
-        or set(requested_models).issubset(current_models)
+        not requested_models
+        or (len(requested_models) <= 1 and not contains_excluded_model)
+        or (len(set(model_message_indexes)) <= 1 and not contains_excluded_model)
+        or (set(requested_models).issubset(current_models) and not contains_excluded_model)
     ):
         return None
 
@@ -4386,11 +4467,19 @@ def _pending_multi_model_product_request_context(
     first_model_message = min(model_message_indexes)
     context_messages = [
         content
-        for index, content in pending_users
+        for index, content in requested_messages
+        if index < len(entries)
         if index >= first_model_message
     ]
-    if current and (not context_messages or current != context_messages[-1]):
-        context_messages.append(current)
+    requested_current_context = "\n".join(
+        content
+        for index, content in requested_messages
+        if index >= len(entries) and index >= first_model_message
+    )
+    if requested_current_context and (
+        not context_messages or requested_current_context != context_messages[-1]
+    ):
+        context_messages.append(requested_current_context)
     model_header = " / ".join(model_label(model) for model in requested_models)
     return "\n".join([model_header, *context_messages]).strip()
 

@@ -6350,6 +6350,71 @@ async def test_consecutive_iphone_18_pro_price_questions_return_both_models(tmp_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "non_request_context",
+    [
+        "Meu iPhone 13 Pro Max tem 256 GB",
+        "Meu iPhone 13 Pro Max está disponível para troca",
+        "Não quero comprar o iPhone 13 Pro Max",
+    ],
+)
+async def test_batched_non_request_model_is_not_added_to_requested_models(
+    tmp_path,
+    non_request_context,
+):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-13-pro-max-256", "iPhone 13 Pro Max", "256 GB", 6000),
+        _sealed_item("iphone-16-pro-max-256", "iPhone 16 Pro Max", "256 GB", 9000),
+    ]
+    history = [
+        {"role": "user", "content": non_request_context},
+    ]
+
+    decision = await agent.respond(
+        "Quanto custa o iPhone 16 Pro Max?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16-pro-max-256"]
+    assert "iPhone 16 Pro Max" in decision.reply
+    assert "iPhone 13 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initial_request",
+    [
+        "Gostaria de ver o iPhone 17 Pro Max",
+        "Você sabe se tem o iPhone 17 Pro Max?",
+    ],
+)
+async def test_batched_request_intent_keeps_followup_model_request(
+    tmp_path,
+    initial_request,
+):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 10000),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 11000),
+    ]
+    history = [
+        {"role": "user", "content": initial_request},
+    ]
+
+    decision = await agent.respond("E o 18 Pro Max?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-17-pro-max-256",
+        "iphone-18-pro-max-256",
+    }
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "iPhone 18 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_consecutive_model_price_questions_keep_capacity_and_color_scoped(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items = [
