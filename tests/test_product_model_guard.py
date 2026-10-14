@@ -165,6 +165,57 @@ def test_warranty_question_without_stock_request_is_not_product_availability():
 
 
 @pytest.mark.asyncio
+async def test_first_iphone_purchase_deadline_asks_before_listing_catalog(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id=f"iphone-{index}",
+            name=name,
+            category="Celular",
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            search_text=f"{name.lower()} 256gb seminovo celular",
+        )
+        for index, (name, price) in enumerate(
+            (
+                ("iPhone 17 Pro Max", 6820),
+                ("iPhone 16 Pro Max", 5170),
+                ("iPhone 16 Pro", 4400),
+            ),
+            start=1,
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+    history = [
+        {"role": "user", "content": "Sem carregador sem nada?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Isso, o iPhone 17 Pro novo lacrado acompanha apenas o cabo original "
+                "que vem na caixa. Não acompanha carregador/fonte."
+            ),
+        },
+    ]
+    text = "é o meu primeiro iPhone, Eu pretendo comprar até esse final de mês"
+
+    assert _is_product_availability_request(text, history) is False
+    assert _is_product_availability_request("Vou comprar um iPhone até o final do mês") is False
+    assert _is_product_availability_request("Quais iPhones vocês têm até R$ 5.000?") is True
+    decision = await agent.respond(text, history=history)
+
+    assert decision.reply == (
+        "Que legal! 😊 Como é seu primeiro iPhone, posso te ajudar a escolher. "
+        "Você já tem algum modelo em mente ou quer me contar seu uso e faixa de valor?"
+    )
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_orcamento_do_iphone_15_pro_max_nao_vira_limite_de_15_reais(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

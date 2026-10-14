@@ -1007,9 +1007,9 @@ def _is_product_availability_request(
         re.search(r"\b(?:na\s+verdade\s+)?(?:eu\s+)?queria\s+(?:o|a|um|uma)\b", normalized)
         and _has_recent_catalog_product_context(history)
     )
-    has_broad_filter = any(
+    has_broad_filter = _extract_budget_limit(text) is not None or any(
         marker in normalized
-        for marker in ("faixa de", "ate ", "orcamento", "em torno de", "cerca de", "por volta de")
+        for marker in ("faixa de", "orcamento", "em torno de", "cerca de", "por volta de")
     )
     return bool(
         (
@@ -1028,11 +1028,21 @@ def _is_product_availability_request(
 
 def _is_unresolved_iphone_model_selection(text: str) -> bool:
     normalized = _normalize(text)
+    has_model_selection_prompt = bool(
+        re.search(r"\bmodelo\s+em\s+mente\b", normalized)
+        and re.search(r"\b(?:compr\w*|lacrad\w*)\b", normalized)
+    )
+    first_iphone_purchase = bool(
+        re.search(r"\bprimeir[oa]\s+iphones?\b", normalized)
+        and re.search(
+            r"\b(?:pretend\w*|planej\w*|vou|quero)\b.{0,30}\bcompr\w*\b",
+            normalized,
+        )
+    )
     return bool(
         "iphone" in _catalog_families(normalized)
         and not _requested_iphone_model_keys(normalized)
-        and re.search(r"\bmodelo\s+em\s+mente\b", normalized)
-        and re.search(r"\b(?:compr\w*|lacrad\w*)\b", normalized)
+        and (has_model_selection_prompt or first_iphone_purchase)
     )
 
 
@@ -5409,9 +5419,15 @@ class AgentService:
             )
 
         if _is_unresolved_iphone_model_selection(combined_request):
+            is_first_iphone = bool(
+                re.search(r"\bprimeir[oa]\s+iphones?\b", _normalize(combined_request))
+            )
             return AgentDecision(
                 reply=(
-                    "Claro 😊 Qual modelo de iPhone você tem em mente? "
+                    "Que legal! 😊 Como é seu primeiro iPhone, posso te ajudar a escolher. "
+                    "Você já tem algum modelo em mente ou quer me contar seu uso e faixa de valor?"
+                    if is_first_iphone
+                    else "Claro 😊 Qual modelo de iPhone você tem em mente? "
                     "Aí consulto as opções lacradas disponíveis para você."
                 ),
                 confidence="high",
