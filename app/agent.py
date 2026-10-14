@@ -1177,6 +1177,43 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+_RequestedModelKey = tuple[int | str, str]
+_RequestedModelScope = tuple[str, tuple[str, ...], tuple[str, ...]]
+
+
+def _requested_model_segments(text: str) -> dict[_RequestedModelKey, tuple[str, ...]]:
+    """Split batched customer lines into the iPhone model each line refers to."""
+    segments_by_model: dict[_RequestedModelKey, list[str]] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        models = _requested_iphone_model_keys(line)
+        if len(models) == 1:
+            model_segments = ((models[0], line),)
+        elif len(models) > 1:
+            segments = _multi_model_installment_queries(line, None)
+            model_segments = tuple(zip(models, segments)) if len(segments) == len(models) else ()
+        else:
+            model_segments = ()
+        for model, segment in model_segments:
+            segments_by_model.setdefault(model, []).append(segment)
+    return {model: tuple(segments) for model, segments in segments_by_model.items()}
+
+
+def _requested_model_attribute_scopes(
+    model_segments: dict[_RequestedModelKey, tuple[str, ...]],
+    items: list[Any],
+) -> dict[_RequestedModelKey, tuple[_RequestedModelScope, ...]]:
+    """Keep explicit capacities and colors attached to each model segment."""
+    scopes: dict[_RequestedModelKey, list[_RequestedModelScope]] = {}
+    for model, segments in model_segments.items():
+        for segment in segments:
+            capacities = _requested_capacity_keys(segment)
+            colors = _requested_catalog_colors(segment, items)
+            if capacities or colors:
+                scopes.setdefault(model, []).append((segment, capacities, colors))
+    return {model: tuple(requests) for model, requests in scopes.items()}
+
+
 def _capacity_list_no_match_reply(text: str, *, sealed_only: bool = False) -> str | None:
     requested_capacity_keys = _requested_capacity_keys(text)
     if not requested_capacity_keys:
@@ -4303,7 +4340,139 @@ def _pending_multi_model_product_request_context(
         if role == "user" and index > latest_assistant_index
     ]
     current = text.strip()
-    candidate_messages = [*pending_users, (len(entries), current)]
+    current_messages = [
+        (len(entries) + offset, line.strip())
+        for offset, line in enumerate(current.splitlines())
+        if line.strip()
+    ] or [(len(entries), current)]
+    requested_messages: list[tuple[int, str]] = []
+    previous_message_was_product_request = False
+
+    def is_owned_device_context(content: str) -> bool:
+        normalized = _normalize(content)
+        return bool(
+            re.search(
+                r"^(?:(?:e|ou|mas)\s+)?(?:(?:o|a)\s+)?(?:meu|minha|meus|minhas)\b"
+                r"|^(?:atualmente\s+)?(?:eu\s+)?(?:tenho|possuo|uso)\s+"
+                r"(?:(?:um|uma|o|a)\s+)?(?:(?:meu|minha)\s+)?"
+                r"(?:iphone|ipad|mac(?:book)?|airpods?|apple\s+watch)\b"
+                r"|^(?:vendo|vou\s+vender|troco|ofereco)\s+"
+                r"(?:(?:o|a)\s+)?(?:meu|minha)\b",
+                normalized,
+            )
+        )
+
+    def has_negated_purchase_intent(content: str) -> bool:
+        return bool(
+            re.search(
+                r"\bnao\s+(?:quero|queria|gostaria|vou|pretendo)\s+(?:de\s+)?"
+                r"(?:comprar|ver|saber|conhecer)\b",
+                _normalize(content),
+            )
+        )
+
+    def request_segments(content: str) -> list[str]:
+        request_intent_start = (
+            r"(?:(?:voc[eê]s?|vcs|a\s+loja)\s+)?"
+            r"(?:(?:sabe|sabem)(?:\s+se)?\s+)?"
+            r"(?:(?:voc[eê]s?|vcs|a\s+loja)\s+)?"
+            r"(?:(?:o|a)\s+)?(?:gostaria|queria|quero|procuro|procurando|preciso|necessito|"
+            r"possibilidade|quanto|qual|quais|pre[cç]o|valor|custa|t[eê]m|teria|"
+            r"vende|possui|disponivel)\b"
+        )
+        segments = re.split(
+            r"\s+\b(?:mas|por[eé]m|contudo|no\s+entanto)\b\s+"
+            rf"|\?\s*(?={request_intent_start})"
+            rf"|[,;]\s*(?={request_intent_start})"
+            rf"|\s+\be\b\s+(?={request_intent_start})",
+            content,
+            flags=re.IGNORECASE,
+        )
+        if len(segments) > 1 and any(
+            is_owned_device_context(segment)
+            or is_trade_in_request(segment)
+            or has_negated_purchase_intent(segment)
+            for segment in segments
+        ):
+            return [segment.strip() for segment in segments if segment.strip()]
+        return [content]
+
+    for index, content in [*pending_users, *current_messages]:
+        for segment in request_segments(content):
+            has_model_reference = bool(
+                _has_product_reference(_normalize(segment))
+                or _extract_bare_catalog_model_reference(segment)
+            )
+            normalized_segment = _normalize(segment)
+            is_owned_context = is_owned_device_context(segment)
+            is_trade_context = is_trade_in_request(normalized_segment)
+            is_negated_purchase = has_negated_purchase_intent(segment)
+            has_catalog_purchase_intent = not is_negated_purchase and any(
+                phrase in normalized_segment
+                for phrase in (
+                    "gostaria de ver",
+                    "gostaria de saber mais",
+                    "gostaria de informacoes sobre",
+                    "queria ver",
+                    "quero ver",
+                    "quero comprar",
+                    "queria comprar",
+                    "gostaria de comprar",
+                    "possibilidade de comprar",
+                    "procuro",
+                    "procurando",
+                    "preciso",
+                    "necessito",
+                )
+            )
+            has_stock_request_opening = bool(
+                re.search(
+                    r"^(?:(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,! ]+)?"
+                    r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
+                    r"(?:(?:sabe|sabem)\s+se\s+)?"
+                    r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
+                    r"(?:tem|teria|vende|vendem|possui|possuem)\b",
+                    normalized_segment,
+                )
+            )
+            has_availability_detail = bool(
+                re.search(
+                    r"\b(?:disponivel|disponibilidade|em\s+estoque|estoque|"
+                    r"a\s+venda|encomenda)\b",
+                    normalized_segment,
+                )
+            )
+            has_availability_question = bool(
+                has_availability_detail
+                and (
+                    "?" in segment
+                    or re.search(r"\b(?:qual|quais|sabe\s+se|voce|voces|vcs)\b", normalized_segment)
+                )
+            )
+            has_request_style_availability = not (
+                is_owned_context or is_trade_context or is_negated_purchase
+            ) and (has_stock_request_opening or has_availability_question)
+            explicit_product_request = has_model_reference and not (
+                is_owned_context or is_negated_purchase
+            ) and (
+                _is_explicit_catalog_price_request(segment)
+                or _is_catalog_buyer_interest(segment)
+                or has_catalog_purchase_intent
+                or has_request_style_availability
+            )
+            is_followup_model_request = bool(
+                has_model_reference
+                and not (is_owned_context or is_trade_context or is_negated_purchase)
+                and previous_message_was_product_request
+                and re.match(r"^(?:e|ou|tambem|mais)\b", _normalize(segment))
+            )
+            if explicit_product_request or is_followup_model_request:
+                requested_messages.append((index, segment))
+                previous_message_was_product_request = True
+            else:
+                previous_message_was_product_request = False
+
+    candidate_messages = requested_messages
     current_models = ()
     if (
         _has_product_reference(_normalize(current))
@@ -4327,10 +4496,19 @@ def _pending_multi_model_product_request_context(
             if model not in requested_models:
                 requested_models.append(model)
 
+    all_referenced_models = {
+        model
+        for _index, content in [*pending_users, *current_messages]
+        if _has_product_reference(_normalize(content))
+        or _extract_bare_catalog_model_reference(content)
+        for model in _requested_iphone_model_keys(content)
+    }
+    contains_excluded_model = bool(all_referenced_models - set(requested_models))
     if (
-        len(requested_models) <= 1
-        or len(set(model_message_indexes)) <= 1
-        or set(requested_models).issubset(current_models)
+        not requested_models
+        or (len(requested_models) <= 1 and not contains_excluded_model)
+        or (len(set(model_message_indexes)) <= 1 and not contains_excluded_model)
+        or (set(requested_models).issubset(current_models) and not contains_excluded_model)
     ):
         return None
 
@@ -4344,11 +4522,19 @@ def _pending_multi_model_product_request_context(
     first_model_message = min(model_message_indexes)
     context_messages = [
         content
-        for index, content in pending_users
+        for index, content in requested_messages
+        if index < len(entries)
         if index >= first_model_message
     ]
-    if current and (not context_messages or current != context_messages[-1]):
-        context_messages.append(current)
+    requested_current_context = "\n".join(
+        content
+        for index, content in requested_messages
+        if index >= len(entries) and index >= first_model_message
+    )
+    if requested_current_context and (
+        not context_messages or requested_current_context != context_messages[-1]
+    ):
+        context_messages.append(requested_current_context)
     model_header = " / ".join(model_label(model) for model in requested_models)
     return "\n".join([model_header, *context_messages]).strip()
 
@@ -6944,6 +7130,48 @@ class AgentService:
         requested_families = _catalog_families(catalog_filter_query)
         requested_ipad_models = _requested_ipad_model_keys(catalog_filter_query)
         requested_models = _requested_iphone_model_keys(catalog_filter_query)
+        requested_model_segments = _requested_model_segments(customer_request_context)
+        model_attribute_items = [
+            *public_candidates,
+            *list(getattr(self.cache, "items", []) or []),
+            *list(getattr(getattr(self.cache, "sealed_cache", None), "items", []) or []),
+        ]
+        requested_model_scopes = (
+            _requested_model_attribute_scopes(
+                requested_model_segments,
+                model_attribute_items,
+            )
+            if len(requested_models) > 1
+            else {}
+        )
+
+        def matches_model_attributes(
+            item: Any,
+            capacities: tuple[str, ...],
+            colors: tuple[str, ...],
+        ) -> bool:
+            capacity = _capacity_key(
+                getattr(item, "capacity", None) or getattr(item, "name", "")
+            )
+            return (
+                (not capacities or capacity in capacities)
+                and (not colors or _item_matches_catalog_colors(item, colors))
+            )
+
+        def matches_requested_model_scope(item: Any) -> bool:
+            model = _model_key(getattr(item, "name", ""))
+            model_scopes = requested_model_scopes.get(model, ())
+            if not model_scopes:
+                return True
+            return any(
+                matches_model_attributes(item, capacities, colors)
+                for _segment, capacities, colors in model_scopes
+            )
+
+        if requested_model_scopes:
+            public_candidates = [
+                item for item in public_candidates if matches_requested_model_scope(item)
+            ]
         requested_pro_max_without_generation = bool(
             not requested_models
             and re.search(r"\bpro\s+max\b", _normalize(catalog_filter_query))
@@ -6975,7 +7203,7 @@ class AgentService:
                 or _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
                 == scoped_capacity_key
             ]
-        elif requested_capacities:
+        elif requested_capacities and not requested_model_scopes:
             public_candidates = [
                 item
                 for item in public_candidates
@@ -7205,7 +7433,32 @@ class AgentService:
                     ),
                     confidence="medium",
                 )
-            selected = sorted(priced_candidates, key=price_sort_key)[:1]
+            if len(requested_models) > 1:
+                selected = []
+                selected_ids: set[str] = set()
+                for requested_model in requested_models:
+                    model_candidates = [
+                        item
+                        for item in priced_candidates
+                        if _model_key(getattr(item, "name", "")) == requested_model
+                    ]
+                    model_scopes = requested_model_scopes.get(requested_model, ())
+                    selection_scopes = model_scopes or (("", (), ()),)
+                    for _segment, capacities, colors in selection_scopes:
+                        scoped_candidates = [
+                            item
+                            for item in model_candidates
+                            if matches_model_attributes(item, capacities, colors)
+                        ]
+                        if not scoped_candidates:
+                            continue
+                        selected_item = min(scoped_candidates, key=price_sort_key)
+                        external_id = str(getattr(selected_item, "external_id", "") or "")
+                        if external_id not in selected_ids:
+                            selected.append(selected_item)
+                            selected_ids.add(external_id)
+            else:
+                selected = sorted(priced_candidates, key=price_sort_key)[:1]
         elif broad_request:
             selected = sorted(public_candidates, key=price_sort_key)
         else:
@@ -7329,13 +7582,41 @@ class AgentService:
                     return select_best_matches(scored_items)
 
                 selected_by_model: list[Any] = []
+                selected_by_model_ids: set[str] = set()
                 for requested_model in requested_models:
                     model_matches = [
                         (score, item)
                         for score, item in scored_items
                         if _model_key(getattr(item, "name", "")) == requested_model
                     ]
-                    selected_by_model.extend(select_best_matches(model_matches))
+                    model_scopes = requested_model_scopes.get(requested_model, ())
+                    if model_scopes:
+                        for segment, capacities, colors in model_scopes:
+                            scoped_matches = [
+                                (_catalog_score(segment, item), item)
+                                for _score, item in model_matches
+                                if matches_model_attributes(item, capacities, colors)
+                            ]
+                            for item in select_best_matches(scoped_matches):
+                                external_id = str(getattr(item, "external_id", "") or "")
+                                if external_id not in selected_by_model_ids:
+                                    selected_by_model.append(item)
+                                    selected_by_model_ids.add(external_id)
+                    else:
+                        model_segments = requested_model_segments.get(requested_model, ())
+                        if model_segments:
+                            model_matches = [
+                                (
+                                    max(_catalog_score(segment, item) for segment in model_segments),
+                                    item,
+                                )
+                                for _score, item in model_matches
+                            ]
+                        for item in select_best_matches(model_matches):
+                            external_id = str(getattr(item, "external_id", "") or "")
+                            if external_id not in selected_by_model_ids:
+                                selected_by_model.append(item)
+                                selected_by_model_ids.add(external_id)
                 return selected_by_model
 
             if return_all_matching_units:
@@ -7344,7 +7625,7 @@ class AgentService:
                     for score, item in scored
                     if score > 0 and condition_matches(item)
                 ]
-            elif len(requested_capacities) > 1:
+            elif len(requested_capacities) > 1 and not requested_model_scopes:
                 selected = []
                 for capacity in requested_capacities:
                     capacity_matches = [
