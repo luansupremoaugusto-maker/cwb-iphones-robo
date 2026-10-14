@@ -216,11 +216,14 @@ REGRAS OBRIGATÓRIAS:
   Não pergunte em quantas vezes o cliente quer parcelar. Se a pergunta mencionar
   link de pagamento ou cartão online, informe que essa modalidade não é mais aceita
   e não faça simulação ou cálculo de parcelas pelo link.
-- Se o cliente perguntar se o parcelamento no cartão de crédito tem juros ou se é
-  sem juros, responda diretamente que há a taxa de juros da máquina e que o acréscimo
-  varia conforme o valor passado no cartão e a quantidade de parcelas. Não informe
-  percentuais nem peça modelo/capacidade só para responder isso; ofereça uma
-  simulação como próximo passo se houver produto e preço confirmados.
+- Se o cliente perguntar se valores de uma simulação já enviada incluem juros,
+  confirme que os valores parcelados já incluem a taxa da máquina. O preço à vista
+  aparece separado e o total varia conforme a quantidade de parcelas.
+- Fora do contexto de uma simulação já enviada, se o cliente perguntar se o
+  parcelamento no cartão tem juros ou se é sem juros, responda diretamente que há a
+  taxa da máquina e que o acréscimo varia conforme o valor e a quantidade de
+  parcelas. Não informe percentuais nem peça modelo/capacidade só para responder;
+  ofereça uma simulação como próximo passo se houver produto e preço confirmados.
 - Se o cliente informar uma entrada à vista ou um sinal e quiser parcelar o
   restante, subtraia a entrada do preço total e use somente o saldo restante
   como base do cálculo. Use sempre simulate_all_installments_with_entry para
@@ -3106,6 +3109,44 @@ def _is_no_interest_installment_question(text: str) -> bool:
     return not re.search(r"\b(?:pix|dinheiro|debito)\b", normalized)
 
 
+def _is_installment_fee_inclusion_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not _is_installment_rate_question(text) or _is_no_interest_installment_question(text):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:isso|esse|essa|esses|essas|estes|estas|os\s+valores|as\s+parcelas|"
+            r"a\s+tabela|o\s+valor|esse\s+total|essa\s+parcela)\b",
+            normalized,
+        )
+    )
+
+
+def _has_recent_card_installment_simulation(
+    history: list[dict[str, str]] | None,
+) -> bool:
+    for entry in reversed(history or []):
+        role = entry.get("role")
+        normalized = _normalize(entry.get("content", ""))
+        if role == "assistant":
+            if (
+                "parcelamento do " in normalized
+                and "valores calculados para pagamento no cartao de credito" in normalized
+                and "total r$" in normalized
+            ):
+                return True
+            if (
+                "taxa de juros da maquina" in normalized
+                and "acrescimo varia" in normalized
+                and "quantidade de parcelas" in normalized
+            ):
+                continue
+            return False
+        if role == "user" and not _is_installment_rate_question(entry.get("content", "")):
+            return False
+    return False
+
+
 def _is_full_installment_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -5369,7 +5410,7 @@ class AgentService:
         if store_hours_decision is not None:
             return protect_customer_decision(store_hours_decision)
 
-        installment_rate_decision = self._try_installment_rate_question(text)
+        installment_rate_decision = self._try_installment_rate_question(text, history=history)
         if installment_rate_decision is not None:
             return protect_customer_decision(installment_rate_decision)
 
@@ -5479,9 +5520,25 @@ class AgentService:
                 confidence="low",
             )
 
-    def _try_installment_rate_question(self, text: str) -> AgentDecision | None:
+    def _try_installment_rate_question(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> AgentDecision | None:
         if not _is_installment_rate_question(text):
             return None
+        if (
+            _is_installment_fee_inclusion_question(text)
+            and _has_recent_card_installment_simulation(history)
+        ):
+            return AgentDecision(
+                reply=(
+                    "Sim. Os valores parcelados da simulação já incluem a taxa de juros da "
+                    "máquina. O preço à vista aparece separado, e o total varia conforme "
+                    "a quantidade de parcelas."
+                ),
+                confidence="high",
+            )
         return AgentDecision(
             reply=format_installment_rates(
                 ask_for_model=not _is_no_interest_installment_question(text)
