@@ -2273,6 +2273,73 @@ jobs:
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          import app.agent as agent_module
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/visit-after-hours-date-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          agent_module._store_now = lambda: datetime(
+              2026, 10, 13, 21, 20, tzinfo=ZoneInfo("America/Sao_Paulo")
+          )
+          availability = asyncio.run(
+              service.respond(
+                  "Tenho disponibilidade após as 17h30, qualquer dia da semana",
+                  history=[
+                      {
+                          "role": "assistant",
+                          "content": (
+                              "O pagamento é feito na retirada, com horário marcado. "
+                              "Qual dia e horário fica melhor para você?"
+                          ),
+                      }
+                  ],
+              )
+          )
+          assert "quarta-feira, 14/10/2026" in availability.reply.lower(), availability.reply
+          assert "visita para hoje" not in availability.reply.lower(), availability.reply
+          booking = asyncio.run(
+              service.respond(
+                  "12h30\n14/10",
+                  history=[
+                      {
+                          "role": "user",
+                          "content": "Tenho disponibilidade após as 17h30, qualquer dia da semana",
+                      },
+                      {"role": "assistant", "content": availability.reply},
+                  ],
+              )
+          )
+          assert booking.handoff, booking
+          assert "quarta-feira, 14/10/2026" in booking.reply.lower(), booking.reply
+          assert "às 12:30" in booking.reply.lower(), booking.reply
+          assert "terça-feira, 13/10/2026" not in booking.reply.lower(), booking.reply
+          reservation = asyncio.run(service.respond("Tem como reservar o aparelho?"))
+          assert "não trabalhamos com reserva" in reservation.reply.lower(), reservation.reply
+          assert "quarta-feira, 14/10/2026" in reservation.reply.lower(), reservation.reply
+          assert "visita para hoje" not in reservation.reply.lower(), reservation.reply
+          print("VISIT_AFTER_HOURS_NUMERIC_DATE_GUARD_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
           from app.agent import AgentService

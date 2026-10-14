@@ -2062,6 +2062,7 @@ def _has_visit_date_reference(text: str) -> bool:
         any(marker in normalized for marker in date_markers)
         or bool(re.search(r"\bhj\b", normalized))
         or bool(re.search(r"\bdia\s+\d{1,2}\b", normalized))
+        or bool(re.search(r"\b(?:0?[1-9]|[12]\d|3[01])/(?:0?[1-9]|1[0-2])(?:/\d{4})?\b", normalized))
     )
 
 
@@ -2286,6 +2287,8 @@ def _store_hours_reply(faq: FAQStore) -> str:
 
 def _today_store_reply(faq: FAQStore, *, include_physical_store: bool = True) -> str:
     current = _store_now()
+    if _is_business_weekday(current) and current.hour >= 18:
+        return _tomorrow_store_reply(faq, include_physical_store=include_physical_store)
     today = _today_label(current)
     address = _store_address(faq)
     if _is_business_weekday(current):
@@ -2334,6 +2337,33 @@ def _visit_date_for_request(
         return current
     if "amanha" in normalized:
         return current + timedelta(days=1)
+
+    numeric_date = re.search(
+        r"\b(?P<day>0?[1-9]|[12]\d|3[01])/(?P<month>0?[1-9]|1[0-2])"
+        r"(?:/(?P<year>\d{4}))?\b",
+        normalized,
+    )
+    if numeric_date is not None:
+        day = int(numeric_date.group("day"))
+        month = int(numeric_date.group("month"))
+        explicit_year = numeric_date.group("year")
+        years = [int(explicit_year)] if explicit_year else range(current.year, current.year + 5)
+        for year in years:
+            try:
+                visit_day = current.replace(
+                    year=year,
+                    month=month,
+                    day=day,
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+            except ValueError:
+                continue
+            if explicit_year or visit_day.date() >= current.date():
+                return visit_day
+        return None
 
     match = re.search(
         r"\b(segunda(?:[- ]feira)?|terca(?:[- ]feira)?|quarta(?:[- ]feira)?|"
@@ -2390,6 +2420,11 @@ def _reservation_reply(faq: FAQStore, visit_day: datetime | None = None) -> str:
 
     current = _store_now()
     if _is_business_weekday(current):
+        if current.hour >= 18:
+            return (
+                f"{reason} Hoje é {_today_label(current)} e a loja já encerrou o atendimento. "
+                f"{_tomorrow_store_reply(faq, include_physical_store=False)}"
+            )
         return (
             f"{reason} Hoje é {_today_label(current)}. Podemos marcar sua visita para hoje, "
             f"com horário marcado, no endereço {_store_address(faq)}. Qual horário fica melhor para você?"
