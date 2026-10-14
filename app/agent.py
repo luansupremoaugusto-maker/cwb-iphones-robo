@@ -1054,6 +1054,18 @@ def _is_product_availability_request(
     )
 
 
+def _is_affirmative_first_iphone_statement(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        re.search(r"\bprimeir[oa]\s+iphones?\b", normalized)
+        and not re.search(
+            r"\b(?:nao|nunca)\s+(?:e\s+|foi\s+|sera\s+)?(?:o\s+)?"
+            r"(?:meu|minha)\s+primeir[oa]\s+iphones?\b",
+            normalized,
+        )
+    )
+
+
 def _is_unresolved_iphone_model_selection(text: str) -> bool:
     normalized = _normalize(text)
     has_model_selection_prompt = bool(
@@ -1061,7 +1073,7 @@ def _is_unresolved_iphone_model_selection(text: str) -> bool:
         and re.search(r"\b(?:compr\w*|lacrad\w*)\b", normalized)
     )
     first_iphone_purchase = bool(
-        re.search(r"\bprimeir[oa]\s+iphones?\b", normalized)
+        _is_affirmative_first_iphone_statement(normalized)
         and re.search(
             r"\b(?:pretend\w*|planej\w*|vou|quero)\b.{0,30}\bcompr\w*\b",
             normalized,
@@ -1070,6 +1082,7 @@ def _is_unresolved_iphone_model_selection(text: str) -> bool:
     return bool(
         "iphone" in _catalog_families(normalized)
         and not _requested_iphone_model_keys(normalized)
+        and _extract_budget_limit(text) is None
         and (has_model_selection_prompt or first_iphone_purchase)
     )
 
@@ -5591,9 +5604,7 @@ class AgentService:
             )
 
         if _is_unresolved_iphone_model_selection(combined_request):
-            is_first_iphone = bool(
-                re.search(r"\bprimeir[oa]\s+iphones?\b", _normalize(combined_request))
-            )
+            is_first_iphone = _is_affirmative_first_iphone_statement(combined_request)
             return AgentDecision(
                 reply=(
                     "Que legal! 😊 Como é seu primeiro iPhone, posso te ajudar a escolher. "
