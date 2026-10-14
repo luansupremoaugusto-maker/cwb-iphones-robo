@@ -4373,11 +4373,11 @@ def _pending_multi_model_product_request_context(
 
     def request_segments(content: str) -> list[str]:
         request_intent_start = (
-            r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
+            r"(?:(?:voc[eê]s?|vcs|a\s+loja)\s+)?"
             r"(?:(?:sabe|sabem)(?:\s+se)?\s+)?"
-            r"(?:(?:a\s+loja)\s+)?"
+            r"(?:(?:voc[eê]s?|vcs|a\s+loja)\s+)?"
             r"(?:(?:o|a)\s+)?(?:gostaria|queria|quero|procuro|procurando|preciso|necessito|"
-            r"possibilidade|quanto|qual|quais|pre[cç]o|valor|custa|tem|teria|"
+            r"possibilidade|quanto|qual|quais|pre[cç]o|valor|custa|t[eê]m|teria|"
             r"vende|possui|disponivel)\b"
         )
         segments = re.split(
