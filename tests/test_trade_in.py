@@ -3672,3 +3672,65 @@ async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp
     assert is_trade_in_request(explicit_buyback_text) is True
     assert explicit_buyback_decision.reply == TRADE_IN_FORM
     assert explicit_buyback_decision.handoff is True
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_quote_followed_by_base_de_troca_sends_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    quote = "Queria cotar o meu iPhone c vc"
+    history = [{"role": "user", "content": quote}]
+
+    quote_decision = await service.respond(quote)
+    decision = await service.respond("A base de troca", history=history)
+
+    assert is_trade_in_request(quote) is True
+    assert quote_decision.reply == TRADE_IN_FORM
+    assert quote_decision.handoff is True
+    assert is_trade_in_context_request("A base de troca", history) is True
+    assert is_parts_buyback_request("A base de troca") is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    catalog_quote = "Queria cotar o iPhone 16."
+    catalog_quote_decision = await service.respond(catalog_quote)
+    assert is_trade_in_request(catalog_quote) is False
+    assert catalog_quote_decision.reply != TRADE_IN_FORM
+    assert catalog_quote_decision.handoff is False
+
+    catalog_question = "Quanto custa o iPhone 17 Pro Max?"
+    catalog_decision = await service.respond(catalog_question, history=history)
+    assert is_trade_in_context_request(catalog_question, history) is False
+    assert catalog_decision.reply != TRADE_IN_FORM
+    assert catalog_decision.handoff is False
+
+    purchase_question = "Quero comprar o iPhone 17 Pro Max."
+    purchase_decision = await service.respond(purchase_question, history=history)
+    assert is_trade_in_context_request(purchase_question, history) is False
+    assert purchase_decision.reply != TRADE_IN_FORM
+    assert purchase_decision.handoff is False
+
+    repair_question = "Preciso trocar só a bateria do meu iPhone."
+    repair_decision = await service.respond(repair_question, history=history)
+    assert is_trade_in_context_request(repair_question, history) is False
+    assert repair_decision.reply != TRADE_IN_FORM
+
+    parts_question = "Vocês compram só a bateria do iPhone 13?"
+    parts_decision = await service.respond(parts_question, history=history)
+    assert is_trade_in_context_request(parts_question, history) is False
+    assert parts_decision.reply == PARTS_BUYBACK_REPLY
