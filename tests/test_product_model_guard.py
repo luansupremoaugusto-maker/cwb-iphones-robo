@@ -2259,6 +2259,75 @@ async def test_generic_cellphone_budget_returns_every_available_option_under_100
     assert "iPhone 13" not in decision.reply
 
 
+@pytest.mark.parametrize(
+    ("text", "history"),
+    [
+        (
+            "Os valores estão fora do meu orçamento amigo, mas obrigado",
+            [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Encontrei estas opções de iPhone 16 Pro Max: "
+                        "256GB seminovo por R$ 5.170,00."
+                    ),
+                },
+                {"role": "assistant", "content": "Qual você prefere?"},
+            ],
+        ),
+        (
+            "mas obrigado",
+            [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Encontrei estas opções de iPhone 16 Pro Max: "
+                        "256GB seminovo por R$ 5.170,00."
+                    ),
+                },
+                {"role": "assistant", "content": "Qual você prefere?"},
+                {"role": "user", "content": "Os valores estão fora do meu orçamento amigo"},
+            ],
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_catalog_budget_objection_does_not_repeat_the_rejected_offer(
+    tmp_path,
+    text,
+    history,
+):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-desert",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text=(
+                "iphone 16 pro max titanio deserto 256gb seminovo "
+                "disponivel para venda"
+            ),
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(text, history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "faixa de valor" in _normalize(decision.reply)
+    assert "R$ 5.170,00" not in decision.reply
+
+
 @pytest.mark.asyncio
 async def test_comma_thousands_budget_keeps_iphone_15_within_r3200(tmp_path):
     agent = build_agent(tmp_path)
