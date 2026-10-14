@@ -44,6 +44,20 @@ async def test_reservation_denial_offers_visit_without_reserving(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_reservation_after_store_closes_offers_tomorrow(tmp_path, monkeypatch):
+    current = datetime(2026, 10, 13, 21, 20, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Tem como reservar o aparelho?")
+
+    assert decision.handoff is False
+    assert "não trabalhamos com reserva" in decision.reply.lower()
+    assert "quarta-feira, 14/10/2026" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_visit_request_offers_today_on_weekday(tmp_path, monkeypatch):
     current = datetime(2026, 8, 10, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
     monkeypatch.setattr(agent_module, "_store_now", lambda: current)
@@ -56,6 +70,60 @@ async def test_visit_request_offers_today_on_weekday(tmp_path, monkeypatch):
     assert "visita para hoje" in decision.reply.lower()
     assert "qual horário" in decision.reply.lower()
     assert "reserva" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_visit_availability_after_store_closes_offers_tomorrow(tmp_path, monkeypatch):
+    current = datetime(2026, 10, 13, 21, 20, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Tenho disponibilidade após as 17h30, qualquer dia da semana",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "O pagamento é feito na retirada, com horário marcado. "
+                    "Qual dia e horário fica melhor para você?"
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "quarta-feira, 14/10/2026" in decision.reply.lower()
+    assert "visita para hoje" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_visit_followup_with_numeric_date_uses_customer_date(tmp_path, monkeypatch):
+    current = datetime(2026, 10, 13, 21, 20, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "12h30\n14/10",
+        history=[
+            {
+                "role": "user",
+                "content": "Tenho disponibilidade após as 17h30, qualquer dia da semana",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim, temos loja física. Hoje é terça-feira, 13/10/2026. "
+                    "Atendemos hoje das 09:00 às 18:00, com horário marcado. "
+                    "Posso marcar uma visita para hoje? Qual horário fica melhor para você?"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is True
+    assert "quarta-feira, 14/10/2026" in decision.reply.lower()
+    assert "às 12:30" in decision.reply.lower()
+    assert "terça-feira, 13/10/2026" not in decision.reply.lower()
 
 
 @pytest.mark.asyncio
