@@ -1575,6 +1575,75 @@ async def test_literal_iphone_16_128_installment_after_catalog_sends_both_condit
 
 
 @pytest.mark.asyncio
+async def test_installment_followup_uses_offered_sealed_price_after_no_interest_question(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-128-black-used",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3750.0,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iphone 16 preto 128 gb seminovo bateria 90",
+        ),
+    ]
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:iphone-16-128-white-sealed",
+            name="iPhone 16",
+            category="Novo lacrado",
+            capacity="128 GB",
+            price_brl=4700.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 16 branco 128 gb novo lacrado",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Vocês têm o iPhone 16?"},
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone 16 128 GB branco novo lacrado custa R$ 4.700. "
+                "Trabalhamos por encomenda, com prazo de 1 semana. No seminovo, "
+                "não encontrei a cor branca; temos opções em preto e ultramarino. "
+                "Quer seguir com o lacrado ou ver as opções seminovas?"
+            ),
+        },
+        {"role": "user", "content": "4700 sem juros?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Não há parcelamento sem juros no cartão de crédito na máquina física: "
+                "há a taxa de juros da máquina. O acréscimo varia conforme o valor "
+                "passado no cartão e a quantidade de parcelas."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "simula pra mim em 7, 8 e 9x por favor",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "Não localizei esse produto seminovo" not in decision.reply
+    assert "Parcelamento do iPhone 16 128 GB" in decision.reply
+    assert "Preço à vista: R$ 4.700,00" in decision.reply
+    assert "7x de" in decision.reply
+    assert "8x de" in decision.reply
+    assert "9x de" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_catalog_device_condition_question_still_hands_off_after_installment_route_fix(tmp_path):
     cache, settings = build_cache(tmp_path)
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
