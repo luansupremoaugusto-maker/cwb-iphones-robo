@@ -218,9 +218,23 @@ def _requested_iphone_model_key(value: Any) -> tuple[int | str, str] | None:
     return target
 
 
+def _strip_installment_count_list(value: Any) -> str:
+    normalized = _normalize(value)
+    if not re.search(r"\b(?:simul\w*|calcul\w*|parcel\w*)\b", normalized):
+        return normalized
+
+    count = r"(?:1[0-8]|[1-9])"
+    separator = r"(?:\s*[,/]\s*|\s+(?:e|ou)\s+)"
+    count_list = re.compile(
+        rf"\b{count}(?:\s*x)?(?:{separator}{count}(?:\s*x)?)*"
+        rf"{separator}{count}\s*x\b"
+    )
+    return count_list.sub(" ", normalized, count=1)
+
+
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
-    normalized = _normalize(value)
+    normalized = _strip_installment_count_list(value)
     if any(family != "iphone" for family in _catalog_families(normalized)):
         return ()
 
@@ -292,7 +306,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             + f"{number} pro e {number} pro max"
             + line_aware_normalized[shared_suffix.end() :]
         )
-    target = _requested_iphone_model_key(value)
+    target = _requested_iphone_model_key(normalized)
     if target is None and not re.search(r"\biphones?\b", normalized):
         return ()
 

@@ -292,14 +292,28 @@ def _normalize(value: str) -> str:
     return re.sub(r"\bpromax\b", "pro max", normalized)
 
 
+def _without_installment_count_list(normalized: str) -> str:
+    if not re.search(r"\b(?:simul\w*|calcul\w*|parcel\w*)\b", normalized):
+        return normalized
+
+    count = r"(?:1[0-8]|[1-9])"
+    separator = r"(?:\s*[,/]\s*|\s+(?:e|ou)\s+)"
+    count_list = re.compile(
+        rf"\b{count}(?:\s*x)?(?:{separator}{count}(?:\s*x)?)*"
+        rf"{separator}{count}\s*x\b"
+    )
+    return count_list.sub(" ", normalized, count=1)
+
+
 def _has_product_reference(normalized: str) -> bool:
     # A bare number is not enough to identify a product: values such as
     # "1k" (entry) and "18x" (installments) are common in the same chat.
     # Keep numeric shorthand only when it carries a model variant or an
     # explicit catalog condition, such as "16 novo" or "16 lacrado".
+    model_reference_text = _without_installment_count_list(normalized)
     return bool(
         _catalog_families(normalized)
-        or re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", normalized)
+        or re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", model_reference_text)
         or re.search(
             r"\b\d{1,2}\s+(?:novo|nova|lacrado|lacrados|encomenda|"
             r"seminovo|seminovos|usado|usados)\b",
@@ -3711,6 +3725,78 @@ def _requested_installment_product_keys(value: str) -> tuple[str, ...]:
     )
 
 
+def _customer_installment_price_reference(text: str) -> float | None:
+    """Recognize a price the customer is referring to in a follow-up."""
+    normalized = _normalize(text)
+    if not re.search(
+        r"\br\s*\$|\bsem\s+juros?\b|\b(?:preco|valor|custa|custou)\b",
+        normalized,
+    ):
+        return None
+
+    amount_pattern = re.compile(
+        r"(?<!\w)(?:r\s*\$\s*)?"
+        r"(?P<amount>\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?|\d{4,}(?:[.,]\d{2})?)"
+        r"(?!\w)",
+        flags=re.IGNORECASE,
+    )
+    for match in reversed(list(amount_pattern.finditer(text or ""))):
+        amount = _parse_brl_amount(match.group("amount"))
+        if amount is not None:
+            return amount
+    return None
+
+
+def _selected_installment_offer_context(
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Resolve a quoted catalog price to the matching offer in recent history."""
+    price_reference: tuple[int, float] | None = None
+    for index in range(len(history or []) - 1, -1, -1):
+        item = history[index]
+        if item.get("role") != "user":
+            continue
+        amount = _customer_installment_price_reference(item.get("content", ""))
+        if amount is not None:
+            price_reference = (index, amount)
+            break
+    if price_reference is None:
+        return None
+
+    price_message_index, selected_price = price_reference
+    if any(
+        item.get("role") == "user"
+        and _has_product_reference(_normalize(item.get("content", "")))
+        for item in (history or [])[price_message_index + 1 :]
+    ):
+        return None
+
+    price_pattern = re.compile(
+        r"\br\s*\$\s*(?P<amount>\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?|\d{4,}(?:[.,]\d{2})?)",
+        flags=re.IGNORECASE,
+    )
+    for item in reversed((history or [])[:price_message_index]):
+        if item.get("role") != "assistant":
+            continue
+        content = item.get("content", "")
+        segments = re.split(r"\n+|(?<=[.!?])\s+|[;|]\s*|(?=•)", content)
+        matching_segments: list[str] = []
+        for segment in segments:
+            if not _has_installment_product_context(segment):
+                continue
+            for match in price_pattern.finditer(segment):
+                amount = _parse_brl_amount(match.group("amount"))
+                if amount is not None and abs(amount - selected_price) < 0.01:
+                    normalized_segment = _normalize(segment)
+                    if normalized_segment not in {
+                        _normalize(candidate) for candidate in matching_segments
+                    }:
+                        matching_segments.append(segment.strip())
+        if matching_segments:
+            return matching_segments[0] if len(matching_segments) == 1 else None
+    return None
+
+
 def _installment_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -3731,6 +3817,12 @@ def _installment_context_query(
         history_condition = _history_installment_condition(current, history)
         return "\n".join(
             part for part in (current_capacity_hint, current, history_condition) if part
+        ).strip()
+
+    selected_offer = _selected_installment_offer_context(history)
+    if selected_offer:
+        return "\n".join(
+            part for part in (current_capacity_hint, selected_offer, current) if part
         ).strip()
 
     # A customer may select one unit from a broad offer, ask about delivery,
