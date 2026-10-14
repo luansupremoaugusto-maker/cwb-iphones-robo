@@ -4347,75 +4347,128 @@ def _pending_multi_model_product_request_context(
     ] or [(len(entries), current)]
     requested_messages: list[tuple[int, str]] = []
     previous_message_was_product_request = False
-    for index, content in [*pending_users, *current_messages]:
-        has_model_reference = bool(
-            _has_product_reference(_normalize(content))
-            or _extract_bare_catalog_model_reference(content)
-        )
-        normalized_content = _normalize(content)
-        is_owned_device_context = bool(
+
+    def is_owned_device_context(content: str) -> bool:
+        normalized = _normalize(content)
+        return bool(
             re.search(
-                r"^(?:meu|minha|meus|minhas|eu\s+tenho|tenho\s+(?:um|uma)|"
-                r"possuo|atualmente\s+(?:tenho|uso)|uso\s+(?:meu|minha))\b",
-                normalized_content,
+                r"^(?:(?:e|ou|mas)\s+)?(?:(?:o|a)\s+)?(?:meu|minha|meus|minhas)\b"
+                r"|^(?:atualmente\s+)?(?:eu\s+)?(?:tenho|possuo|uso)\s+"
+                r"(?:(?:um|uma|o|a)\s+)?(?:(?:meu|minha)\s+)?"
+                r"(?:iphone|ipad|mac(?:book)?|airpods?|apple\s+watch)\b"
+                r"|^(?:vendo|vou\s+vender|troco|ofereco)\s+"
+                r"(?:(?:o|a)\s+)?(?:meu|minha)\b",
+                normalized,
             )
         )
-        is_trade_context = is_trade_in_request(normalized_content)
-        has_negated_purchase_intent = bool(
+
+    def has_negated_purchase_intent(content: str) -> bool:
+        return bool(
             re.search(
-                r"\bnao\s+(?:quero|queria|gostaria|vou|pretendo)\s+"
+                r"\bnao\s+(?:quero|queria|gostaria|vou|pretendo)\s+(?:de\s+)?"
                 r"(?:comprar|ver|saber|conhecer)\b",
-                normalized_content,
+                _normalize(content),
             )
         )
-        has_catalog_purchase_intent = not has_negated_purchase_intent and any(
-            phrase in normalized_content
-            for phrase in (
-                "gostaria de ver",
-                "gostaria de saber mais",
-                "gostaria de informacoes sobre",
-                "queria ver",
-                "quero ver",
-                "quero comprar",
-                "queria comprar",
-                "gostaria de comprar",
-                "possibilidade de comprar",
-                "procuro",
-                "procurando",
-                "preciso",
-                "necessito",
+
+    def request_segments(content: str) -> list[str]:
+        request_intent_start = (
+            r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
+            r"(?:(?:sabe|sabem)(?:\s+se)?\s+)?"
+            r"(?:(?:o|a)\s+)?(?:gostaria|queria|quero|procuro|procurando|preciso|necessito|"
+            r"possibilidade|quanto|qual|quais|pre[cç]o|valor|custa|tem|teria|"
+            r"vende|possui|disponivel)\b"
+        )
+        segments = re.split(
+            r"\s+\b(?:mas|por[eé]m|contudo|no\s+entanto)\b\s+"
+            rf"|[,;]\s*(?={request_intent_start})"
+            rf"|\s+\be\b\s+(?={request_intent_start})",
+            content,
+            flags=re.IGNORECASE,
+        )
+        if len(segments) > 1 and any(
+            is_owned_device_context(segment)
+            or is_trade_in_request(segment)
+            or has_negated_purchase_intent(segment)
+            for segment in segments
+        ):
+            return [segment.strip() for segment in segments if segment.strip()]
+        return [content]
+
+    for index, content in [*pending_users, *current_messages]:
+        for segment in request_segments(content):
+            has_model_reference = bool(
+                _has_product_reference(_normalize(segment))
+                or _extract_bare_catalog_model_reference(segment)
             )
-        )
-        has_request_style_availability = bool(
-            re.search(
-                r"^(?:(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,! ]+)?"
-                r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
-                r"(?:(?:sabe|sabem)\s+se\s+)?"
-                r"(?:(?:voce|voces|vcs)\s+)?"
-                r"(?:tem|teria|vende|vendem|possui|possuem)\b"
-                r"|\b(?:disponivel|disponibilidade|em\s+estoque|estoque|"
-                r"a\s+venda|encomenda)\b",
-                normalized_content,
+            normalized_segment = _normalize(segment)
+            is_owned_context = is_owned_device_context(segment)
+            is_trade_context = is_trade_in_request(normalized_segment)
+            is_negated_purchase = has_negated_purchase_intent(segment)
+            has_catalog_purchase_intent = not is_negated_purchase and any(
+                phrase in normalized_segment
+                for phrase in (
+                    "gostaria de ver",
+                    "gostaria de saber mais",
+                    "gostaria de informacoes sobre",
+                    "queria ver",
+                    "quero ver",
+                    "quero comprar",
+                    "queria comprar",
+                    "gostaria de comprar",
+                    "possibilidade de comprar",
+                    "procuro",
+                    "procurando",
+                    "preciso",
+                    "necessito",
+                )
             )
-        )
-        explicit_product_request = has_model_reference and not (
-            is_owned_device_context or is_trade_context or has_negated_purchase_intent
-        ) and (
-            _is_explicit_catalog_price_request(content)
-            or _is_catalog_buyer_interest(content)
-            or has_catalog_purchase_intent
-            or has_request_style_availability
-        )
-        is_followup_model_request = bool(
-            has_model_reference
-            and previous_message_was_product_request
-            and re.match(r"^(?:e|ou|tambem|mais)\b", _normalize(content))
-        )
-        if explicit_product_request or is_followup_model_request:
-            requested_messages.append((index, content))
-            previous_message_was_product_request = True
-        else:
-            previous_message_was_product_request = False
+            has_stock_request_opening = bool(
+                re.search(
+                    r"^(?:(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,! ]+)?"
+                    r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
+                    r"(?:(?:sabe|sabem)\s+se\s+)?"
+                    r"(?:(?:voce|voces|vcs)\s+)?"
+                    r"(?:tem|teria|vende|vendem|possui|possuem)\b",
+                    normalized_segment,
+                )
+            )
+            has_availability_detail = bool(
+                re.search(
+                    r"\b(?:disponivel|disponibilidade|em\s+estoque|estoque|"
+                    r"a\s+venda|encomenda)\b",
+                    normalized_segment,
+                )
+            )
+            has_availability_question = bool(
+                has_availability_detail
+                and (
+                    "?" in segment
+                    or re.search(r"\b(?:qual|quais|sabe\s+se|voce|voces|vcs)\b", normalized_segment)
+                )
+            )
+            has_request_style_availability = not (
+                is_owned_context or is_trade_context or is_negated_purchase
+            ) and (has_stock_request_opening or has_availability_question)
+            explicit_product_request = has_model_reference and not (
+                is_owned_context or is_negated_purchase
+            ) and (
+                _is_explicit_catalog_price_request(segment)
+                or _is_catalog_buyer_interest(segment)
+                or has_catalog_purchase_intent
+                or has_request_style_availability
+            )
+            is_followup_model_request = bool(
+                has_model_reference
+                and not (is_owned_context or is_trade_context or is_negated_purchase)
+                and previous_message_was_product_request
+                and re.match(r"^(?:e|ou|tambem|mais)\b", _normalize(segment))
+            )
+            if explicit_product_request or is_followup_model_request:
+                requested_messages.append((index, segment))
+                previous_message_was_product_request = True
+            else:
+                previous_message_was_product_request = False
 
     candidate_messages = requested_messages
     current_models = ()

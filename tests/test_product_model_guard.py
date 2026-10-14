@@ -6355,7 +6355,9 @@ async def test_consecutive_iphone_18_pro_price_questions_return_both_models(tmp_
     [
         "Meu iPhone 13 Pro Max tem 256 GB",
         "Meu iPhone 13 Pro Max está disponível para troca",
+        "O meu iPhone 13 Pro Max está disponível",
         "Não quero comprar o iPhone 13 Pro Max",
+        "Não gostaria de ver o iPhone 13 Pro Max",
     ],
 )
 async def test_batched_non_request_model_is_not_added_to_requested_models(
@@ -6412,6 +6414,128 @@ async def test_batched_request_intent_keeps_followup_model_request(
     }
     assert "iPhone 17 Pro Max" in decision.reply
     assert "iPhone 18 Pro Max" in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "owned_model_request",
+    [
+        "Tenho um iPhone 13 Pro Max, mas quero comprar um iPhone 16 Pro Max",
+        "Tenho o iPhone 13 Pro Max, mas quero comprar o iPhone 16 Pro Max",
+        "Atualmente uso meu iPhone 13 Pro Max, mas quero comprar o iPhone 16 Pro Max",
+        "Atualmente tenho um iPhone 13 Pro Max, mas quero comprar o iPhone 16 Pro Max",
+    ],
+)
+async def test_batched_owned_model_clause_keeps_explicit_purchase_target(
+    tmp_path,
+    owned_model_request,
+):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-13-pro-max-256", "iPhone 13 Pro Max", "256 GB", 6000),
+        _sealed_item("iphone-16-pro-max-256", "iPhone 16 Pro Max", "256 GB", 9000),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 11000),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": owned_model_request,
+        },
+    ]
+
+    decision = await agent.respond("E o 18 Pro Max?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-256",
+        "iphone-18-pro-max-256",
+    }
+    assert "iPhone 13 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_batched_owned_model_followup_is_not_added_to_requested_models(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-13-pro-max-256", "iPhone 13 Pro Max", "256 GB", 6000),
+        _sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 10000),
+    ]
+    history = [
+        {"role": "user", "content": "Gostaria de ver o iPhone 17 Pro Max"},
+    ]
+
+    decision = await agent.respond(
+        "E o meu iPhone 13 Pro Max está disponível?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-17-pro-max-256"]
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "iPhone 13 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_batched_trade_offer_is_separated_from_catalog_request(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-13-pro-max-256", "iPhone 13 Pro Max", "256 GB", 6000),
+        _sealed_item("iphone-16-pro-max-256", "iPhone 16 Pro Max", "256 GB", 9000),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 11000),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": "Vendo meu iPhone 13 Pro Max e gostaria de ver o iPhone 16 Pro Max",
+        },
+    ]
+
+    decision = await agent.respond("E o iPhone 18 Pro Max?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-256",
+        "iphone-18-pro-max-256",
+    }
+    assert "iPhone 13 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trade_and_price_request",
+    [
+        "Aceitam meu iPhone 13 Pro Max na troca e quanto custa o iPhone 16 Pro Max?",
+        "Aceitam meu iPhone 13 Pro Max na troca? E o valor do iPhone 16 Pro Max?",
+        "Aceitam meu iPhone 13 Pro Max na troca? E o preço do iPhone 16 Pro Max?",
+        "Aceitam meu iPhone 13 Pro Max na troca? E sabe o preço do iPhone 16 Pro Max?",
+        "Aceitam meu iPhone 13 Pro Max na troca? E a loja tem o iPhone 16 Pro Max?",
+    ],
+)
+async def test_batched_trade_offer_and_price_request_keep_only_catalog_models(
+    tmp_path,
+    trade_and_price_request,
+):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-13-pro-max-256", "iPhone 13 Pro Max", "256 GB", 6000),
+        _sealed_item("iphone-16-pro-max-256", "iPhone 16 Pro Max", "256 GB", 9000),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 11000),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": trade_and_price_request,
+        },
+    ]
+
+    decision = await agent.respond("E o iPhone 18 Pro Max?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-pro-max-256",
+        "iphone-18-pro-max-256",
+    }
+    assert "iPhone 13 Pro Max" not in decision.reply
 
 
 @pytest.mark.asyncio
