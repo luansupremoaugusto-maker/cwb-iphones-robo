@@ -4375,6 +4375,7 @@ def _pending_multi_model_product_request_context(
         request_intent_start = (
             r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
             r"(?:(?:sabe|sabem)(?:\s+se)?\s+)?"
+            r"(?:(?:a\s+loja)\s+)?"
             r"(?:(?:o|a)\s+)?(?:gostaria|queria|quero|procuro|procurando|preciso|necessito|"
             r"possibilidade|quanto|qual|quais|pre[cç]o|valor|custa|tem|teria|"
             r"vende|possui|disponivel)\b"
@@ -4429,7 +4430,7 @@ def _pending_multi_model_product_request_context(
                     r"^(?:(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,! ]+)?"
                     r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
                     r"(?:(?:sabe|sabem)\s+se\s+)?"
-                    r"(?:(?:voce|voces|vcs)\s+)?"
+                    r"(?:(?:voce|voces|vcs|a\s+loja)\s+)?"
                     r"(?:tem|teria|vende|vendem|possui|possuem)\b",
                     normalized_segment,
                 )
