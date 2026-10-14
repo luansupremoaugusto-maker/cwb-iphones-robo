@@ -2907,6 +2907,109 @@ jobs:
           assert "como e seu primeiro iphone" not in _normalize(negated.reply), negated.reply
           print("FIRST_IPHONE_BUDGET_NEGATION_ROUTING_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService, _normalize
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=False,
+              mercado_cache_ttl_seconds=60,
+              faq_path="/app/config/faq.yaml",
+          )
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-14-image-color-scope.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-13-pro-max-blue-sierra-128",
+                  name="iPhone 13 Pro Max",
+                  category="Celular",
+                  capacity="128GB",
+                  color="AZUL SIERRA",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=2870,
+                  battery_health=90,
+                  source="mercado_phone",
+                  search_text="iPhone 13 Pro Max 128GB azul sierra seminovo",
+              ),
+              InventoryItem(
+                  external_id="iphone-14-midnight-128-90",
+                  name="iPhone 14",
+                  category="Celular",
+                  capacity="128GB",
+                  color="MEIA NOITE",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=1870,
+                  battery_health=90,
+                  source="mercado_phone",
+                  search_text="iPhone 14 128GB meia noite seminovo",
+              ),
+              InventoryItem(
+                  external_id="iphone-14-midnight-128-91",
+                  name="iPhone 14",
+                  category="Celular",
+                  capacity="128GB",
+                  color="MEIA NOITE",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=1870,
+                  battery_health=91,
+                  source="mercado_phone",
+                  search_text="iPhone 14 128GB meia noite seminovo",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {
+                  "role": "user",
+                  "content": (
+                      "Descricao visual da imagem recebida: iPhone 13 Pro Max de 128 GB "
+                      "azul-sierra e dois iPhone 14 de 128 GB meia-noite"
+                  ),
+              },
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Vi na imagem um iPhone 13 Pro Max de 128 GB azul-sierra e dois "
+                      "iPhone 14 de 128 GB meia-noite. Você quer saber disponibilidade "
+                      "ou valores de algum deles?"
+                  ),
+              },
+          ]
+          decision = asyncio.run(
+              service.respond("Está disponível esse 14", history=history)
+          )
+          assert not decision.handoff, decision
+          assert not decision.image_urls, decision
+          assert set(decision.product_references) == {
+              "iphone-14-midnight-128-90",
+              "iphone-14-midnight-128-91",
+          }, decision
+          reply = _normalize(decision.reply)
+          assert "meia noite" in reply, decision.reply
+          assert "azul" not in reply, decision.reply
+          assert "nao localizei" not in reply, decision.reply
+          print("IPHONE_14_IMAGE_COLOR_SCOPE_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

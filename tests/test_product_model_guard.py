@@ -7005,3 +7005,121 @@ async def test_explicit_availability_question_checks_models_shown_in_catalog_ima
     assert "R$ 3.790,00" in decision.reply
     assert "R$ 3.990,00" in decision.reply
     assert "R$ 3.190,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_image_followup_scopes_color_to_the_selected_iphone_model(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-max-blue-sierra-128",
+            name="iPhone 13 Pro Max",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL SIERRA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2870,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iPhone 13 Pro Max 128GB azul sierra seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-midnight-128-90",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iPhone 14 128GB meia noite seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-midnight-128-91",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            battery_health=91,
+            source="mercado_phone",
+            search_text="iPhone 14 128GB meia noite seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-starlight-128",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128GB",
+            color="ESTELAR",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1870,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iPhone 14 128GB estelar seminovo",
+        ),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Descricao visual da imagem recebida: iPhone 13 Pro Max de 128 GB "
+                "azul-sierra e dois iPhone 14 de 128 GB meia-noite"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Vi na imagem um iPhone 13 Pro Max de 128 GB azul-sierra e dois "
+                "iPhone 14 de 128 GB meia-noite. Você quer saber disponibilidade "
+                "ou valores de algum deles?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Está disponível esse 14", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-14-midnight-128-90",
+        "iphone-14-midnight-128-91",
+    }
+    assert "meia noite" in _normalize(decision.reply)
+    assert "azul" not in _normalize(decision.reply)
+    assert "não localizei" not in _normalize(decision.reply)
+    assert "outras cores solicitadas" not in _normalize(decision.reply)
+
+    explicit_color = await agent.respond(
+        "Está disponível esse iPhone 14 azul?",
+        history=history,
+    )
+
+    assert explicit_color.handoff is False
+    assert set(explicit_color.product_references) == {
+        "iphone-14-midnight-128-90",
+        "iphone-14-midnight-128-91",
+        "iphone-14-starlight-128",
+    }
+    assert "azul" in _normalize(explicit_color.reply)
+    assert "nao esta disponivel" in _normalize(explicit_color.reply)
+    assert not _normalize(explicit_color.reply).startswith("sim")
+
+    color_list = await agent.respond("Quais cores tem o iPhone 14?", history=history)
+
+    assert color_list.handoff is False
+    assert set(color_list.product_references) == {
+        "iphone-14-midnight-128-90",
+        "iphone-14-midnight-128-91",
+        "iphone-14-starlight-128",
+    }
+    assert "MEIA NOITE" in color_list.reply
+    assert "ESTELAR" in color_list.reply
