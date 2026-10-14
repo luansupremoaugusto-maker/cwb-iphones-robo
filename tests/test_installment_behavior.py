@@ -1770,3 +1770,168 @@ async def test_catalog_device_condition_question_still_hands_off_after_installme
 
     assert decision.handoff is True
     assert "atendente" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_photo_reference_after_simulation_prompt_returns_both_requested_units(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-128-midnight-91",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1710.0,
+            battery_health=91,
+            search_text="iphone 13 meia noite 128 gb seminovo bateria 91 celular",
+        ),
+        InventoryItem(
+            external_id="iphone-13-128-midnight-89",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1760.0,
+            battery_health=89,
+            search_text="iphone 13 meia noite 128 gb seminovo bateria 89 celular",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "O que tem de diferença nesses iPhones 13? [imagem]"},
+        {
+            "role": "assistant",
+            "content": (
+                "Pelo que aparece, os dois são iPhone 13 seminovos, de 128 GB e na cor "
+                "Meia-noite. A diferença visível é a saúde da bateria: um está com 91% "
+                "e o outro com 89%."
+            ),
+        },
+        {"role": "user", "content": "Mas o com 91 está mais barato que o que tá com menos"},
+        {"role": "assistant", "content": "Claro! Seguem as fotos do IPHONE 13 128GB."},
+        {"role": "user", "content": "Simula pra mim os dois em 10 vezes"},
+        {"role": "user", "content": "E 12 vezes"},
+        {
+            "role": "assistant",
+            "content": (
+                "Claro! Quais são os dois aparelhos (modelo e capacidade) que você quer "
+                "simular? Aí te envio a tabela completa de 1x a 18x para cada um."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Esses dois iPhones que me enviou as fotos",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert set(decision.product_references) == {
+        "iphone-13-128-midnight-91",
+        "iphone-13-128-midnight-89",
+    }, decision.reply
+    assert decision.reply.count("Parcelamento do IPHONE 13 128 GB") == 2
+    assert "bateria 91%" in decision.reply.lower()
+    assert "bateria 89%" in decision.reply.lower()
+    assert "Preço à vista: R$ 1.710,00" in decision.reply
+    assert "Preço à vista: R$ 1.760,00" in decision.reply
+    assert decision.reply.count("10x de") == 2
+    assert decision.reply.count("12x de") == 2
+    assert "IPHONE 16 PRO MAX" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_correction_after_photo_reply_keeps_both_iphone13_units(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-128-midnight-91",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1710.0,
+            battery_health=91,
+            search_text="iphone 13 meia noite 128 gb seminovo bateria 91 celular",
+        ),
+        InventoryItem(
+            external_id="iphone-13-128-midnight-89",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1760.0,
+            battery_health=89,
+            search_text="iphone 13 meia noite 128 gb seminovo bateria 89 celular",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "O que tem de diferença nesses iPhones 13? [imagem]"},
+        {
+            "role": "assistant",
+            "content": (
+                "Pelo que aparece, os dois são iPhone 13 seminovos, de 128 GB e na cor "
+                "Meia-noite. A diferença visível é a saúde da bateria: um está com 91% "
+                "e o outro com 89%."
+            ),
+        },
+        {"role": "user", "content": "Mas o com 91 está mais barato que o que tá com menos"},
+        {"role": "assistant", "content": "Claro! Seguem as fotos do IPHONE 13 128GB."},
+        {"role": "user", "content": "Simula pra mim os dois em 10 vezes"},
+        {"role": "user", "content": "E 12 vezes"},
+        {
+            "role": "assistant",
+            "content": (
+                "Claro! Quais são os dois aparelhos (modelo e capacidade) que você quer "
+                "simular? Aí te envio a tabela completa de 1x a 18x para cada um."
+            ),
+        },
+        {"role": "user", "content": "Esses dois iPhones que me enviou as fotos"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei o IPHONE 16 PRO MAX seminovo em mais de uma opção: "
+                "512GB — TITÂNIO NATURAL; 256GB — TITÂNIO PRETO. "
+                "Qual capacidade você quer que eu envie nas fotos?"
+            ),
+        },
+        {"role": "user", "content": "Não quero a simulação dos iPhones 13"},
+        {"role": "assistant", "content": "Claro! Seguem as fotos do IPHONE 13 128GB."},
+    ]
+
+    decision = await agent.respond(
+        "Não quero fotos queria a sublimação em 10 e 12 vezes",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == []
+    assert set(decision.product_references) == {
+        "iphone-13-128-midnight-91",
+        "iphone-13-128-midnight-89",
+    }, decision.reply
+    assert decision.reply.count("Parcelamento do IPHONE 13 128 GB") == 2
+    assert "bateria 91%" in decision.reply.lower()
+    assert "bateria 89%" in decision.reply.lower()
+    assert "Preço à vista: R$ 1.710,00" in decision.reply
+    assert "Preço à vista: R$ 1.760,00" in decision.reply
+    assert decision.reply.count("10x de") == 2
+    assert decision.reply.count("12x de") == 2
+    assert "IPHONE 16 PRO MAX" not in decision.reply
