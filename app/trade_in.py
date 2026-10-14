@@ -154,6 +154,12 @@ _BUYBACK_VERB_RE = re.compile(
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
+_PARTS_BUYBACK_OBJECT_RE = re.compile(
+    _BUYBACK_VERB_RE.pattern
+    + r".{0,20}(?:(?:so|somente|apenas)\s+)?(?:(?:a|o|uma|um)\s+)?"
+    + _PARTS_RE.pattern,
+    re.IGNORECASE,
+)
 _PRICE_BUYBACK_RE = re.compile(
     r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voce|voces|vcs|a\s+loja)\s+"
     r"(?:estao\s+)?(?:pagando|paga|pagam|pagaria|pagariam)\s+"
@@ -974,8 +980,9 @@ def _has_complete_device_buyback_context(text: str) -> bool:
         _OWNED_BARE_IPHONE_VARIANT_RE.search(text)
         and _COMPLETE_DEVICE_DETAIL_RE.search(text)
         and _BUYBACK_VERB_RE.search(text)
-        and _has_explicit_device_exchange_context(text)
+        and not _PARTS_BUYBACK_OBJECT_RE.search(text)
         and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(text)
+        and not _NEGATION_RE.search(text)
         and not _NON_APPLE_RE.search(text)
     ):
         return True
