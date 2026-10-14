@@ -2273,6 +2273,76 @@ jobs:
           from app.agent import AgentService
           from app.config import Settings
           from app.faq import FAQStore
+          from app.trade_in import (
+              PARTS_BUYBACK_REPLY,
+              TRADE_IN_FORM,
+              is_parts_buyback_request,
+              is_trade_in_context_request,
+              is_trade_in_request,
+          )
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(
+                  EmptyMercadoClient(),
+                  settings,
+                  cache_path="/tmp/owned-iphone-quote-trade-in-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          quote = "Queria cotar o meu iPhone c vc"
+          history = [{"role": "user", "content": quote}]
+          direct = asyncio.run(service.respond(quote))
+          followup = asyncio.run(
+              service.respond("A base de troca", history=history)
+          )
+          assert is_trade_in_request(quote), quote
+          assert direct.reply == TRADE_IN_FORM, direct
+          assert direct.handoff, direct
+          assert not direct.product_references and not direct.image_urls, direct
+          assert is_trade_in_context_request("A base de troca", history)
+          assert not is_parts_buyback_request("A base de troca")
+          assert followup.reply == TRADE_IN_FORM, followup
+          assert followup.handoff, followup
+          assert not followup.product_references and not followup.image_urls, followup
+
+          catalog_quote = "Queria cotar o iPhone 16."
+          catalog = asyncio.run(service.respond(catalog_quote))
+          assert not is_trade_in_request(catalog_quote), catalog_quote
+          assert catalog.reply != TRADE_IN_FORM and not catalog.handoff, catalog
+
+          purchase = asyncio.run(
+              service.respond("Quero comprar o iPhone 17 Pro Max.", history=history)
+          )
+          assert purchase.reply != TRADE_IN_FORM and not purchase.handoff, purchase
+
+          repair = asyncio.run(
+              service.respond("Preciso trocar só a bateria do meu iPhone.", history=history)
+          )
+          assert not is_trade_in_context_request(
+              "Preciso trocar só a bateria do meu iPhone.", history
+          )
+          assert repair.reply != TRADE_IN_FORM, repair
+
+          parts_question = "Vocês compram só a bateria do iPhone 13?"
+          parts = asyncio.run(service.respond(parts_question, history=history))
+          assert not is_trade_in_context_request(parts_question, history)
+          assert parts.reply == PARTS_BUYBACK_REPLY and not parts.handoff, parts
+          print("OWNED_IPHONE_QUOTE_BASE_EXCHANGE_EVALUATION_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
           from app.trade_in import PARTS_BUYBACK_REPLY, TRADE_IN_FORM
 
           class EmptyMercadoClient:
