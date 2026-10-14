@@ -292,24 +292,28 @@ def _normalize(value: str) -> str:
     return re.sub(r"\bpromax\b", "pro max", normalized)
 
 
+def _without_installment_count_list(normalized: str) -> str:
+    if not re.search(r"\b(?:simul\w*|calcul\w*|parcel\w*)\b", normalized):
+        return normalized
+
+    count = r"(?:1[0-8]|[1-9])"
+    separator = r"(?:\s*[,/]\s*|\s+(?:e|ou)\s+)"
+    count_list = re.compile(
+        rf"\b{count}(?:\s*x)?(?:{separator}{count}(?:\s*x)?)*"
+        rf"{separator}{count}\s*x\b"
+    )
+    return count_list.sub(" ", normalized, count=1)
+
+
 def _has_product_reference(normalized: str) -> bool:
     # A bare number is not enough to identify a product: values such as
     # "1k" (entry) and "18x" (installments) are common in the same chat.
     # Keep numeric shorthand only when it carries a model variant or an
     # explicit catalog condition, such as "16 novo" or "16 lacrado".
-    installment_count_list = bool(
-        re.search(r"\b(?:simul\w*|calcul\w*|parcel\w*)\b", normalized)
-        and re.search(
-            r"\b(?:1[0-8]|[1-9])\s+e\s+(?:1[0-8]|[1-9])\s*x\b",
-            normalized,
-        )
-    )
+    model_reference_text = _without_installment_count_list(normalized)
     return bool(
         _catalog_families(normalized)
-        or (
-            not installment_count_list
-            and re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", normalized)
-        )
+        or re.search(r"\b\d{1,2}\s+(?:e|pro|max|air|mini|plus)\b", model_reference_text)
         or re.search(
             r"\b\d{1,2}\s+(?:novo|nova|lacrado|lacrados|encomenda|"
             r"seminovo|seminovos|usado|usados)\b",
@@ -3740,14 +3744,21 @@ def _selected_installment_offer_context(
         if item.get("role") != "assistant":
             continue
         content = item.get("content", "")
-        segments = re.split(r"\n+|(?<=[.!?])\s+|(?=•)", content)
+        segments = re.split(r"\n+|(?<=[.!?])\s+|[;|]\s*|(?=•)", content)
+        matching_segments: list[str] = []
         for segment in segments:
             if not _has_installment_product_context(segment):
                 continue
             for match in price_pattern.finditer(segment):
                 amount = _parse_brl_amount(match.group("amount"))
                 if amount is not None and abs(amount - selected_price) < 0.01:
-                    return segment.strip()
+                    normalized_segment = _normalize(segment)
+                    if normalized_segment not in {
+                        _normalize(candidate) for candidate in matching_segments
+                    }:
+                        matching_segments.append(segment.strip())
+        if matching_segments:
+            return matching_segments[0] if len(matching_segments) == 1 else None
     return None
 
 

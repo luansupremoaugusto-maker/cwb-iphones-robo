@@ -9,6 +9,7 @@ from app.agent import (
     AgentService,
     _extract_installment_budget,
     _installment_context_query,
+    _selected_installment_offer_context,
 )
 from app.config import Settings
 from app.faq import FAQStore
@@ -1641,6 +1642,70 @@ async def test_installment_followup_uses_offered_sealed_price_after_no_interest_
     assert "7x de" in decision.reply
     assert "8x de" in decision.reply
     assert "9x de" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_multi_count_installment_request_keeps_explicit_model_alias(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-128-used",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=3200.0,
+            source="mercado_phone",
+            search_text="iphone 15 128 gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-256-used",
+            name="iPhone 16 Pro",
+            category="Celular",
+            capacity="256 GB",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=5170.0,
+            source="mercado_phone",
+            search_text="iphone 16 pro 256 gb celular seminovo",
+        ),
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "simula o 16 Pro em 7, 8 e 9x",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Parcelamento do iPhone 15 128 GB — preço à vista R$ 3.200,00.",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 16 Pro 256 GB" in decision.reply
+    assert "Preço à vista: R$ 5.170,00" in decision.reply
+    assert "iPhone 15" not in decision.reply
+
+
+def test_installment_price_reference_requires_one_matching_offer():
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone 16 128 GB branco novo lacrado custa R$ 4.700. "
+                "O iPhone 16 128 GB preto seminovo também custa R$ 4.700."
+            ),
+        },
+        {"role": "user", "content": "4700 sem juros?"},
+    ]
+
+    assert _selected_installment_offer_context(history) is None
 
 
 @pytest.mark.asyncio
