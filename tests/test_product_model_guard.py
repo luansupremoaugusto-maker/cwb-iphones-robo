@@ -6310,6 +6310,46 @@ async def test_multi_model_interest_keeps_capacity_on_the_last_requested_model(t
 
 
 @pytest.mark.asyncio
+async def test_consecutive_iphone_18_pro_price_questions_return_both_models(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={
+                "color": "Silver",
+                "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado",
+            }
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-silver", "iPhone 18 Pro Max", "256 GB", 9800
+        ).model_copy(
+            update={
+                "color": "Silver",
+                "search_text": "iPhone 18 Pro Max 256 GB Silver novo lacrado",
+            }
+        ),
+    ]
+    history = [
+        {"role": "user", "content": "Bom dia"},
+        {"role": "assistant", "content": "Bom dia! Como posso ajudar?"},
+    ]
+
+    decision = await agent.respond(
+        "Qual o valor do 18 pro 256 silver\nE o 18 pro max 256 silver",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-18-pro-256-silver",
+        "iphone-18-pro-max-256-silver",
+    }
+    assert "iPhone 18 Pro" in decision.reply
+    assert "iPhone 18 Pro Max" in decision.reply
+    assert "R$ 9.500,00" in decision.reply
+    assert "R$ 9.800,00" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_values_followup_preserves_models_asked_before_the_bot_replies(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items = [

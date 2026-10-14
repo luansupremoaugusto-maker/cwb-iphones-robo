@@ -4303,7 +4303,12 @@ def _pending_multi_model_product_request_context(
         if role == "user" and index > latest_assistant_index
     ]
     current = text.strip()
-    candidate_messages = [*pending_users, (len(entries), current)]
+    current_messages = [
+        (len(entries) + offset, line.strip())
+        for offset, line in enumerate(current.splitlines())
+        if line.strip()
+    ] or [(len(entries), current)]
+    candidate_messages = [*pending_users, *current_messages]
     current_models = ()
     if (
         _has_product_reference(_normalize(current))
