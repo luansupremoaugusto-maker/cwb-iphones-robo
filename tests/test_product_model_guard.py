@@ -6350,6 +6350,210 @@ async def test_consecutive_iphone_18_pro_price_questions_return_both_models(tmp_
 
 
 @pytest.mark.asyncio
+async def test_consecutive_model_price_questions_keep_capacity_and_color_scoped(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-512-black", "iPhone 18 Pro", "512 GB", 9600).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro 512 GB Black novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-silver", "iPhone 18 Pro Max", "256 GB", 9700
+        ).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro Max 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-512-black", "iPhone 18 Pro Max", "512 GB", 9800
+        ).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro Max 512 GB Black novo lacrado"}
+        ),
+    ]
+
+    decision = await agent.respond(
+        "Qual o valor do 18 pro 256 silver\nE o 18 pro max 512 black"
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-18-pro-256-silver",
+        "iphone-18-pro-max-512-black",
+    }
+    assert "iPhone 18 Pro" in decision.reply
+    assert "iPhone 18 Pro Max" in decision.reply
+    assert "R$ 9.500,00" in decision.reply
+    assert "R$ 9.800,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_consecutive_model_price_questions_keep_color_scoped_without_capacity(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-256-black", "iPhone 18 Pro", "256 GB", 9600).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro 256 GB Black novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-silver", "iPhone 18 Pro Max", "256 GB", 9700
+        ).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro Max 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-black", "iPhone 18 Pro Max", "256 GB", 9800
+        ).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro Max 256 GB Black novo lacrado"}
+        ),
+    ]
+
+    decision = await agent.respond("Qual o valor do 18 pro silver\nE o 18 pro max black")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-18-pro-256-silver",
+        "iphone-18-pro-max-256-black",
+    }
+
+
+@pytest.mark.asyncio
+async def test_batched_model_price_question_does_not_apply_capacity_to_unscoped_model(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-silver", "iPhone 18 Pro Max", "256 GB", 9700
+        ).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro Max 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-512-black", "iPhone 18 Pro Max", "512 GB", 9800
+        ).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro Max 512 GB Black novo lacrado"}
+        ),
+    ]
+
+    decision = await agent.respond("Qual o valor do 18 pro 256 silver\nE o 18 pro max")
+
+    assert decision.handoff is False
+    assert {
+        "iphone-18-pro-256-silver",
+        "iphone-18-pro-max-512-black",
+    }.issubset(set(decision.product_references))
+
+
+@pytest.mark.asyncio
+async def test_cheapest_multi_model_request_respects_each_models_attributes(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-512-black", "iPhone 18 Pro", "512 GB", 500).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro 512 GB Black novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-silver", "iPhone 18 Pro Max", "256 GB", 600
+        ).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro Max 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-512-black", "iPhone 18 Pro Max", "512 GB", 9800
+        ).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro Max 512 GB Black novo lacrado"}
+        ),
+    ]
+
+    decision = await agent.respond(
+        "Qual o menor valor do 18 pro 256 silver?\n"
+        "E o menor valor do 18 pro max 512 black?"
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-18-pro-256-silver",
+        "iphone-18-pro-max-512-black",
+    }
+
+
+@pytest.mark.asyncio
+async def test_repeated_model_segments_keep_each_requested_color(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-256-black", "iPhone 18 Pro", "256 GB", 9600).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro 256 GB Black novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-512-silver", "iPhone 18 Pro", "512 GB", 9700).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 512 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-512-black", "iPhone 18 Pro", "512 GB", 9800).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro 512 GB Black novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-256-blue", "iPhone 18 Pro Max", "256 GB", 9900
+        ).model_copy(
+            update={"color": "Blue", "search_text": "iPhone 18 Pro Max 256 GB Blue novo lacrado"}
+        ),
+    ]
+
+    decision = await agent.respond(
+        "Qual o valor do 18 pro 256 silver\n"
+        "E o 18 pro 512 black\n"
+        "E o 18 pro max 256 blue"
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-18-pro-256-silver",
+        "iphone-18-pro-512-black",
+        "iphone-18-pro-max-256-blue",
+    }
+
+
+@pytest.mark.asyncio
+async def test_scoped_capacities_do_not_drop_unscoped_third_model(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-17-pro-256-silver", "iPhone 17 Pro", "256 GB", 8500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 17 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-17-pro-512-black", "iPhone 17 Pro", "512 GB", 8600).model_copy(
+            update={"color": "Black", "search_text": "iPhone 17 Pro 512 GB Black novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-256-silver", "iPhone 18 Pro", "256 GB", 9500).model_copy(
+            update={"color": "Silver", "search_text": "iPhone 18 Pro 256 GB Silver novo lacrado"}
+        ),
+        _sealed_item("iphone-18-pro-512-black", "iPhone 18 Pro", "512 GB", 9600).model_copy(
+            update={"color": "Black", "search_text": "iPhone 18 Pro 512 GB Black novo lacrado"}
+        ),
+        _sealed_item(
+            "iphone-18-pro-max-128-white", "iPhone 18 Pro Max", "128 GB", 9700
+        ).model_copy(
+            update={"color": "White", "search_text": "iPhone 18 Pro Max 128 GB White novo lacrado"}
+        ),
+    ]
+
+    decision = await agent.respond(
+        "Qual o valor do 17 pro 256 silver\n"
+        "E o 18 pro 512 black\n"
+        "E o 18 pro max"
+    )
+
+    assert decision.handoff is False
+    assert {
+        "iphone-17-pro-256-silver",
+        "iphone-18-pro-512-black",
+        "iphone-18-pro-max-128-white",
+    }.issubset(set(decision.product_references))
+
+
+@pytest.mark.asyncio
 async def test_values_followup_preserves_models_asked_before_the_bot_replies(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items = [
