@@ -107,6 +107,38 @@ async def test_generic_rate_question_avoids_percentage_disclosure_and_asks_model
 
 
 @pytest.mark.asyncio
+async def test_rate_followup_confirms_previous_installment_table_includes_interest(tmp_path):
+    agent = build_empty_agent(tmp_path)
+    history = [
+        {
+            "role": "user",
+            "content": "eu queria na faixa de preço de 3000 no máximo em 18x",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Parcelamento do IPHONE 14 PRO 256GB\n"
+                "Preço à vista: R$ 3.080,00\n"
+                "1x de R$ 3.240,40 (total R$ 3.240,40)\n"
+                "18x de R$ 211,77 (total R$ 3.811,88)\n\n"
+                "Valores calculados para pagamento no cartão de crédito."
+            ),
+        },
+    ]
+
+    decision = await agent.respond("isso já com a taxa de juros?", history=history)
+
+    reply = decision.reply.lower()
+    assert decision.handoff is False
+    assert reply.startswith("sim")
+    assert "valores" in reply
+    assert "já incluem" in reply
+    assert "juros" in reply
+    assert "qual modelo" not in reply
+    assert "%" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_generic_installment_count_after_shipping_simulates_selected_model_not_random_products(tmp_path):
     agent = build_rate_agent(tmp_path)
     agent.cache.sealed_cache.items = [
