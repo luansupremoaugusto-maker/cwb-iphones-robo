@@ -137,14 +137,14 @@ _PARTS_RE = re.compile(
 )
 _DEVICE_COMPONENT_REPAIR_RE = re.compile(
     r"\b(?:troca\w*|substitu\w*|consert\w*|repar\w*|manuten\w*|arrum\w*)\s+"
-    r"(?:a|o|uma|um|de|do|da)?\s*"
+    r"(?:(?:so|somente|apenas)\s+)?(?:a|o|uma|um|de|do|da)?\s*"
     r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
 )
 _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE = re.compile(
     r"\b(?:troca(?:r|ndo)?|substitu\w*|consert\w*|repar\w*|arrum\w*)\s+"
-    r"(?:a|o|uma|um|de|do|da)?\s*"
+    r"(?:(?:so|somente|apenas)\s+)?(?:a|o|uma|um|de|do|da)?\s*"
     r"(?:pelicula|capa|case|tela|bateria|display|vidro|conector|camera|"
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
@@ -411,6 +411,17 @@ _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
     r"\b(?:ios|ipados|software|firmware|app|aplicativo|"
     r"sistema(?:\s+operacional)?)\b",
+    re.IGNORECASE,
+)
+_CONTEXTUAL_DEVICE_UPGRADE_REQUEST_RE = re.compile(
+    r"\bupgrade\b.{0,45}\b(?:aparelho|celular|iphone|smartphone|telefone)\b"
+    r"|\b(?:aparelho|celular|iphone|smartphone|telefone)\b.{0,45}\bupgrade\b",
+    re.IGNORECASE,
+)
+_CONTEXTUAL_OWNED_BARE_IPHONE_PROFILE_RE = re.compile(
+    r"\b(?:meu|minha)\s+(?:aparelho|celular|smartphone|telefone)\b"
+    r".{0,28}\b(?:e|eh)\s+(?:(?:um|uma|o|a)\s+)?"
+    r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
 
@@ -1369,6 +1380,20 @@ def is_trade_in_context_request(
         if entry.get("role") == "user" and entry.get("content")
     )
     user_context = f"{recent_user_context} {normalized}".strip()
+    if (
+        _CONTEXTUAL_DEVICE_UPGRADE_REQUEST_RE.search(recent_user_context)
+        and _CONTEXTUAL_OWNED_BARE_IPHONE_PROFILE_RE.search(normalized)
+        and re.search(r"\b\d{1,4}\s*(?:gb|tb)\b", normalized)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
+        and not _SOFTWARE_UPGRADE_CONTEXT_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NEGATION_RE.search(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     recent_assistant_contexts = [
         _normalize(entry.get("content", ""))
         for entry in history[-8:]

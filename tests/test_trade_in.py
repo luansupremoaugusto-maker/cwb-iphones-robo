@@ -3492,6 +3492,67 @@ async def test_trade_in_upgrade_followup_uses_recent_owned_iphone_profile(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_upgrade_history_with_bare_owned_iphone_profile_sends_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "oii, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Oi! Tudo bem 😊 E com você? Como posso te ajudar?",
+        },
+        {
+            "role": "user",
+            "content": (
+                "gostaria de me informar sobre valores e saber como funciona "
+                "o upgrade do aparelho antigo"
+            ),
+        },
+    ]
+    text = "meu aparelho atual é um 14 pro com 76% de bateria e 128GB"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    catalog_question = "Quanto custa o iPhone 14 Pro de 128 GB?"
+    catalog_decision = await service.respond(catalog_question, history=history)
+    assert is_trade_in_context_request(catalog_question, history) is False
+    assert catalog_decision.reply != TRADE_IN_FORM
+
+    repair_question = (
+        "Meu aparelho atual é um 14 Pro com 76% de bateria e 128 GB; "
+        "preciso trocar só a bateria."
+    )
+    repair_decision = await service.respond(repair_question, history=history)
+    assert is_trade_in_context_request(repair_question, history) is False
+    assert repair_decision.reply != TRADE_IN_FORM
+
+    parts_question = "Vocês compram só a bateria do iPhone 14 Pro?"
+    parts_decision = await service.respond(parts_question, history=history)
+    assert is_trade_in_context_request(parts_question, history) is False
+    assert parts_decision.reply == PARTS_BUYBACK_REPLY
+
+
+@pytest.mark.asyncio
 async def test_complete_bare_iphone_profile_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
