@@ -336,6 +336,26 @@ def _current_catalog_context(text: str, image_description: str | None = None) ->
     return "\n".join(parts).strip()
 
 
+_SEMINOVO_TRADE_IN_CATALOG_TARGET_RE = re.compile(
+    r"\b(?:procur(?:ando|ava|ar|o|a)|busc(?:ando|ava|ar|o|a)|"
+    r"quer(?:endo|ia|o|er)|gostaria\s+de)\b.{0,48}?"
+    r"\b(?:semi(?:[\s-]*nov[oa]s?)?|usad[oa]s?)\b\s+"
+    r"(?P<models>\d{1,2}(?:\s*(?:pro\s*max|pro|max|plus|mini|air|e|se))?"
+    r"(?:\s*/\s*\d{1,2}(?:\s*(?:pro\s*max|pro|max|plus|mini|air|e|se))?)?)"
+    r"(?=\s*(?:para|pra|na)\s+troca\b|\s*(?:[,.;!?]|$))",
+    re.IGNORECASE,
+)
+
+
+def _seminovo_trade_in_catalog_target_query(text: str) -> str | None:
+    """Isolate requested used upgrade models from details about the owned phone."""
+    match = _SEMINOVO_TRADE_IN_CATALOG_TARGET_RE.search(text or "")
+    if not match:
+        return None
+    models = re.sub(r"\s*/\s*", "/", match.group("models").strip())
+    return f"iPhone {models} seminovo disponíveis"
+
+
 def _visual_catalog_search_query(
     image_description: str | None,
     items: list[Any] | None = None,
@@ -6493,7 +6513,11 @@ class AgentService:
             and battery_unit_selection_query is None
         ):
             return None
-        current_query = _current_catalog_context(text, image_description)
+        seminovo_trade_in_query = _seminovo_trade_in_catalog_target_query(text)
+        current_query = seminovo_trade_in_query or _current_catalog_context(
+            text,
+            image_description,
+        )
         if battery_unit_selection_query is not None:
             current_query = battery_unit_selection_query
         installment_budget_context = (
@@ -6671,7 +6695,10 @@ class AgentService:
         requested_quantity = _requested_device_quantity(
             text if allow_buyer_interest_with_image else query
         )
-        customer_condition_context = _customer_product_condition_context_query(text, history)
+        customer_condition_context = (
+            seminovo_trade_in_query
+            or _customer_product_condition_context_query(text, history)
+        )
         pronta_entrega_only = _is_pronta_entrega_only_request(
             text
         ) or _is_pronta_entrega_only_request(customer_request_context)

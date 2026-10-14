@@ -425,6 +425,11 @@ _CONTEXTUAL_OWNED_BARE_IPHONE_PROFILE_RE = re.compile(
     r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_COMPACT_OWNED_IPHONE_VARIANT_RE = re.compile(
+    r"\b(?:(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma|o|a)?\s*|"
+    r"(?:meu|minha)\s+)(?:iphone\s*)?\d{1,2}(?:e|se)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_explicit_device_exchange_context(text: str) -> bool:
@@ -436,6 +441,17 @@ def _has_explicit_device_exchange_context(text: str) -> bool:
             r"trocar\s+(?:por|para|pra|pro|pelo|pela))\b",
             text,
         )
+    )
+
+
+def _has_compact_owned_iphone_exchange_offer(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        _COMPACT_OWNED_IPHONE_VARIANT_RE.search(normalized)
+        and _has_explicit_device_exchange_context(normalized)
+        and not _NON_APPLE_RE.search(normalized)
+        and not _NEGATION_RE.search(normalized)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
     )
 
 
@@ -1391,6 +1407,15 @@ def is_trade_in_context_request(
         if entry.get("role") == "user" and entry.get("content")
     )
     user_context = f"{recent_user_context} {normalized}".strip()
+    if (
+        re.search(r"\b(?:volta|diferenca)\b", normalized)
+        and _has_compact_owned_iphone_exchange_offer(recent_user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(user_context)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     if (
         _CONTEXTUAL_DEVICE_UPGRADE_REQUEST_RE.search(recent_user_context)
         and _CONTEXTUAL_OWNED_BARE_IPHONE_PROFILE_RE.search(normalized)

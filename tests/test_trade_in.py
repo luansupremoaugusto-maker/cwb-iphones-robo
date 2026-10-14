@@ -3734,3 +3734,125 @@ async def test_owned_iphone_quote_followed_by_base_de_troca_sends_evaluation_for
     parts_decision = await service.respond(parts_question, history=history)
     assert is_trade_in_context_request(parts_question, history) is False
     assert parts_decision.reply == PARTS_BUYBACK_REPLY
+
+
+@pytest.mark.asyncio
+async def test_17e_exchange_lists_requested_seminovos_and_sends_full_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(
+        _env_file=None,
+        openai_api_key=None,
+        google_sheets_enabled=False,
+        mercado_cache_ttl_seconds=60,
+        faq_path=str(tmp_path / "faq.yaml"),
+    )
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-17-semi",
+            name="iPhone 17",
+            category="Celular",
+            capacity="128 GB",
+            color="Preto",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4200,
+            battery_health=90,
+            search_text="iPhone 17 128 GB Preto seminovo bateria 90% em estoque",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-semi",
+            name="iPhone 17 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="Prateado",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            battery_health=91,
+            search_text="iPhone 17 Pro 256 GB Prateado seminovo bateria 91% em estoque",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-sealed",
+            name="iPhone 17 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="Azul-intenso",
+            source="mercado_phone",
+            condition="NOVO LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=6900,
+            search_text="iPhone 17 Pro 256 GB Azul-intenso novo lacrado em estoque",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    initial_message = (
+        "Boa tarde, tenho um 17e e estava procurando um semi 17/17pro para troca, "
+        "o meu foi comprado novo em junho"
+    )
+
+    catalog_decision = await service.respond(initial_message)
+
+    assert catalog_decision.handoff is False
+    assert catalog_decision.reply != TRADE_IN_FORM
+    assert is_trade_in_request(initial_message) is False
+    assert is_parts_buyback_request(initial_message) is False
+    assert set(catalog_decision.product_references) == {
+        "iphone-17-semi",
+        "iphone-17-pro-semi",
+    }
+    assert "iPhone 17" in catalog_decision.reply
+    assert "iPhone 17 Pro" in catalog_decision.reply
+    assert "SEMINOVO" in catalog_decision.reply
+    assert "NOVO LACRADO" not in catalog_decision.reply
+
+    history = [
+        {"role": "user", "content": initial_message},
+        {"role": "assistant", "content": catalog_decision.reply},
+    ]
+    followup = "semi não tem? não queria dar uma volta tão alta"
+    evaluation_decision = await service.respond(followup, history=history)
+
+    assert is_trade_in_context_request(followup, history) is True
+    assert evaluation_decision.reply == TRADE_IN_FORM
+    assert evaluation_decision.handoff is True
+    assert evaluation_decision.product_references == []
+    assert evaluation_decision.image_urls == []
+    assert "Qual modelo de iPhone?" in evaluation_decision.reply
+    assert "Qual a % da Saúde da bateria?" in evaluation_decision.reply
+    assert "avaliação prévia" in evaluation_decision.reply
+
+    buyer_history = [
+        {"role": "user", "content": "Quero comprar um iPhone 17 Pro seminovo"},
+        {"role": "assistant", "content": "Encontrei opções seminovas de iPhone 17 Pro."},
+    ]
+    assert is_trade_in_context_request(followup, buyer_history) is False
+
+    repair_decision = await service.respond(
+        "Quero trocar somente a bateria",
+        history=history,
+    )
+    assert is_trade_in_context_request("Quero trocar somente a bateria", history) is False
+    assert repair_decision.reply != TRADE_IN_FORM
+
+    parts_decision = await service.respond(
+        "Vocês compram só a bateria do iPhone 17e?",
+        history=history,
+    )
+    assert is_parts_buyback_request("Vocês compram só a bateria do iPhone 17e?") is True
+    assert parts_decision.reply == PARTS_BUYBACK_REPLY
