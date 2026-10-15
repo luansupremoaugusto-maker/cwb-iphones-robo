@@ -3163,6 +3163,12 @@ def _is_boleto_payment_request(text: str) -> bool:
     if not normalized or not re.search(r"\bboletos?\b", normalized):
         return False
     if re.search(
+        r"\b(?:nao|nunca|jamais)\s+(?:quero|queria|pretendo)\s+"
+        r"(?:(?:usar|pagar|trabalhar)(?:\s+(?:com|no|o))?\s+)?boletos?\b",
+        normalized,
+    ):
+        return False
+    if re.search(
         r"\b(?:nao|nunca|jamais)\b.{0,35}\b(?:no|por|via|pelo|em)\s+boleto\b",
         normalized,
     ):
@@ -5867,13 +5873,6 @@ class AgentService:
                     confidence="high",
                 )
             )
-        boleto_payment_decision = self._try_boleto_installment(text)
-        if (
-            boleto_payment_decision is not None
-            and not _is_explicit_catalog_price_request(text)
-            and not is_trade_in_context_request(combined_request, history)
-        ):
-            return protect_customer_decision(boleto_payment_decision)
         if _is_catalog_purchase_advice_question(combined_request, history):
             return protect_customer_decision(
                 AgentDecision(
@@ -6004,10 +6003,6 @@ class AgentService:
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
 
-        boleto_installment_decision = self._try_boleto_installment(text)
-        if boleto_installment_decision is not None:
-            return protect_customer_decision(boleto_installment_decision)
-
         price_policy_decision = self._try_price_policy(text)
         if price_policy_decision is not None:
             return protect_customer_decision(price_policy_decision)
@@ -6018,6 +6013,10 @@ class AgentService:
         )
         if combined_warranty_payment_decision is not None:
             return protect_customer_decision(combined_warranty_payment_decision)
+
+        boleto_installment_decision = self._try_boleto_installment(text)
+        if boleto_installment_decision is not None:
+            return protect_customer_decision(boleto_installment_decision)
 
         delivery_payment_decision = self._try_delivery_payment(text, history)
         if delivery_payment_decision is not None:
@@ -6409,6 +6408,8 @@ class AgentService:
         history: list[dict[str, str]] | None,
     ) -> AgentDecision | None:
         payment_decision = self._try_payment_methods(text)
+        if payment_decision is None:
+            payment_decision = self._try_boleto_installment(text)
         if payment_decision is None:
             return None
         warranty_decision = await self._try_warranty(text, history)
