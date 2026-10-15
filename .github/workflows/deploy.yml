@@ -374,6 +374,17 @@ jobs:
                           search_text="MacBook Air M4 512 GB novo lacrado",
                       ),
                       InventoryItem(
+                          external_id="apple-watch-ultra-2-order",
+                          name="Apple Watch Ultra 2",
+                          category="Novo lacrado",
+                          capacity="49 mm",
+                          price_brl=4200,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preço confirmado",
+                          search_text="Apple Watch Ultra 2 49 mm novo lacrado",
+                      ),
+                      InventoryItem(
                           external_id="iphone-16-order",
                           name="iPhone 16",
                           category="Novo lacrado",
@@ -437,7 +448,16 @@ jobs:
           assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper(), decision.reply
           assert "R$ 7.800,00" in decision.reply, decision.reply
           assert "IPHONE" not in decision.reply.upper(), decision.reply
+          assert "APPLE WATCH" not in decision.reply.upper(), decision.reply
           assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
+
+          multiple_families = asyncio.run(
+              service.respond("Tem MacBook ou Apple Watch seminovo?", history=history)
+          )
+          assert not multiple_families.handoff, multiple_families
+          assert "MacBook Air M4" in multiple_families.reply, multiple_families.reply
+          assert "Apple Watch Ultra 2" in multiple_families.reply, multiple_families.reply
+          assert "IPHONE" not in multiple_families.reply.upper(), multiple_families.reply
 
           sealed.items = []
           unavailable = asyncio.run(service.respond(query, history=history))
