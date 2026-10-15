@@ -6806,6 +6806,63 @@ async def test_values_followup_preserves_models_asked_before_the_bot_replies(tmp
 
 
 @pytest.mark.asyncio
+async def test_price_followup_uses_model_and_variant_from_consecutive_user_messages(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-256", "iPhone 18", "256 GB", 8000),
+        _sealed_item("iphone-18-pro-256", "iPhone 18 Pro", "256 GB", 9500),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 10800),
+        _sealed_item("iphone-18-pro-max-512", "iPhone 18 Pro Max", "512 GB", 11800),
+    ]
+    history = [
+        {"role": "user", "content": "opa"},
+        {
+            "role": "assistant",
+            "content": "Opa! Tudo certo por aqui 😊 Como posso te ajudar?",
+        },
+        {"role": "user", "content": "tu tem o iphone 18?"},
+        {"role": "user", "content": "pro max?"},
+    ]
+
+    decision = await agent.respond("e qual o valor?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-18-pro-max-256",
+        "iphone-18-pro-max-512",
+    }
+    assert "iPhone 18 Pro Max" in decision.reply
+    assert "R$ 10.800,00" in decision.reply
+    assert "R$ 11.800,00" in decision.reply
+    assert "iPhone 18 Pro —" not in decision.reply
+    assert "iPhone 18 —" not in decision.reply
+    assert "não localizei" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_price_after_iphone18_question_stays_base_without_variant_clarification(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-256", "iPhone 18", "256 GB", 8000),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 10800),
+    ]
+    history = [
+        {"role": "user", "content": "opa"},
+        {
+            "role": "assistant",
+            "content": "Opa! Tudo certo por aqui 😊 Como posso te ajudar?",
+        },
+        {"role": "user", "content": "tu tem o iphone 18?"},
+    ]
+
+    decision = await agent.respond("e qual o valor?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-18-256"]
+    assert "iPhone 18 Pro Max" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_batched_used_iphone_request_keeps_available_pro_after_missing_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
