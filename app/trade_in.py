@@ -149,6 +149,12 @@ _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE = re.compile(
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
 )
+_COMPONENT_REPLACEMENT_CONDITION_RE = re.compile(
+    r"\bcom\s+(?:a\s+)?(?:troca\w*|substitu\w*)\s+"
+    r"(?:(?:de|do|da)\s+)?"
+    + _PARTS_RE.pattern,
+    re.IGNORECASE,
+)
 _BUYBACK_VERB_RE = re.compile(
     r"\b(?:compr(?:a|am|amos)|peg(?:a|am|amos|ando|aria|ariam|em|uem)|pegm|aceit(?:a|am|amos)|"
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
@@ -679,6 +685,18 @@ def has_explicit_trade_in_cue(text: str | None) -> bool:
     return bool(
         normalized
         and (_BUYBACK_VERB_RE.search(normalized) or _NON_APPLE_EXCHANGE_RE.search(normalized))
+    )
+
+
+def _is_component_repair_request(text: str | None) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and (
+            _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+            or _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        )
+        and not _COMPONENT_REPLACEMENT_CONDITION_RE.search(normalized)
     )
 
 
@@ -1478,6 +1496,7 @@ def is_trade_in_context_request(
     )
     recent_exchange_question = any(
         has_explicit_trade_in_cue(entry.get("content", ""))
+        and not _is_component_repair_request(entry.get("content", ""))
         and re.search(
             r"\b(?:troca|entrada|parte\s+do\s+pagamento|avaliacao|avaliar|usad\w*)\b",
             _normalize(entry.get("content", "")),
