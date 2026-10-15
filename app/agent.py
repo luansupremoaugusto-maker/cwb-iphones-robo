@@ -4257,6 +4257,9 @@ def _product_context_query(
     """Preserva a referência do produto atual ao consultar o histórico."""
     current = text.strip()
     normalized = _normalize(current)
+    pending_variant_context = _pending_iphone_variant_price_context(current, history)
+    if pending_variant_context:
+        return pending_variant_context
     if _has_product_reference(normalized):
         return current
 
@@ -4345,6 +4348,68 @@ def _product_context_query(
             parts.append(content)
     parts.append(current)
     return "\n".join(parts[-6:]).strip()
+
+
+def _pending_iphone_variant_price_context(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Resolve a variant named in a short customer follow-up before a price question."""
+    if not history or not _is_catalog_price_followup(text):
+        return None
+
+    entries = [
+        (index, entry.get("role"), entry.get("content", "").strip())
+        for index, entry in enumerate(history)
+        if entry.get("content", "").strip()
+    ]
+    latest_assistant_index = max(
+        (index for index, role, _content in entries if role == "assistant"),
+        default=-1,
+    )
+    pending_users = [
+        content
+        for index, role, content in entries
+        if role == "user" and index > latest_assistant_index
+    ]
+    if len(pending_users) < 2:
+        return None
+
+    variant_message = _normalize(pending_users[-1])
+    if not re.fullmatch(r"(?:(?:e|ou)\s+)?(?:(?:o|a)\s+)?pro\s+max[?!.,]*", variant_message):
+        return None
+
+    base_request = pending_users[-2]
+    models = _requested_iphone_model_keys(base_request)
+    if (
+        len(models) != 1
+        or models[0][1]
+        or not isinstance(models[0][0], int)
+        or not _is_product_availability_request(base_request)
+        or is_trade_in_request(base_request)
+    ):
+        return None
+
+    generation = models[0][0]
+    residual_request = re.sub(
+        rf"\b(?:iphone\s*)?{generation}\b",
+        " ",
+        base_request,
+        flags=re.IGNORECASE,
+    )
+    residual_request = re.sub(r"[\s?!.,;]+$", "", residual_request).strip()
+    residual_request = re.sub(
+        r"\b(?:o|a|um|uma)\s*$",
+        "",
+        residual_request,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    parts = [f"iPhone {generation} Pro Max"]
+    if residual_request:
+        parts.append(residual_request)
+    parts.append(text.strip())
+    return "\n".join(parts)
 
 
 def _pending_multi_model_product_request_context(

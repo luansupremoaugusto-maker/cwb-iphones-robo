@@ -2701,6 +2701,39 @@ jobs:
                   source="google_sheets",
                   search_text="iPhone 18 Pro Max 256 GB novo lacrado",
               ),
+              InventoryItem(
+                  external_id="iphone-18-256",
+                  name="iPhone 18",
+                  category="Novo lacrado",
+                  capacity="256 GB",
+                  condition="novo lacrado",
+                  availability="Preço confirmado",
+                  price_brl=8000,
+                  source="google_sheets",
+                  search_text="iPhone 18 256 GB novo lacrado",
+              ),
+              InventoryItem(
+                  external_id="iphone-18-pro-256",
+                  name="iPhone 18 Pro",
+                  category="Novo lacrado",
+                  capacity="256 GB",
+                  condition="novo lacrado",
+                  availability="Preço confirmado",
+                  price_brl=9500,
+                  source="google_sheets",
+                  search_text="iPhone 18 Pro 256 GB novo lacrado",
+              ),
+              InventoryItem(
+                  external_id="iphone-18-pro-max-512",
+                  name="iPhone 18 Pro Max",
+                  category="Novo lacrado",
+                  capacity="512 GB",
+                  condition="novo lacrado",
+                  availability="Preço confirmado",
+                  price_brl=11800,
+                  source="google_sheets",
+                  search_text="iPhone 18 Pro Max 512 GB novo lacrado",
+              ),
           ]
           cache = StoreCatalogCache(
               EmptyMercadoClient(),
@@ -2729,12 +2762,37 @@ jobs:
           assert set(decision.product_references) == {
               "iphone-17-pro-max-256",
               "iphone-18-pro-max-256",
+              "iphone-18-pro-max-512",
           }, decision
           assert "iPhone 17 Pro Max" in decision.reply, decision.reply
           assert "iPhone 18 Pro Max" in decision.reply, decision.reply
           assert "R$ 7.600,00" in decision.reply, decision.reply
           assert "R$ 10.800,00" in decision.reply, decision.reply
+          assert "R$ 11.800,00" in decision.reply, decision.reply
           print("IPHONE_17_18_PENDING_MODELS_CATALOG_GUARD_OK")
+
+          clarification_history = [
+              {"role": "user", "content": "opa"},
+              {
+                  "role": "assistant",
+                  "content": "Opa! Tudo certo por aqui 😊 Como posso te ajudar?",
+              },
+              {"role": "user", "content": "tu tem o iphone 18?"},
+              {"role": "user", "content": "pro max?"},
+          ]
+          clarification = asyncio.run(
+              service.respond("e qual o valor?", history=clarification_history)
+          )
+          assert not clarification.handoff, clarification
+          assert set(clarification.product_references) == {
+              "iphone-18-pro-max-256",
+              "iphone-18-pro-max-512",
+          }, clarification
+          assert "iPhone 18 Pro Max" in clarification.reply, clarification.reply
+          assert "R$ 10.800,00" in clarification.reply, clarification.reply
+          assert "R$ 11.800,00" in clarification.reply, clarification.reply
+          assert "iPhone 18 —" not in clarification.reply, clarification.reply
+          print("IPHONE_18_PRO_MAX_VARIANT_PRICE_FOLLOWUP_GUARD_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
