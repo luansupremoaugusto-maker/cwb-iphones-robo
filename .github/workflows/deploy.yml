@@ -363,6 +363,107 @@ jobs:
               def __init__(self):
                   self.items = [
                       InventoryItem(
+                          external_id="macbook-air-m4-order",
+                          name="MacBook Air M4",
+                          category="Novo lacrado",
+                          capacity="512 GB",
+                          price_brl=7800,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preço confirmado",
+                          search_text="MacBook Air M4 512 GB novo lacrado",
+                      ),
+                      InventoryItem(
+                          external_id="iphone-16-order",
+                          name="iPhone 16",
+                          category="Novo lacrado",
+                          capacity="128 GB",
+                          price_brl=4600,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preço confirmado",
+                          search_text="iPhone 16 128 GB novo lacrado",
+                      ),
+                  ]
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return self.items[:limit]
+
+              async def get(self, product_id):
+                  return next((item for item in self.items if item.external_id == product_id), None)
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=True)
+          sealed = SealedCatalog()
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/macbook-seminovo-alternative-guard.json",
+              sealed_cache=sealed,
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-13-pro-used",
+                  name="iPhone 13 Pro",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="ROSA",
+                  price_brl=2390,
+                  source="mercado_phone",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  battery_health=88,
+                  search_text="iPhone 13 Pro 128 GB rosa celular seminovo",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          query = "Gostaria de saber se tem MacBook semi novo"
+          history = [
+              {"role": "user", "content": "Olá tudo bem"},
+              {
+                  "role": "assistant",
+                  "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+              },
+          ]
+          decision = asyncio.run(service.respond(query, history=history))
+          assert not decision.handoff, decision
+          assert decision.product_references == [], decision
+          assert decision.image_urls == [], decision
+          assert "MacBook Air M4" in decision.reply, decision.reply
+          assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper(), decision.reply
+          assert "R$ 7.800,00" in decision.reply, decision.reply
+          assert "IPHONE" not in decision.reply.upper(), decision.reply
+          assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
+
+          sealed.items = []
+          unavailable = asyncio.run(service.respond(query, history=history))
+          assert not unavailable.handoff, unavailable
+          assert "IPHONE" not in unavailable.reply.upper(), unavailable.reply
+          assert "MACBOOK" in unavailable.reply.upper(), unavailable.reply
+          assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in unavailable.reply.upper()
+          print("MACBOOK_SEMINOVO_OFFERS_FAMILY_OPTIONS_GUARD_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class SealedCatalog:
+              def __init__(self):
+                  self.items = [
+                      InventoryItem(
                           external_id="ipad-11-128",
                           name="iPad 11 A16",
                           category="Novo lacrado",

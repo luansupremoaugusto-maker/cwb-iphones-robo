@@ -218,6 +218,59 @@ async def test_missing_ipad_seminovo_without_new_ipad_does_not_offer_iphone_semi
 
 
 @pytest.mark.asyncio
+async def test_missing_macbook_seminovo_offers_macbooks_by_order_not_iphone_seminovos(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+    ]
+    agent.cache.sealed_cache.items = [
+        _sealed_item("macbook-air-m4", "MacBook Air M4", "512 GB", 7800),
+        _sealed_item("iphone-16-new", "iPhone 16", "128 GB", 4600),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    history = [
+        {"role": "user", "content": "Olá tudo bem"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    decision = await agent.respond(
+        "Gostaria de saber se tem MacBook semi novo",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "MacBook Air M4" in decision.reply
+    assert "NOVOS LACRADOS POR ENCOMENDA" in decision.reply.upper()
+    assert "R$ 7.800,00" in decision.reply
+    assert "IPHONE" not in decision.reply.upper()
+    assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
+async def test_missing_macbook_seminovo_without_macbook_options_does_not_offer_iphones(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+    ]
+    agent.cache.sealed_cache.items = []
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond("Gostaria de saber se tem MacBook semi novo")
+
+    normalized = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert "IPHONE" not in decision.reply.upper()
+    assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
+    assert "nao localizei opcoes de macbook seminovo disponiveis" in normalized
+    assert "nao encontrei macbooks novos disponiveis" in normalized
+
+
+@pytest.mark.asyncio
 async def test_missing_ipad_variant_keeps_other_ipad_seminovos_in_alternatives(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
