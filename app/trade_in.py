@@ -1478,6 +1478,12 @@ def is_trade_in_context_request(
     )
     recent_exchange_question = any(
         has_explicit_trade_in_cue(entry.get("content", ""))
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(
+            _normalize(entry.get("content", ""))
+        )
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(
+            _normalize(entry.get("content", ""))
+        )
         and re.search(
             r"\b(?:troca|entrada|parte\s+do\s+pagamento|avaliacao|avaliar|usad\w*)\b",
             _normalize(entry.get("content", "")),

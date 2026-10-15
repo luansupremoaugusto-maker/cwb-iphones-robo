@@ -4064,3 +4064,28 @@ async def test_owned_iphone_details_after_catalog_trade_question_send_evaluation
     repair_decision = await service.respond(repair_question, history=history)
     assert is_trade_in_context_request(repair_question, history) is False
     assert repair_decision.reply != TRADE_IN_FORM
+
+    repair_history = [
+        {"role": "user", "content": "Quero comprar um iPhone 14 Pro Max"},
+        {
+            "role": "assistant",
+            "content": "Encontrei opções de iPhone 14 Pro Max no catálogo.",
+        },
+        {
+            "role": "user",
+            "content": "Vocês aceitam aparelho para troca de bateria?",
+        },
+    ]
+    owned_profile_after_repair_question = "Tenho um 16 128 com bateria 87 %"
+    repair_context_decision = await service.respond(
+        owned_profile_after_repair_question,
+        history=repair_history,
+    )
+    assert (
+        is_trade_in_context_request(
+            owned_profile_after_repair_question,
+            repair_history,
+        )
+        is False
+    )
+    assert repair_context_decision.reply != TRADE_IN_FORM
