@@ -150,6 +150,47 @@ jobs:
               and not followup_decision.image_urls
           ), followup_decision
           print("PAYMENT_METHODS_AFTER_SELECTED_CATALOG_OFFER_OK")
+
+          boleto_history = [
+              {"role": "user", "content": "Oi"},
+              {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+              {"role": "user", "content": "iPhones"},
+          ]
+          boleto_decision = asyncio.run(
+              service.respond("Trabalhar com boleto", history=boleto_history)
+          )
+          assert boleto_decision.reply == faq.get("pagamento"), boleto_decision
+          assert not boleto_decision.handoff, boleto_decision
+          assert (
+              not boleto_decision.product_references and not boleto_decision.image_urls
+          ), boleto_decision
+          print("BOLETO_PAYMENT_AFTER_IPHONE_INTEREST_OK")
+
+          contextual_boleto_history = [
+              {"role": "user", "content": "iPhones"},
+              {"role": "user", "content": "Trabalhar com boleto"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 17 PRO MAX disponíveis:\n"
+                      "• IPHONE 17 PRO MAX — PRATEADO — 256GB — SEMINOVO COM GARANTIA "
+                      "APPLE — R$ 6.820,00 | Bat: 100%"
+                  ),
+              },
+              {"role": "user", "content": "iPhone 13"},
+          ]
+          contextual_boleto_decision = asyncio.run(
+              service.respond("Como funciona?", history=contextual_boleto_history)
+          )
+          assert (
+              contextual_boleto_decision.reply == faq.get("pagamento")
+          ), contextual_boleto_decision
+          assert not contextual_boleto_decision.handoff, contextual_boleto_decision
+          assert (
+              not contextual_boleto_decision.product_references
+              and not contextual_boleto_decision.image_urls
+          ), contextual_boleto_decision
+          print("CONTEXTUAL_BOLETO_FOLLOWUP_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio

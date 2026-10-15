@@ -3176,6 +3176,7 @@ def _is_boleto_payment_request(text: str) -> bool:
             r"posso|pode|tem|teria|consegu\w*)\b",
             normalized,
         )
+        or re.search(r"\btrabalh\w*\s+com\s+(?:o\s+)?boleto\b", normalized)
     )
     has_store_sale_intent = bool(
         re.search(
@@ -3184,6 +3185,38 @@ def _is_boleto_payment_request(text: str) -> bool:
         )
     ) and not _is_warranty_request(text)
     return has_installment_question or has_payment_intent or has_store_sale_intent
+
+
+_SHORT_IPHONE_MODEL_SELECTION_RE = re.compile(
+    r"^iphone\s+\d{1,2}(?:\s+(?:pro\s+max|pro|max|plus|mini|air|e))?"
+    r"(?:\s+\d{2,4}\s*gb)?\s*[?!.]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_contextual_boleto_followup(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if not re.fullmatch(r"(?:e\s+)?como\s+funciona[?!.]*", _normalize(text)):
+        return False
+
+    customer_messages_after_boleto = 0
+    for entry in reversed((history or [])[-8:]):
+        if entry.get("role") != "user":
+            continue
+        customer_message = entry.get("content", "")
+        if _is_boleto_payment_request(customer_message):
+            return customer_messages_after_boleto <= 1
+        customer_messages_after_boleto += 1
+        if (
+            customer_messages_after_boleto > 1
+            or not _SHORT_IPHONE_MODEL_SELECTION_RE.fullmatch(
+                _normalize(customer_message)
+            )
+        ):
+            return False
+    return False
 
 
 def _is_payment_methods_question(text: str) -> bool:
@@ -5823,6 +5856,24 @@ class AgentService:
                     confidence="high",
                 )
             )
+        if (
+            _is_contextual_boleto_followup(text, history)
+            and not trade_in_em_andamento(history)
+            and not is_trade_in_context_request(combined_request, history)
+        ):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=self.faq.get("pagamento") or PAYMENT_METHODS_REPLY,
+                    confidence="high",
+                )
+            )
+        boleto_payment_decision = self._try_boleto_installment(text)
+        if (
+            boleto_payment_decision is not None
+            and not _is_explicit_catalog_price_request(text)
+            and not is_trade_in_context_request(combined_request, history)
+        ):
+            return protect_customer_decision(boleto_payment_decision)
         if _is_catalog_purchase_advice_question(combined_request, history):
             return protect_customer_decision(
                 AgentDecision(

@@ -511,6 +511,48 @@ async def test_literal_boleto_sales_question_after_greeting_returns_payment_poli
 
 
 @pytest.mark.asyncio
+async def test_trabalhar_com_boleto_after_iphone_interest_returns_payment_policy():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {"role": "user", "content": "Oi"},
+        {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+        {"role": "user", "content": "iPhones"},
+    ]
+
+    decision = await agent.respond("Trabalhar com boleto", history=history)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_como_funciona_after_boleto_and_iphone_selection_answers_payment_policy():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {"role": "user", "content": "iPhones"},
+        {"role": "user", "content": "Trabalhar com boleto"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 17 PRO MAX disponíveis:\n"
+                "• IPHONE 17 PRO MAX — PRATEADO — 256GB — SEMINOVO COM GARANTIA "
+                "APPLE — R$ 6.820,00 | Bat: 100%"
+            ),
+        },
+        {"role": "user", "content": "iPhone 13"},
+    ]
+
+    decision = await agent.respond("Como funciona?", history=history)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_boleto_purchase_question_routes_to_payment_policy_not_evaluation(tmp_path):
     agent = build_agent(tmp_path)
     history = [
