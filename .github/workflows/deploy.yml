@@ -2840,6 +2840,29 @@ jobs:
               repair_history,
           )
           assert repair_context.reply != TRADE_IN_FORM, repair_context
+
+          replacement_history = [
+              {"role": "user", "content": "Quero comprar um iPhone 14 Pro Max"},
+              {
+                  "role": "assistant",
+                  "content": "Encontrei opções de iPhone 14 Pro Max no catálogo.",
+              },
+              {
+                  "role": "user",
+                  "content": "Vocês aceitam aparelho com troca de bateria como entrada?",
+              },
+          ]
+          replacement_profile = "Tenho um 16 128 com bateria 87 %"
+          replacement = asyncio.run(
+              service.respond(replacement_profile, history=replacement_history)
+          )
+          assert is_trade_in_context_request(
+              replacement_profile,
+              replacement_history,
+          )
+          assert replacement.reply == TRADE_IN_FORM, replacement
+          assert replacement.handoff and replacement.product_references == [], replacement
+          assert replacement.image_urls == [], replacement
           print("OWNED_IPHONE_TRADE_QUESTION_THEN_PROFILE_EVALUATION_OK")
           print("OWNED_IPHONE_DESCRIPTION_TRADE_IN_FOLLOWUP_OK")
           PY
