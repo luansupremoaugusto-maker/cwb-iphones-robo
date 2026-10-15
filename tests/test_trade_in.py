@@ -3991,3 +3991,76 @@ async def test_owned_iphone_description_then_trade_in_followup_sends_evaluation_
     assert is_trade_in_context_request(followup, buyer_history) is False
     assert buyer_decision.reply != TRADE_IN_FORM
     assert buyer_decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_details_after_catalog_trade_question_send_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(
+        _env_file=None,
+        openai_api_key=None,
+        google_sheets_enabled=False,
+        faq_path=str(tmp_path / "faq.yaml"),
+    )
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Opa boa tarde"},
+        {"role": "user", "content": "Tudo certo"},
+        {
+            "role": "assistant",
+            "content": "Opa, boa tarde! Tudo certo por aqui. Como posso te ajudar?",
+        },
+        {
+            "role": "user",
+            "content": "Vocês tem 14 pro ou pro Max 256 ou 15 pro ou pro Max ?",
+        },
+        {"role": "user", "content": "E qual valores e se pega troca ?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 14 PRO disponíveis: "
+                "IPHONE 14 PRO — PRETO ESPACIAL — 256GB — SEMINOVO — "
+                "R$ 3.080,00 | Bat: 84%"
+            ),
+        },
+    ]
+    text = "Tenho um 16 128 todo original com caixa bateria 87 %"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    buyer_history = [
+        {"role": "user", "content": "Quero comprar um iPhone 14 Pro Max"},
+        {
+            "role": "assistant",
+            "content": "Encontrei opções de iPhone 14 Pro Max no catálogo.",
+        },
+    ]
+    buyer_decision = await service.respond(text, history=buyer_history)
+    assert is_trade_in_context_request(text, buyer_history) is False
+    assert buyer_decision.reply != TRADE_IN_FORM
+    assert buyer_decision.handoff is False
+
+    parts_question = "Vocês compram só a bateria do iPhone 16?"
+    parts_decision = await service.respond(parts_question, history=history)
+    assert is_parts_buyback_request(parts_question) is True
+    assert parts_decision.reply == PARTS_BUYBACK_REPLY
+    assert parts_decision.handoff is False
+
+    repair_question = "Tenho um 16 128 com bateria 87 %, quero trocar somente a bateria"
+    repair_decision = await service.respond(repair_question, history=history)
+    assert is_trade_in_context_request(repair_question, history) is False
+    assert repair_decision.reply != TRADE_IN_FORM

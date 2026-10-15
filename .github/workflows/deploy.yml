@@ -2766,6 +2766,57 @@ jobs:
           buyer = asyncio.run(service.respond(followup, history=buyer_history))
           assert not is_trade_in_context_request(followup, buyer_history)
           assert buyer.reply != TRADE_IN_FORM and not buyer.handoff, buyer
+
+          exchange_history = [
+              {"role": "user", "content": "Opa boa tarde"},
+              {"role": "user", "content": "Tudo certo"},
+              {
+                  "role": "assistant",
+                  "content": "Opa, boa tarde! Tudo certo por aqui. Como posso te ajudar?",
+              },
+              {
+                  "role": "user",
+                  "content": "Vocês tem 14 pro ou pro Max 256 ou 15 pro ou pro Max ?",
+              },
+              {"role": "user", "content": "E qual valores e se pega troca ?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 14 PRO disponíveis: "
+                      "IPHONE 14 PRO — PRETO ESPACIAL — 256GB — SEMINOVO — "
+                      "R$ 3.080,00 | Bat: 84%"
+                  ),
+              },
+          ]
+          owned_profile = "Tenho um 16 128 todo original com caixa bateria 87 %"
+          evaluation = asyncio.run(
+              service.respond(owned_profile, history=exchange_history)
+          )
+          assert is_trade_in_context_request(owned_profile, exchange_history)
+          assert evaluation.reply == TRADE_IN_FORM, evaluation
+          assert evaluation.handoff and evaluation.product_references == [], evaluation
+          assert evaluation.image_urls == [], evaluation
+
+          profile_buyer = asyncio.run(
+              service.respond(owned_profile, history=buyer_history)
+          )
+          assert not is_trade_in_context_request(owned_profile, buyer_history)
+          assert profile_buyer.reply != TRADE_IN_FORM and not profile_buyer.handoff
+
+          parts_question = "Vocês compram só a bateria do iPhone 16?"
+          parts = asyncio.run(service.respond(parts_question, history=exchange_history))
+          assert is_parts_buyback_request(parts_question)
+          assert parts.reply == PARTS_BUYBACK_REPLY and not parts.handoff, parts
+
+          repair_question = (
+              "Tenho um 16 128 com bateria 87 %, quero trocar somente a bateria"
+          )
+          repair = asyncio.run(
+              service.respond(repair_question, history=exchange_history)
+          )
+          assert not is_trade_in_context_request(repair_question, exchange_history)
+          assert repair.reply != TRADE_IN_FORM, repair
+          print("OWNED_IPHONE_TRADE_QUESTION_THEN_PROFILE_EVALUATION_OK")
           print("OWNED_IPHONE_DESCRIPTION_TRADE_IN_FOLLOWUP_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'

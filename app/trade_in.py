@@ -1476,6 +1476,34 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    recent_exchange_question = any(
+        has_explicit_trade_in_cue(entry.get("content", ""))
+        and re.search(
+            r"\b(?:troca|entrada|parte\s+do\s+pagamento|avaliacao|avaliar|usad\w*)\b",
+            _normalize(entry.get("content", "")),
+        )
+        for entry in history[-8:]
+        if entry.get("role") == "user" and entry.get("content")
+    )
+    has_current_owned_iphone_profile = bool(
+        _OWNED_NUMBERED_IPHONE_RE.search(normalized)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
+    )
+    # The customer can ask about a trade first, then send their owned iPhone's
+    # model and condition after the catalog reply. Join those two turns only
+    # when a recent catalog answer and a complete current device profile exist.
+    if (
+        recent_exchange_question
+        and has_recent_apple_catalog_context
+        and has_current_owned_iphone_profile
+        and not _NEGATION_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     buyback_price_match = _CONTEXTUAL_IPHONE_BUYBACK_PRICE_RE.search(normalized)
     if (
         buyback_price_match
