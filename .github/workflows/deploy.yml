@@ -43,7 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Buffer the heredoc first; docker compose exec must not consume the remaining script.
+          # Buffer the heredoc in a remote file; docker compose exec must not consume it,
+          # and keeping it out of the SSH command avoids the shell argument-size limit.
           ssh \
             -i "$HOME/.ssh/cwb_iphones_actions" \
             -o IdentitiesOnly=yes \
@@ -52,7 +53,7 @@ jobs:
             -o ConnectTimeout=20 \
             -p "$VPS_PORT" \
             "$VPS_USER@$VPS_HOST" \
-            "DEPLOY_SHA='$DEPLOY_SHA' bash -c 'script=\$(cat); bash -c \"\$script\" </dev/null'" <<'REMOTE'
+            "DEPLOY_SHA='$DEPLOY_SHA' bash -c 'script_file=\$(mktemp /tmp/cwb-iphones-deploy.XXXXXX) || exit; if ! cat > \"\$script_file\"; then rm -f \"\$script_file\"; exit 1; fi; bash \"\$script_file\" </dev/null; status=\$?; rm -f \"\$script_file\"; exit \$status'" <<'REMOTE'
           set -euo pipefail
 
           cd /opt/cwb-iphones
