@@ -271,6 +271,28 @@ async def test_missing_macbook_seminovo_without_macbook_options_does_not_offer_i
 
 
 @pytest.mark.asyncio
+async def test_missing_multiple_family_seminovos_offers_each_requested_family(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        _seminovo_item("iphone-13-pro-used", "iPhone 13 Pro", "128 GB", 2390),
+    ]
+    agent.cache.sealed_cache.items = [
+        _sealed_item("macbook-air-m4", "MacBook Air M4", "512 GB", 7800),
+        _sealed_item("apple-watch-ultra-2", "Apple Watch Ultra 2", "49 mm", 4200),
+        _sealed_item("iphone-16-new", "iPhone 16", "128 GB", 4600),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond("Tem MacBook ou Apple Watch seminovo?")
+
+    assert decision.handoff is False
+    assert "MacBook Air M4" in decision.reply
+    assert "Apple Watch Ultra 2" in decision.reply
+    assert "IPHONE" not in decision.reply.upper()
+    assert "SEMINOVOS DISPONÍVEIS PARA VENDA" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
 async def test_missing_ipad_variant_keeps_other_ipad_seminovos_in_alternatives(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [

@@ -6926,15 +6926,22 @@ class AgentService:
         except Exception:
             return None
 
-        requested_family = _catalog_family(query)
-        if requested_family in {"ipad", "macbook"}:
-            family_name, family_plural = {
+        requested_families = _catalog_families(query)
+        if any(family in {"ipad", "macbook"} for family in requested_families):
+            family_labels = {
+                "iphone": ("iPhone", "iPhones"),
                 "ipad": ("iPad", "iPads"),
                 "macbook": ("MacBook", "MacBooks"),
-            }[requested_family]
+                "airpods": ("AirPods", "AirPods"),
+                "apple_watch": ("Apple Watch", "Apple Watches"),
+            }
+            single_family = len(requested_families) == 1
+            family_name, family_plural = (
+                family_labels[requested_families[0]] if single_family else (None, None)
+            )
 
             def is_requested_family_entry(entry: dict[str, Any]) -> bool:
-                return _catalog_family(str(entry.get("nome") or "")) == requested_family
+                return _catalog_family(str(entry.get("nome") or "")) in requested_families
 
             family_options = {
                 "seminovos": [
@@ -6958,12 +6965,20 @@ class AgentService:
                 for section in ("lacrados_pronta_entrega", "lacrados")
             )
             if not any(family_options.values()):
-                return AgentDecision(
-                    reply=(
+                if single_family:
+                    reply = (
                         f"No momento, não localizei opções de {family_name} seminovo disponíveis no sistema. "
                         f"Também não encontrei {family_plural} novos disponíveis no catálogo. "
                         "Se quiser, posso verificar outro modelo ou capacidade."
-                    ),
+                    )
+                else:
+                    reply = (
+                        "No momento, não localizei opções seminovas das famílias solicitadas no sistema. "
+                        "Também não encontrei produtos novos dessas famílias no catálogo. "
+                        "Se quiser, posso verificar outro modelo ou capacidade."
+                    )
+                return AgentDecision(
+                    reply=reply,
                     confidence="medium",
                 )
 
@@ -6974,6 +6989,9 @@ class AgentService:
                 intro = (
                     f"Não localizei a opção de {family_name} seminovo solicitada. "
                     f"Encontrei estes {family_plural} seminovos"
+                    if single_family
+                    else "Não localizei todas as opções seminovas solicitadas. "
+                    "Encontrei estes produtos seminovos"
                 )
                 if new_family_available:
                     intro += " e novos disponíveis para você escolher:\n\n"
@@ -6983,6 +7001,9 @@ class AgentService:
                 intro = (
                     f"No momento, não localizei opções de {family_name} seminovo disponíveis no sistema. "
                     f"Para você escolher, seguem as opções de {family_plural} novos disponíveis:\n\n"
+                    if single_family
+                    else "No momento, não localizei opções seminovas das famílias solicitadas. "
+                    "Para você escolher, seguem as opções novas disponíveis:\n\n"
                 )
             return AgentDecision(
                 reply=intro + formatted_family,
