@@ -511,6 +511,121 @@ async def test_literal_boleto_sales_question_after_greeting_returns_payment_poli
 
 
 @pytest.mark.asyncio
+async def test_trabalhar_com_boleto_after_iphone_interest_returns_payment_policy():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {"role": "user", "content": "Oi"},
+        {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+        {"role": "user", "content": "iPhones"},
+    ]
+
+    decision = await agent.respond("Trabalhar com boleto", history=history)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_como_funciona_after_boleto_and_iphone_selection_answers_payment_policy():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {"role": "user", "content": "iPhones"},
+        {"role": "user", "content": "Trabalhar com boleto"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 17 PRO MAX disponíveis:\n"
+                "• IPHONE 17 PRO MAX — PRATEADO — 256GB — SEMINOVO COM GARANTIA "
+                "APPLE — R$ 6.820,00 | Bat: 100%"
+            ),
+        },
+        {"role": "user", "content": "iPhone 13"},
+    ]
+
+    decision = await agent.respond("Como funciona?", history=history)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_device_condition_question_with_boleto_still_hands_off_to_attendant():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {
+            "role": "assistant",
+            "content": "iPhone 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.870,00",
+        }
+    ]
+
+    decision = await agent.respond(
+        "O aparelho já teve algum problema de funcionamento? E posso pagar no boleto?",
+        history=history,
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in _normalize(decision.reply)
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_negated_boleto_preference_does_not_become_context_for_how_it_works():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {"role": "user", "content": "Não quero boleto"},
+        {
+            "role": "assistant",
+            "content": "iPhone 17 Pro Max 256GB seminovo por R$ 6.820,00.",
+        },
+        {"role": "user", "content": "iPhone 13"},
+    ]
+
+    decision = await agent.respond("Como funciona?", history=history)
+
+    reply = _normalize(decision.reply)
+    assert "nao parcelamos no boleto" not in reply
+    assert decision.reply != agent.faq.get("pagamento")
+
+
+@pytest.mark.asyncio
+async def test_warranty_and_boleto_question_returns_both_policies(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Qual a garantia do iPhone? E posso pagar no boleto?"
+    )
+
+    reply = _normalize(decision.reply)
+    assert decision.handoff is False
+    assert "90 dias" in reply
+    assert "nao parcelamos no boleto" in reply
+
+
+@pytest.mark.asyncio
+async def test_customer_rejecting_boleto_does_not_trigger_boleto_payment_policy(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Não quero boleto")
+
+    assert "nao parcelamos no boleto" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
+async def test_question_about_not_working_with_boleto_still_gets_payment_policy(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond("Vocês não trabalham com boleto?")
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_boleto_purchase_question_routes_to_payment_policy_not_evaluation(tmp_path):
     agent = build_agent(tmp_path)
     history = [
