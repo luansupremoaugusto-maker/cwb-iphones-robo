@@ -7430,6 +7430,7 @@ class AgentService:
         if _has_seminovo_reference(normalized_query):
             requested_conditions.add("seminovo")
         condition_was_requested = bool(requested_conditions)
+        single_condition_requested = len(requested_conditions) == 1
         if condition_was_requested:
             public_candidates = [
                 item
@@ -7756,7 +7757,10 @@ class AgentService:
             ) -> list[Any]:
                 """Keep physical sealed stock beside equally matching sheet prices."""
                 if (
-                    "seminovo" in requested_conditions
+                    (
+                        "seminovo" in requested_conditions
+                        and "lacrado" not in requested_conditions
+                    )
                     or requested_quantity is not None
                     or _requested_battery_health(catalog_filter_query) is not None
                     or _has_requested_catalog_color(catalog_filter_query, public_candidates)
@@ -7775,7 +7779,7 @@ class AgentService:
                 return [*ready_items, *selected_items]
 
             def select_best_matches(scored_items: list[tuple[int, Any]]) -> list[Any]:
-                if condition_was_requested:
+                if single_condition_requested:
                     return include_ready_sealed_units(best_matches(scored_items), scored_items)
 
                 grouped: dict[str, list[tuple[int, Any]]] = {
