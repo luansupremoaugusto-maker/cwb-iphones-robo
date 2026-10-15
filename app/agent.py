@@ -6926,58 +6926,66 @@ class AgentService:
         except Exception:
             return None
 
-        if _catalog_family(query) == "ipad":
-            def is_ipad_entry(entry: dict[str, Any]) -> bool:
-                return _catalog_family(str(entry.get("nome") or "")) == "ipad"
+        requested_family = _catalog_family(query)
+        if requested_family in {"ipad", "macbook"}:
+            family_name, family_plural = {
+                "ipad": ("iPad", "iPads"),
+                "macbook": ("MacBook", "MacBooks"),
+            }[requested_family]
 
-            ipad_options = {
+            def is_requested_family_entry(entry: dict[str, Any]) -> bool:
+                return _catalog_family(str(entry.get("nome") or "")) == requested_family
+
+            family_options = {
                 "seminovos": [
-                    entry for entry in result.get("seminovos") or [] if is_ipad_entry(entry)
+                    entry
+                    for entry in result.get("seminovos") or []
+                    if is_requested_family_entry(entry)
                 ],
                 "lacrados_pronta_entrega": [
                     entry
                     for entry in result.get("lacrados_pronta_entrega") or []
-                    if is_ipad_entry(entry)
+                    if is_requested_family_entry(entry)
                 ],
                 "lacrados": [
-                    entry for entry in result.get("lacrados") or [] if is_ipad_entry(entry)
+                    entry
+                    for entry in result.get("lacrados") or []
+                    if is_requested_family_entry(entry)
                 ],
             }
-            new_ipads_available = any(
-                ipad_options[section]
+            new_family_available = any(
+                family_options[section]
                 for section in ("lacrados_pronta_entrega", "lacrados")
             )
-            if not any(ipad_options.values()):
+            if not any(family_options.values()):
                 return AgentDecision(
                     reply=(
-                        "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
-                        "Também não encontrei iPads novos disponíveis no catálogo. "
+                        f"No momento, não localizei opções de {family_name} seminovo disponíveis no sistema. "
+                        f"Também não encontrei {family_plural} novos disponíveis no catálogo. "
                         "Se quiser, posso verificar outro modelo ou capacidade."
                     ),
                     confidence="medium",
                 )
 
-            formatted_ipads = _format_available_products(ipad_options).removeprefix(
+            formatted_family = _format_available_products(family_options).removeprefix(
                 "📋 Lista completa de produtos disponíveis:\n"
             )
-            if ipad_options["seminovos"]:
+            if family_options["seminovos"]:
                 intro = (
-                    "Não localizei a opção de iPad seminovo solicitada. "
-                    "Encontrei estes iPads seminovos"
+                    f"Não localizei a opção de {family_name} seminovo solicitada. "
+                    f"Encontrei estes {family_plural} seminovos"
                 )
-                if new_ipads_available:
+                if new_family_available:
                     intro += " e novos disponíveis para você escolher:\n\n"
                 else:
                     intro += " disponíveis para você escolher:\n\n"
             else:
                 intro = (
-                    "No momento, não localizei opções de iPad seminovo disponíveis no sistema. "
-                    "Para você escolher, seguem as opções de iPads novos disponíveis:\n\n"
+                    f"No momento, não localizei opções de {family_name} seminovo disponíveis no sistema. "
+                    f"Para você escolher, seguem as opções de {family_plural} novos disponíveis:\n\n"
                 )
             return AgentDecision(
-                reply=(
-                    intro + formatted_ipads
-                ),
+                reply=intro + formatted_family,
                 confidence="medium",
             )
 
