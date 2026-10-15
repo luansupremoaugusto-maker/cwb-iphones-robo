@@ -313,6 +313,16 @@ _OWNED_NUMBERED_IPHONE_RE = re.compile(
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+_OWNED_APPLE_DEVICE_REFERENCE_RE = re.compile(
+    r"\b(?:tenho|possuo|estou\s+com|to\s+com)\s+"
+    r"(?:(?:um|uma|o|a|\d+)\s+)?"
+    r"(?:(?:aparelho|celular|smartphone|telefone)\s+)?"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b"
+    r"|\b(?:meu|minha|meus|minhas)\s+"
+    r"(?:(?:aparelho|celular|smartphone|telefone)\s+)?"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+    re.IGNORECASE,
+)
 _OWNED_BARE_IPHONE_VARIANT_RE = re.compile(
     r"\b(?:(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma|o|a)?\s*"
     r"|(?:meu|minha)\s+)(?:iphone\s*)?\d{1,2}\s+"
@@ -674,7 +684,8 @@ def has_explicit_trade_in_cue(text: str | None) -> bool:
 
 def _has_personal_device_reference(text: str) -> bool:
     return bool(
-        re.search(
+        _OWNED_APPLE_DEVICE_REFERENCE_RE.search(text)
+        or re.search(
             r"\b(?:meu|minha|meus|minhas|ele|ela|isso|esse|esta)\b.{0,25}"
             r"\b(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
             r"aparelho|smartphone|telefone|usado|seminovo)\b",
@@ -1414,6 +1425,21 @@ def is_trade_in_context_request(
         if entry.get("role") == "user" and entry.get("content")
     )
     user_context = f"{recent_user_context} {normalized}".strip()
+    # A customer may describe an owned Apple device first, then ask in a
+    # separate message whether the store takes it as part of the payment.
+    # Evaluate ownership and the current buyback cue separately so condition
+    # wording such as "peças originais" cannot be mistaken for loose parts.
+    if (
+        _OWNED_APPLE_DEVICE_REFERENCE_RE.search(recent_user_context)
+        and _APPLE_PRODUCT_RE.search(recent_user_context)
+        and has_explicit_trade_in_cue(normalized)
+        and not _NEGATION_RE.search(normalized)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     if (
         re.search(r"\b(?:volta|diferenca)\b", normalized)
         and _has_compact_owned_iphone_exchange_offer(recent_user_context)

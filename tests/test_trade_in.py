@@ -7,6 +7,7 @@ import pytest
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.agent import (
     AgentService,
+    CONDITION_HANDOFF_REPLY,
     TECHNICAL_ASSISTANCE_REPLY,
     _ensure_trade_in_form_before_handoff,
 )
@@ -3931,3 +3932,62 @@ async def test_owned_iphone_profile_selling_only_battery_stays_in_parts_flow(tmp
     assert is_trade_in_request(text) is False
     assert decision.reply == PARTS_BUYBACK_REPLY
     assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_description_then_trade_in_followup_sends_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    device_message = (
+        "Então estou com 1 aparelho\n"
+        "iPhone 14. Pro Max cor roxa sem risco sem trincado peças originais"
+    )
+
+    condition_decision = await service.respond(device_message)
+    assert condition_decision.reply == CONDITION_HANDOFF_REPLY
+
+    history = [
+        {"role": "user", "content": device_message},
+        {"role": "assistant", "content": condition_decision.reply},
+        {"role": "user", "content": "Pretendo trocar de aparelho"},
+    ]
+    followup = "Vocês pegam como parte"
+
+    decision = await service.respond(followup, history=history)
+
+    assert is_trade_in_context_request(followup, history) is True
+    assert is_parts_buyback_request(followup) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    parts_question = "Vocês compram só a bateria do iPhone 14 Pro Max?"
+    parts_decision = await service.respond(parts_question, history=history)
+    assert is_parts_buyback_request(parts_question) is True
+    assert parts_decision.reply == PARTS_BUYBACK_REPLY
+    assert parts_decision.handoff is False
+
+    repair_question = "Quero trocar somente a bateria"
+    repair_decision = await service.respond(repair_question, history=history)
+    assert is_trade_in_context_request(repair_question, history) is False
+    assert repair_decision.reply != TRADE_IN_FORM
+
+    buyer_history = [
+        {"role": "user", "content": "Quero comprar um iPhone 14 Pro Max"},
+        {
+            "role": "assistant",
+            "content": "Encontrei opções de iPhone 14 Pro Max no catálogo.",
+        },
+    ]
+    buyer_decision = await service.respond(followup, history=buyer_history)
+    assert is_trade_in_context_request(followup, buyer_history) is False
+    assert buyer_decision.reply != TRADE_IN_FORM
+    assert buyer_decision.handoff is False
