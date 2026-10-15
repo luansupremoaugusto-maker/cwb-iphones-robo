@@ -1375,6 +1375,7 @@ _COMMON_CATALOG_COLOR_NAMES = (
     "laranja",
     "dourado",
     "dourada",
+    "prata",
     "prateado",
     "prateada",
     "cinza",
@@ -1562,6 +1563,7 @@ def _catalog_color_key(value: Any) -> str:
         "amarela": "amarelo",
         "branca": "branco",
         "dourada": "dourado",
+        "prata": "prateado",
         "prateada": "prateado",
         "preta": "preto",
         "roxa": "roxo",
@@ -2169,7 +2171,12 @@ def _is_visit_request(text: str) -> bool:
     return any(phrase in normalized for phrase in phrases) or bool(
         re.search(
             r"\b(?:posso|consigo|da para|da pra|gostaria de)\s+"
-            r"(?:ir|visitar|passar|comparecer)\b",
+            r"(?:ir|visitar|comparecer)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:posso|consigo|da para|da pra|gostaria de)\s+passar\s+"
+            r"(?:(?:na|pela)\s+loja(?:\s+fisica)?|ai|aqui|amanha|hoje)\b",
             normalized,
         )
         or re.search(
@@ -3178,6 +3185,13 @@ def _is_payment_methods_question(text: str) -> bool:
     ):
         return False
     has_cash_method = bool(re.search(r"\b(?:pix|dinheiro|debito)\b", normalized))
+    two_card_payment_question = bool(
+        re.search(
+            r"\b(?:passar|usar|pagar|dividir)\s+(?:(?:em|com)\s+)?"
+            r"(?:dois|duas|2)\s+cartoes?\b",
+            normalized,
+        )
+    )
     if any(
         marker in normalized
         for marker in (
@@ -3192,6 +3206,7 @@ def _is_payment_methods_question(text: str) -> bool:
         "parcel" in normalized
         and not has_cash_method
         and not _is_credit_only_installment_question(text)
+        and not two_card_payment_question
     ):
         return False
     has_method = bool(re.search(r"\b(?:pix|dinheiro|debito|credito|cartao|cartoes)\b", normalized))
@@ -3226,6 +3241,7 @@ def _is_payment_methods_question(text: str) -> bool:
     )
     return (
         has_request
+        or two_card_payment_question
         or _is_credit_only_installment_question(text)
         or normalized in {"pix", "dinheiro", "debito", "cartao", "cartao de debito"}
     )
@@ -5906,6 +5922,7 @@ class AgentService:
         installment_count_decision = await self._try_generic_installment_count_question(
             text,
             history,
+            image_description=image_description,
         )
         if installment_count_decision is not None:
             return protect_customer_decision(installment_count_decision)
@@ -6054,7 +6071,11 @@ class AgentService:
         if specific_installment_decision is not None:
             return protect_customer_decision(specific_installment_decision)
 
-        full_installment_decision = await self._try_full_installment_table(text, history)
+        full_installment_decision = await self._try_full_installment_table(
+            text,
+            history,
+            image_description=image_description,
+        )
         if full_installment_decision is not None:
             return protect_customer_decision(full_installment_decision)
 
@@ -6127,6 +6148,8 @@ class AgentService:
         self,
         text: str,
         history: list[dict[str, str]] | None,
+        *,
+        image_description: str | None = None,
     ) -> AgentDecision | None:
         if not _is_generic_installment_count_question(text):
             return None
@@ -6134,7 +6157,10 @@ class AgentService:
         if _is_payment_link_followup(text, history):
             return await self._try_payment_link(text, history)
 
-        contextual_query = _installment_context_query(text, history)
+        product_context = "\n".join(
+            part for part in (text, image_description) if part and part.strip()
+        )
+        contextual_query = _installment_context_query(product_context, history)
         requested_families = _catalog_families(contextual_query)
         single_product_key = _requested_installment_product_keys(contextual_query)
         family_has_model_key_without_capacity = requested_families in (
@@ -6154,7 +6180,11 @@ class AgentService:
             )
         )
         if has_single_product:
-            installment = await self._try_full_installment_table(text, history)
+            installment = await self._try_full_installment_table(
+                text,
+                history,
+                image_description=image_description,
+            )
             if installment is not None:
                 return installment
 
@@ -6269,7 +6299,10 @@ class AgentService:
         else:
             reply = self.faq.get("pagamento") or PAYMENT_METHODS_REPLY
         normalized = _normalize(text)
-        if re.search(r"\b(?:dois|duas)\s+cartoes?\s+de\s+credito\b", normalized) or "mais de um cartao" in normalized:
+        if re.search(
+            r"\b(?:dois|duas|2)\s+cartoes?(?:\s+de\s+credito)?\b",
+            normalized,
+        ) or "mais de um cartao" in normalized:
             reply = (
                 "Sim 😊 Você pode usar dois cartões de crédito na mesma compra e completar o valor "
                 f"com PIX, dinheiro ou cartão de débito. {reply}"
@@ -8597,7 +8630,11 @@ class AgentService:
 
         installment = await self._try_specific_installment(text, history)
         if installment is None:
-            installment = await self._try_full_installment_table(text, history)
+            installment = await self._try_full_installment_table(
+                text,
+                history,
+                image_description=image_description,
+            )
         if installment is None:
             return availability
 
@@ -8848,6 +8885,8 @@ class AgentService:
         self,
         text: str,
         history: list[dict[str, str]] | None,
+        *,
+        image_description: str | None = None,
     ) -> AgentDecision | None:
         if not (
             _is_full_installment_request(text)
@@ -8861,7 +8900,10 @@ class AgentService:
         method = getattr(self.cache, "simulate_all_installments", None)
         if not callable(method):
             return None
-        query = _installment_context_query(text, history)
+        product_context = "\n".join(
+            part for part in (text, image_description) if part and part.strip()
+        )
+        query = _installment_context_query(product_context, history)
         try:
             result = await method(query)
         except Exception:

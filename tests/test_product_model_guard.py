@@ -7180,3 +7180,76 @@ async def test_image_followup_scopes_color_to_the_selected_iphone_model(tmp_path
     }
     assert "MEIA NOITE" in color_list.reply
     assert "ESTELAR" in color_list.reply
+
+
+@pytest.mark.asyncio
+async def test_17_pro_max_prata_availability_matches_prateado_and_does_not_list_all_iphones(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = []
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-17-pro-max-prateado-256",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=6820,
+            battery_health=100,
+            search_text="iphone 17 pro max prateado 256 gb seminovo disponível",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-max-preto-256",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=6980,
+            battery_health=95,
+            search_text="iphone 17 pro max preto 256 gb seminovo disponível",
+        ),
+        InventoryItem(
+            external_id="iphone-14-pro-max-roxo-128",
+            name="iPhone 14 Pro Max",
+            category="Celular",
+            capacity="128 GB",
+            color="ROXO PROFUNDO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3170,
+            battery_health=94,
+            search_text="iphone 14 pro max roxo profundo 128 gb seminovo disponível",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-natural-512",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="512 GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5510,
+            battery_health=91,
+            search_text="iphone 16 pro max titanio natural 512 gb seminovo disponível",
+        ),
+    ]
+
+    decision = await agent.respond(
+        "Vi um iPhone de vocês, 17 pro Max prata, queria saber se ele está disponível ainda"
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-17-pro-max-prateado-256"], decision.reply
+    assert "iphone 17 pro max" in reply
+    assert "r$ 6.820,00" in reply
+    assert "iphone 14 pro max" not in reply
+    assert "iphone 16 pro max" not in reply
+    assert "lista completa" not in reply

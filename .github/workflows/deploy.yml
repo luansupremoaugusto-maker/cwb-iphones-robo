@@ -3068,6 +3068,144 @@ jobs:
           assert "nao localizei" not in reply, decision.reply
           print("IPHONE_14_IMAGE_COLOR_SCOPE_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService, _normalize
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class EmptySealedCache:
+              def __init__(self):
+                  self.items = []
+
+              async def search(self, query, limit=5):
+                  return []
+
+              async def get(self, product_id):
+                  return None
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-17pm-prata-conversation-guard.json",
+              sealed_cache=EmptySealedCache(),
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-17-pro-max-prateado-256",
+                  name="iPhone 17 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="PRATEADO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=6820,
+                  battery_health=100,
+                  source="mercado_phone",
+                  search_text="iPhone 17 Pro Max prateado 256 GB seminovo",
+              ),
+              InventoryItem(
+                  external_id="iphone-17-pro-max-preto-256",
+                  name="iPhone 17 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="PRETO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=6980,
+                  battery_health=95,
+                  source="mercado_phone",
+                  search_text="iPhone 17 Pro Max preto 256 GB seminovo",
+              ),
+              InventoryItem(
+                  external_id="iphone-14-pro-max-roxo-128",
+                  name="iPhone 14 Pro Max",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="ROXO PROFUNDO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=3170,
+                  battery_health=94,
+                  source="mercado_phone",
+                  search_text="iPhone 14 Pro Max roxo profundo 128 GB seminovo",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          availability_text = (
+              "Vi um iPhone de vocês, 17 pro Max prata, queria saber se ele está disponível ainda"
+          )
+          availability = asyncio.run(service.respond(availability_text))
+          assert not availability.handoff, availability
+          assert availability.product_references == ["iphone-17-pro-max-prateado-256"], availability
+          assert "R$ 6.820,00" in availability.reply, availability.reply
+          assert "Lista completa" not in availability.reply, availability.reply
+          assert "iPhone 14 Pro Max" not in availability.reply, availability.reply
+
+          history = [
+              {"role": "user", "content": availability_text},
+              {"role": "assistant", "content": availability.reply},
+              {"role": "user", "content": "Onde fica a loja?"},
+              {
+                  "role": "assistant",
+                  "content": "Sim, temos loja física. Endereço: Avenida Nossa Senhora da Luz, 1341.",
+              },
+          ]
+          installment = asyncio.run(
+              service.respond(
+                  "Quantas vezes consigo parcelar ele?",
+                  history=history,
+                  image_description=(
+                      "IPHONE 17 PRO MAX - PRATEADO - 256GB - SEMINOVO COM GARANTIA APPLE "
+                      "— R$ 6.820,00 | Bat: 100%"
+                  ),
+              )
+          )
+          assert "Parcelamento do iPhone 17 Pro Max 256 GB" in installment.reply, installment.reply
+          assert "Preço à vista: R$ 6.820,00" in installment.reply, installment.reply
+          assert "1x de" in installment.reply and "18x de" in installment.reply, installment.reply
+
+          payment_service = AgentService(
+              InventoryCache(
+                  object(),
+                  settings,
+                  cache_path="/tmp/iphone-17pm-two-card-conversation-guard.json",
+              ),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          cards = asyncio.run(
+              payment_service.respond(
+                  "sim, e se eu quiser posso passar em 2 cartões ?",
+                  history=[
+                      {
+                          "role": "assistant",
+                          "content": installment.reply,
+                      }
+                  ],
+              )
+          )
+          card_reply = _normalize(cards.reply)
+          assert not cards.handoff, cards
+          assert "dois cartoes de credito" in card_reply, cards.reply
+          assert "na mesma compra" in card_reply, cards.reply
+          assert "endereco" not in card_reply and "visita" not in card_reply, cards.reply
+          print("IPHONE_17_PRO_MAX_PRATA_INSTALLMENT_TWO_CARD_CONVERSATION_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE
