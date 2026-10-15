@@ -392,7 +392,18 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             selected.append(inherited_key)
 
     if len(selected) == 1:
-        return (target,) if target is not None else ()
+        if target is not None:
+            return (target,)
+        model_number, model_variant = selected[0]
+        detached_model_after_iphone = bool(
+            model_variant
+            and re.search(
+                rf"\biphones?\b.{{0,48}}\b{re.escape(str(model_number))}\s+"
+                rf"{re.escape(model_variant)}\b",
+                line_aware_normalized,
+            )
+        )
+        return tuple(selected) if detached_model_after_iphone else ()
     if target is not None and target not in selected and not any(
         model[0] == target[0] for model in selected
     ):

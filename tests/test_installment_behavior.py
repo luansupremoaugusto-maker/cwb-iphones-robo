@@ -1850,6 +1850,81 @@ async def test_photo_reference_after_simulation_prompt_returns_both_requested_un
 
 
 @pytest.mark.asyncio
+async def test_installment_followup_uses_selected_product_image_after_location_question(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.sealed_cache.items = []
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-17-pro-max-prateado-256",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=6820,
+            battery_health=100,
+            search_text="iphone 17 pro max prateado 256 gb seminovo bateria 100",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-max-prateado-512",
+            name="iPhone 17 Pro Max",
+            category="Celular",
+            capacity="512 GB",
+            color="PRATEADO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=7300,
+            battery_health=95,
+            search_text="iphone 17 pro max prateado 512 gb seminovo bateria 95",
+        ),
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Vi um iPhone de vocês, 17 pro Max prata, queria saber se ele está disponível ainda"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "📋 Lista completa de produtos disponíveis:\n"
+                "IPHONE 14 PRO MAX ...\nIPHONE 16 PRO MAX ...\n"
+                "IPHONE 17 PRO MAX — PRATEADO — 256GB — SEMINOVO — R$ 6.820,00"
+            ),
+        },
+        {"role": "user", "content": "Onde fica a loja?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim, temos loja física. Endereço: Avenida Nossa Senhora da Luz, 1341, "
+                "Curitiba - PR. Qual horário fica melhor para você?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Quantas vezes consigo parcelar ele?",
+        history=history,
+        image_description=(
+            "IPHONE 17 PRO MAX - PRATEADO - 256GB - SEMINOVO COM GARANTIA APPLE "
+            "— R$ 6.820,00 | Bat: 100%"
+        ),
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 17 Pro Max 256 GB" in decision.reply
+    assert "Preço à vista: R$ 6.820,00" in decision.reply
+    assert "1x de" in decision.reply
+    assert "18x de" in decision.reply
+    assert "em até 18 vezes na máquina física" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_installment_correction_after_photo_reply_keeps_both_iphone13_units(tmp_path):
     cache, settings = build_cache(tmp_path)
     cache.items = [

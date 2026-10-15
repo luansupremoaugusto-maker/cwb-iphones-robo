@@ -6,7 +6,7 @@ import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
 from app.adapters.mercado_phone import InventoryCache
-from app.agent import AgentService, _normalize
+from app.agent import AgentService, _is_visit_request, _normalize
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -511,3 +511,31 @@ async def test_store_buyback_question_with_compra_de_still_gets_evaluation_form(
     assert decision.handoff is True
     assert decision.product_references == []
     assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_two_card_followup_after_installment_answer_is_not_routed_as_a_visit(tmp_path):
+    agent = build_agent(tmp_path)
+    text = "sim, e se eu quiser posso passar em 2 cartões ?"
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Sim. A única forma de parcelamento é no cartão de crédito, em até 18 vezes "
+                "na máquina física. Há juros da máquina, variáveis conforme o valor passado "
+                "no cartão e a quantidade de parcelas."
+            ),
+        }
+    ]
+
+    assert _is_visit_request(text) is False
+    assert _is_visit_request("Posso passar na loja?") is True
+
+    decision = await agent.respond(text, history=history)
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "dois cartoes de credito" in reply
+    assert "na mesma compra" in reply
+    assert "endereco" not in reply
+    assert "visita" not in reply
