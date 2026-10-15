@@ -116,6 +116,27 @@ async def test_payment_question_after_customer_sends_product_image_uses_payment_
 
 
 @pytest.mark.asyncio
+async def test_explicit_device_condition_question_still_hands_off_with_payment_intent():
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {
+            "role": "assistant",
+            "content": "iPhone 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.870,00 | Bat: 91%",
+        }
+    ]
+
+    decision = await agent.respond(
+        "O aparelho já teve algum problema de funcionamento? E quais formas de pagamento vocês aceitam?",
+        history=history,
+    )
+
+    assert decision.handoff is True
+    assert "atendente" in _normalize(decision.reply)
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_generic_payment_method_question_about_exchange_does_not_list_products():
     agent = build_agent_with_cache(AvailableCatalog())
 
@@ -156,6 +177,38 @@ async def test_payment_methods_question_after_sealed_catalog_reply_does_not_repe
     assert "cartao de credito" in reply
     assert "lista completa de produtos" not in reply
     assert "iphone 13 pro max" not in reply
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    ["E como funciona o pagamento?", "Como funciona o pagamento?"],
+)
+async def test_how_payment_works_after_selected_iphone_offer_uses_payment_faq(text):
+    agent = build_agent_with_cache(AvailableCatalog())
+    history = [
+        {
+            "role": "user",
+            "content": "O iPhone 14 meia noite de 128gb Esse valor de R$1870,00",
+        },
+        {"role": "user", "content": "Seria a vista"},
+        {"role": "user", "content": "Isso?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 14 disponíveis:\n"
+                "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — "
+                "R$ 1.870,00 | Bat: 91%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(text, history=history)
+
+    assert decision.reply == agent.faq.get("pagamento")
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 

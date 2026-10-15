@@ -2840,6 +2840,19 @@ def _is_catalog_buyer_details_question(
     if not normalized:
         return False
 
+    # A generic payment follow-up after a catalog offer is not a device-state question.
+    has_device_detail = bool(
+        re.search(
+            r"\b(?:bateria|tela|display|vidro|pecas?|face\s+id|c[aâ]meras?|"
+            r"alto\s+falante|microfone|carregamento|botoes?|trocad\w*|"
+            r"substituid\w*|problema\w*|manuten\w*|bloqueio|icloud|"
+            r"restric\w*|condic\w*|estado)\b",
+            normalized,
+        )
+    )
+    if _is_payment_methods_question(text) and not has_device_detail:
+        return False
+
     has_catalog_context = _has_recent_catalog_product_context(history)
     buyer_context = re.search(
         r"\b(?:interesse\s+em\s+compr\w*|antes\s+de\s+fechar|"
@@ -3215,7 +3228,8 @@ def _is_payment_methods_question(text: str) -> bool:
     )
     has_short_payment_question = bool(
         re.fullmatch(
-            r"(?:pagamento|pagamento\s+como\s+funciona|como\s+funciona(?:\s+o)?\s+pagamento)",
+            r"(?:e\s+)?(?:pagamento|pagamento\s+como\s+funciona|"
+            r"como\s+funciona(?:\s+o)?\s+pagamento)[?!.]*",
             normalized,
         )
     )

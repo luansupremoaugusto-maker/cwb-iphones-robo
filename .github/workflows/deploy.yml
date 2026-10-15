@@ -123,6 +123,33 @@ jobs:
           assert not decision.handoff, decision
           assert not decision.product_references and not decision.image_urls, decision
           print("PAYMENT_METHODS_AFTER_PRODUCT_IMAGE_OK")
+
+          followup_history = [
+              {
+                  "role": "user",
+                  "content": "O iPhone 14 meia noite de 128gb Esse valor de R$1870,00",
+              },
+              {"role": "user", "content": "Seria a vista"},
+              {"role": "user", "content": "Isso?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 14 disponíveis:\n"
+                      "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — "
+                      "R$ 1.870,00 | Bat: 91%"
+                  ),
+              },
+          ]
+          followup_decision = asyncio.run(
+              service.respond("E como funciona o pagamento?", history=followup_history)
+          )
+          assert followup_decision.reply == faq.get("pagamento"), followup_decision
+          assert not followup_decision.handoff, followup_decision
+          assert (
+              not followup_decision.product_references
+              and not followup_decision.image_urls
+          ), followup_decision
+          print("PAYMENT_METHODS_AFTER_SELECTED_CATALOG_OFFER_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
