@@ -3564,6 +3564,70 @@ jobs:
           assert "endereco" not in card_reply and "visita" not in card_reply, cards.reply
           print("IPHONE_17_PRO_MAX_PRATA_INSTALLMENT_TWO_CARD_CONVERSATION_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+          from app.trade_in import TRADE_IN_FORM, is_trade_in_context_request, is_trade_in_request
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=False,
+              faq_path="/app/config/faq.yaml",
+          )
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone14-lookaround-catalog-guard.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="used:iphone-14-128",
+                  name="iPhone 14",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="PRETO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=2200,
+                  battery_health=90,
+                  search_text="iphone 14 128 gb preto celular seminovo",
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "user", "content": "Oii bom dia. Tudo bem?"},
+              {
+                  "role": "assistant",
+                  "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+              },
+          ]
+          text = "Gostaria de dar uma olhada no iPhone 14"
+          decision = asyncio.run(service.respond(text, history=history))
+          assert not is_trade_in_request(text), decision
+          assert not is_trade_in_context_request(text, history), decision
+          assert not decision.handoff, decision
+          assert "iPhone 14" in decision.reply and "R$ 2.200,00" in decision.reply, decision
+          assert decision.product_references == [] and decision.image_urls == [], decision
+
+          entry_offer = "Quero dar meu iPhone 14 de entrada"
+          entry_decision = asyncio.run(service.respond(entry_offer))
+          assert is_trade_in_request(entry_offer), entry_decision
+          assert entry_decision.reply == TRADE_IN_FORM and entry_decision.handoff, entry_decision
+          assert entry_decision.product_references == [] and entry_decision.image_urls == [], entry_decision
+          print("IPHONE_14_LOOKAROUND_CATALOG_ROUTING_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

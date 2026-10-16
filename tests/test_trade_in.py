@@ -1901,6 +1901,62 @@ async def test_iphone_catalog_buyer_question_does_not_start_trade_in(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_looking_at_iphone_14_stays_in_catalog_after_greeting(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-14-128",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2200,
+            battery_health=90,
+            search_text="iphone 14 128 gb preto celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Oii bom dia. Tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    text = "Gostaria de dar uma olhada no iPhone 14"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.handoff is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.reply.startswith("Encontrei estas opções:")
+    assert "iPhone 14" in decision.reply
+    assert "R$ 2.200,00" in decision.reply
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    entry_offer = "Quero dar meu iPhone 14 de entrada"
+    entry_decision = await service.respond(entry_offer)
+
+    assert is_trade_in_request(entry_offer) is True
+    assert entry_decision.handoff is True
+    assert entry_decision.reply == TRADE_IN_FORM
+    assert entry_decision.product_references == []
+    assert entry_decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_explicit_device_entry_overrides_catalog_price_question(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
