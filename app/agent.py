@@ -20,8 +20,10 @@ from app.adapters.catalog_cache import (
     _is_accessory_catalog_query,
     _is_device_item,
     _is_sealed_accessory_item,
+    _matches_requested_apple_watch_model,
     _matches_requested_model,
     _model_key,
+    _requested_apple_watch_model_keys,
     _requested_battery_health,
     _requested_ipad_model_keys,
     _requested_iphone_model_floor,
@@ -1184,6 +1186,15 @@ def _requested_capacity_keys(text: str) -> tuple[str, ...]:
     for match in re.finditer(r"\b(\d+(?:[.,]\d+)?)\s*(gb|tb|g|t)\b", normalized):
         number = match.group(1).replace(",", ".")
         unit = "tb" if match.group(2) in {"tb", "t"} else "gb"
+        # Apple Watch catalog rows use 4G for cellular connectivity. It is
+        # not a customer request for 4 GB of storage.
+        if (
+            unit == "gb"
+            and match.group(2) == "g"
+            and number == "4"
+            and re.search(r"\bapple\s+watch\b", normalized)
+        ):
+            continue
         # In Portuguese, "tb" commonly means "também". When it follows
         # "iPhone" directly, a current model such as "iPhone 17 tb?" must
         # not be interpreted as a 17 TB capacity filter.
@@ -5489,8 +5500,18 @@ def _unavailable_catalog_color_header(
     requested_capacities: set[str],
     has_available_requested_color: bool = False,
     requested_iphone_variant: str | None = None,
+    requested_apple_watch_models: tuple[tuple[str, str, str | None], ...] = (),
 ) -> str:
-    if len(requested_models) == 1:
+    if requested_apple_watch_models:
+        watch_labels = []
+        for family, number, size in requested_apple_watch_models:
+            family_label = {"series": "Series", "se": "SE", "ultra": "Ultra"}[family]
+            label = f"Apple Watch {family_label} {number}"
+            if size:
+                label += f" {size} mm"
+            watch_labels.append(label)
+        model_name = " e ".join(watch_labels)
+    elif len(requested_models) == 1:
         model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
         model_name = model_name.title().replace("Iphone", "iPhone")
     elif len(requested_ipad_models) == 1:
@@ -7348,6 +7369,20 @@ class AgentService:
             catalog_filter_query
         )
         requested_families = _catalog_families(catalog_filter_query)
+        requested_apple_watch_models = (
+            _requested_apple_watch_model_keys(text, allow_bare=True)
+            if "apple_watch" in requested_families
+            else ()
+        )
+        if requested_apple_watch_models:
+            public_candidates = [
+                item
+                for item in public_candidates
+                if _matches_requested_apple_watch_model(
+                    requested_apple_watch_models,
+                    item,
+                )
+            ]
         requested_ipad_models = _requested_ipad_model_keys(catalog_filter_query)
         requested_models = _requested_iphone_model_keys(catalog_filter_query)
         requested_model_segments = _requested_model_segments(customer_request_context)
@@ -7646,6 +7681,30 @@ class AgentService:
                         ),
                         confidence="medium",
                     )
+            if requested_apple_watch_models:
+                watch_labels = []
+                for family, number, size in requested_apple_watch_models:
+                    family_label = {
+                        "series": "Series",
+                        "se": "SE",
+                        "ultra": "Ultra",
+                    }[family]
+                    label = f"Apple Watch {family_label} {number}"
+                    if size:
+                        label += f" {size} mm"
+                    watch_labels.append(label)
+                requested_watch_label = " e ".join(watch_labels)
+                if pronta_entrega_only:
+                    reply = (
+                        f"Não localizei {requested_watch_label} a pronta entrega no estoque "
+                        "no momento. Se quiser, posso consultar opções por encomenda ou outros modelos."
+                    )
+                else:
+                    reply = (
+                        f"No momento, não localizei {requested_watch_label} disponível no catálogo. "
+                        "Posso verificar outra cor ou tamanho?"
+                    )
+                return AgentDecision(reply=reply, confidence="medium")
             if not pronta_entrega_only:
                 alternative = await self._try_unavailable_lacrado_alternative(
                     catalog_filter_query,
@@ -7989,6 +8048,7 @@ class AgentService:
                 requested_iphone_variant=(
                     "pro max" if requested_pro_max_without_generation else None
                 ),
+                requested_apple_watch_models=requested_apple_watch_models,
             )
         reply = _format_product_availability(
             selected,
