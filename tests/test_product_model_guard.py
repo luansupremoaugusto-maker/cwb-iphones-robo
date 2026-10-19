@@ -3494,6 +3494,105 @@ def _build_watch_agent(tmp_path, *, seminovos: list[InventoryItem], sealed: Seal
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+def _watch_variant_catalog() -> SealedCatalog:
+    catalog = SealedCatalog()
+    catalog.items = [
+        InventoryItem(
+            external_id="watch-se3-40mm-starlight",
+            name="Apple Watch SE 3",
+            category="Novo lacrado",
+            capacity="40MM",
+            color="ESTELAR",
+            source="google_sheets",
+            condition="novo lacrado",
+            availability="Preco confirmado",
+            quantity=1,
+            price_brl=2100,
+            search_text="apple watch se 3 40mm estelar novo lacrado",
+        ),
+        InventoryItem(
+            external_id="watch-se3-44mm-midnight",
+            name="Apple Watch SE 3",
+            category="Novo lacrado",
+            capacity="44MM",
+            color="MEIA NOITE",
+            source="google_sheets",
+            condition="novo lacrado",
+            availability="Preco confirmado",
+            quantity=1,
+            price_brl=2200,
+            search_text="apple watch se 3 44mm meia noite novo lacrado",
+        ),
+        InventoryItem(
+            external_id="watch-ultra2-49mm-natural",
+            name="Apple Watch Ultra 2",
+            category="Novo lacrado",
+            capacity="49MM",
+            color="TITANIO NATURAL",
+            source="google_sheets",
+            condition="novo lacrado",
+            availability="Preco confirmado",
+            quantity=1,
+            price_brl=3630,
+            search_text="apple watch ultra 2 49mm 4g titanio natural novo lacrado",
+        ),
+    ]
+    return catalog
+
+
+@pytest.mark.asyncio
+async def test_specific_watch_request_keeps_requested_model_size_and_color_scope(tmp_path):
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[],
+        sealed=_watch_variant_catalog(),
+    )
+
+    decision = await agent.respond("Apple Watch SE 3 40mm cor meia noite")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["watch-se3-40mm-starlight"]
+    assert decision.reply.startswith("No momento, o Apple Watch SE 3 40 mm meia noite")
+    assert "Apple Watch SE 3" in decision.reply
+    assert "40MM" in decision.reply
+    assert "meia noite" in _normalize(decision.reply)
+    assert "44MM" not in decision.reply
+    assert "Ultra 2" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_watch_order_followup_does_not_read_historical_4g_as_storage(tmp_path):
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[],
+        sealed=_watch_variant_catalog(),
+    )
+
+    decision = await agent.respond(
+        "Eu quero encomendar um SE 3 40mm meia noite (preto)",
+        history=[
+            {
+                "role": "user",
+                "content": "Quais Apple Watch estao disponiveis para encomenda?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontrei Apple Watch Ultra 2 49MM 4G — TITANIO NATURAL — "
+                    "NOVO LACRADO — R$ 3.630,00."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["watch-se3-40mm-starlight"]
+    assert "4 GB" not in decision.reply
+    assert "Apple Watch SE 3" in decision.reply
+    assert "40MM" in decision.reply
+    assert "Ultra 2" not in decision.reply
+
+
 @pytest.mark.asyncio
 async def test_ready_stock_followup_after_watch_order_offer_checks_physical_stock(tmp_path):
     ready_watch = InventoryItem(

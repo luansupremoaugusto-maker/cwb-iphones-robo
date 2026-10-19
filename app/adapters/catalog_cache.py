@@ -439,6 +439,72 @@ def _requested_ipad_model_keys(value: Any) -> tuple[str, ...]:
     return tuple(selected)
 
 
+_APPLE_WATCH_MODEL_PATTERN = re.compile(
+    r"\b(?:(?:apple\s+)?watch\s+)?"
+    r"(?P<family>series|se|ultra)\s*(?P<number>\d{1,2})"
+    r"(?:\s+(?P<size>\d{2})\s*mm)?\b"
+)
+
+
+def _requested_apple_watch_model_keys(
+    value: Any,
+    *,
+    allow_bare: bool = False,
+) -> tuple[tuple[str, str, str | None], ...]:
+    """Return named Apple Watch models and optional case sizes in a request."""
+    normalized = _score_text(value)
+    pattern = _APPLE_WATCH_MODEL_PATTERN
+    if not allow_bare:
+        pattern = re.compile(
+            r"\b(?:apple\s+)?watch\s+"
+            r"(?P<family>series|se|ultra)\s*(?P<number>\d{1,2})"
+            r"(?:\s+(?P<size>\d{2})\s*mm)?\b"
+        )
+
+    requested: list[tuple[str, str, str | None]] = []
+    for match in pattern.finditer(normalized):
+        key = (
+            match.group("family"),
+            match.group("number"),
+            match.group("size"),
+        )
+        if key not in requested:
+            requested.append(key)
+    return tuple(requested)
+
+
+def _apple_watch_size_key(value: Any) -> str | None:
+    match = re.search(r"\b(?P<size>\d{2})\s*mm\b", _score_text(value))
+    return match.group("size") if match else None
+
+
+def _matches_requested_apple_watch_model(
+    requested_models: tuple[tuple[str, str, str | None], ...],
+    item: Any,
+) -> bool:
+    """Match the named watch model and case size without treating size as storage."""
+    item_text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(item, "name", ""),
+            getattr(item, "description", ""),
+            getattr(item, "search_text", ""),
+        )
+    )
+    item_models = _requested_apple_watch_model_keys(item_text, allow_bare=True)
+    if not item_models:
+        return False
+    item_model = item_models[0]
+    item_size = _apple_watch_size_key(
+        getattr(item, "capacity", None) or getattr(item, "name", "")
+    ) or item_model[2]
+    return any(
+        (item_model[0], item_model[1]) == (family, number)
+        and (size is None or item_size == size)
+        for family, number, size in requested_models
+    )
+
+
 def _requested_iphone_model_floor(value: Any) -> tuple[int, str] | None:
     """Return the lowest iPhone model requested by an open-ended range."""
     normalized = _score_text(value)
