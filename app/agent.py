@@ -3536,7 +3536,7 @@ def _is_full_installment_request(text: str) -> bool:
 def _is_generic_installment_count_question(text: str) -> bool:
     normalized = _normalize(text)
     asks_how_installments_work = bool(
-        re.fullmatch(r"como funciona(?:m)? as parcelas[?!.]*", normalized)
+        re.match(r"como funciona(?:m)? as parcelas\b", normalized)
     )
     return bool(
         normalized
@@ -5187,7 +5187,7 @@ def _strip_unavailable_catalog_claims(value: str) -> str:
     pattern = re.compile(
         r"\b(?:n[aã]o\s+(?:temos?|encontr\w*|localiz\w*|h[aá]|"
         r"exist\w*|disponibiliz\w*)|indispon[ií]vel)\b"
-        r"[^.!?\r\n]*(?:[.!?]|(?=\r?\n)|$)",
+        r"[^.!?;\r\n]*(?:[.!?;]|(?=\r?\n)|$)",
         flags=re.IGNORECASE,
     )
 

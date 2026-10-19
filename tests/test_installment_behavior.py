@@ -607,6 +607,7 @@ async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selecte
         "Vocês parcelam em quantas vezes?",
         "como funciona as parcelas",
         "como funcionam as parcelas?",
+        "como funcionam as parcelas de vocês?",
     ],
 )
 async def test_general_installment_question_after_multi_ipad_offer_answers_payment_policy(tmp_path, question):
@@ -652,6 +653,51 @@ async def test_general_installment_question_after_multi_ipad_offer_answers_payme
     assert "em até 18 vezes" in decision.reply
     assert "Parcelamento do iPad" not in decision.reply
     assert "Não localizei esse produto" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_policy_keeps_available_offer_after_unavailable_clause(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:ipad-11-128",
+            name="iPad 11",
+            capacity="128 GB",
+            price_brl=3100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 11 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:ipad-air-m4-128",
+            name='iPad Air 2026 11" M4',
+            capacity="128 GB",
+            price_brl=4800.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text='ipad air 2026 11 m4 128 gb novo lacrado',
+        ),
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vocês parcelam em quantas vezes?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "iPad 11 128 GB por R$ 3.100,00. Não localizei iPad Air seminovo; "
+                    "mas temos iPad Air 2026 11\" M4 lacrado por R$ 4.800,00."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "em até 18 vezes" in decision.reply
+    assert "máquina física" in decision.reply
+    assert "Parcelamento do iPad" not in decision.reply
 
 
 @pytest.mark.asyncio
