@@ -1805,6 +1805,55 @@ async def test_installment_counts_with_repeated_em_keep_selected_iphone15_from_c
     assert "não localizei" not in decision.reply.lower()
 
 
+@pytest.mark.asyncio
+async def test_explicit_iphone_model_before_em_installment_count_overrides_history(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-128",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2500.0,
+            search_text="iphone 13 128gb seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-256",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3410.0,
+            search_text="iphone 15 pro 256gb seminovo",
+        ),
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Simula o iPhone 13, em 12x",
+        history=[
+            {
+                "role": "assistant",
+                "content": "Encontrei iPhone 15 Pro 256 GB seminovo por R$ 3.410,00.",
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 13 128GB" in decision.reply
+    assert "Preço à vista: R$ 2.500,00" in decision.reply
+    assert "12x de" in decision.reply
+    assert "iPhone 15 Pro" not in decision.reply
+    assert "não localizei" not in decision.reply.lower()
+
+
 def test_installment_price_reference_requires_one_matching_offer():
     history = [
         {

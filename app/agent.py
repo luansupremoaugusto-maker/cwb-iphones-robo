@@ -312,7 +312,20 @@ def _without_installment_count_list(normalized: str) -> str:
         rf"\b{count}(?:\s*x)?(?:{separator}(?:em\s+)?{count}(?:\s*x)?)*"
         rf"{separator}(?:em\s+)?{count}\s*(?:x|vezes|parcelas?)\b"
     )
-    return count_list.sub(" ", normalized, count=1)
+    match = count_list.search(normalized)
+    while match:
+        prefix = normalized[: match.start()]
+        if not re.search(
+            r"\b(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch)\s*$",
+            prefix,
+        ):
+            return normalized[: match.start()] + " " + normalized[match.end() :]
+
+        model_number = re.match(r"\d{1,2}", match.group())
+        if model_number is None:
+            return normalized
+        match = count_list.search(normalized, match.start() + model_number.end())
+    return normalized
 
 
 def _has_product_reference(normalized: str) -> bool:
