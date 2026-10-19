@@ -1454,3 +1454,103 @@ async def test_photo_followup_with_bare_11_and_green_color_finds_11_pro_max(tmp_
     assert decision.product_references == ["iphone-11-pro-max-verde-128"]
     assert "11 pro max" in decision.reply.lower()
     assert black_url not in decision.image_urls
+
+
+@pytest.mark.asyncio
+async def test_photo_question_after_two_alternative_models_sends_both_offered_photos(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-photo-alternative-models.json",
+    )
+    iphone_16_url = "https://photos.example/iphone-16-256-preto.jpg"
+    iphone_16_pro_max_url = "https://photos.example/iphone-16-pro-max-256-preto.jpg"
+    unrelated_color_url = "https://photos.example/iphone-16-pro-max-256-deserto.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-256-preto",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="256GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3850.0,
+            source="mercado_phone",
+            search_text="iphone 16 preto 256gb celular seminovo",
+            photo_urls=[iphone_16_url],
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-preto",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5280.0,
+            source="mercado_phone",
+            search_text="iphone 16 pro max titanio preto 256gb celular seminovo",
+            photo_urls=[iphone_16_pro_max_url],
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-deserto",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170.0,
+            source="mercado_phone",
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+            photo_urls=[unrelated_color_url],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": "Quais iPhone 16 Pro Max seminovos de 256 GB tem?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "IPHONE 16 PRO MAX\n"
+                "• TITÂNIO DESERTO - 256GB - SEMINOVO — R$ 5.170,00 | Bat: 89%\n"
+                "• TITÂNIO DESERTO - 256GB - SEMINOVO — R$ 5.170,00 | Bat: 85%\n"
+                "• TITÂNIO PRETO - 256GB - SEMINOVO — R$ 5.280,00 | Bat: 89%\n"
+                "• TITÂNIO NATURAL - 512GB - SEMINOVO — R$ 5.510,00 | Bat: 91%\n"
+                "• TITÂNIO NATURAL - 1TB - SEMINOVO — R$ 5.500,00 | Bat: 89%"
+            ),
+        },
+        {"role": "user", "content": "Quero o 256g"},
+        {"role": "user", "content": "Preto"},
+        {
+            "role": "assistant",
+            "content": (
+                "Entendi: iPhone 16 Pro, 256 GB, preto. Não localizei essa opção "
+                "disponível no momento. Como alternativas, temos o iPhone 16 256 GB "
+                "preto por R$ 3.850 ou o iPhone 16 Pro Max 256 GB titânio preto por "
+                "R$ 5.280. Algum deles te interessa?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Tem fotos deles ?", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.image_urls) == {iphone_16_url, iphone_16_pro_max_url}
+    assert set(decision.product_references) == {
+        "iphone-16-256-preto",
+        "iphone-16-pro-max-256-preto",
+    }
+    assert unrelated_color_url not in decision.image_urls
+    assert "iphone 16" in decision.reply.lower()
+    assert "iphone 16 pro max" in decision.reply.lower()
+    assert "não localizei esse produto seminovo" not in decision.reply.lower()

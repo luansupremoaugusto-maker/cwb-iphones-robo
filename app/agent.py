@@ -4347,6 +4347,48 @@ def _multi_model_installment_queries(
     return tuple(queries)
 
 
+def _photo_alternative_models_context(
+    text: str,
+    entries: list[tuple[int, str | None, str]],
+) -> str | None:
+    """Use only the latest offered alternatives for a plural photo follow-up."""
+    normalized = _normalize(text)
+    if not _is_photo_request(text) or not re.search(r"\b(?:deles|delas)\b", normalized):
+        return None
+
+    latest_assistant = next(
+        (content for _index, role, content in reversed(entries) if role == "assistant"),
+        "",
+    )
+    alternative_marker = re.search(r"\balternativas?\b", latest_assistant, re.IGNORECASE)
+    if alternative_marker is None:
+        return None
+
+    offer = latest_assistant[alternative_marker.end() :]
+    first_model = re.search(r"\biphone\s+(?:\d{1,2}|xr)\b", offer, re.IGNORECASE)
+    if first_model is None:
+        return None
+
+    offer = offer[first_model.start() :]
+    candidates = re.split(
+        r"\s+(?:ou|e)\s+(?=(?:(?:o|a)\s+)?iphone\s+(?:\d{1,2}|xr)\b)",
+        offer,
+        flags=re.IGNORECASE,
+    )
+    candidate_lines = [
+        re.sub(r"^\s*(?:o|a)\s+(?=iphone\b)", "", candidate, flags=re.IGNORECASE).strip()
+        for candidate in candidates
+    ]
+    model_keys = [
+        models[0]
+        for candidate in candidate_lines
+        if len(models := _requested_iphone_model_keys(candidate)) == 1
+    ]
+    if len(candidate_lines) < 2 or len(set(model_keys)) < 2:
+        return None
+    return "\n".join(candidate_lines)
+
+
 def _product_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -4378,6 +4420,10 @@ def _product_context_query(
         for index, item in enumerate(history or [])
         if item.get("content", "").strip()
     ]
+    alternative_models_context = _photo_alternative_models_context(text, entries)
+    if alternative_models_context:
+        return f"{alternative_models_context}\n{current}".strip()
+
     anchors = [
         index
         for index, role, content in entries
