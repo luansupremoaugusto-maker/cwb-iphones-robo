@@ -3536,7 +3536,10 @@ def _is_full_installment_request(text: str) -> bool:
 def _is_generic_installment_count_question(text: str) -> bool:
     normalized = _normalize(text)
     asks_how_installments_work = bool(
-        re.match(r"como funciona(?:m)? as parcelas\b", normalized)
+        re.fullmatch(
+            r"como funciona(?:m)? as parcelas(?: de (?:voces|vcs))?[?!.]*",
+            normalized,
+        )
     )
     return bool(
         normalized
@@ -5187,9 +5190,37 @@ def _strip_unavailable_catalog_claims(value: str) -> str:
     pattern = re.compile(
         r"\b(?:n[aã]o\s+(?:temos?|encontr\w*|localiz\w*|h[aá]|"
         r"exist\w*|disponibiliz\w*)|indispon[ií]vel)\b"
-        r"[^.!?;\r\n]*(?:[.!?;]|(?=\r?\n)|$)",
+        r"[^.!?\r\n]*(?:[.!?]|(?=\r?\n)|$)",
         flags=re.IGNORECASE,
     )
+
+    def positive_offer_suffix(claim: str) -> str | None:
+        def is_positive_offer(candidate: str) -> bool:
+            normalized = _normalize(candidate)
+            if not normalized or re.search(r"\b(?:nao|nem|indisponivel)\b", normalized):
+                return False
+            has_offer_detail = bool(
+                re.search(
+                    r"r\$|\b(?:bateria|bat|\d+\s*(?:gb|tb)|disponivel|"
+                    r"disponibilidade|encontrei|temos|tenho)\b",
+                    normalized,
+                )
+            )
+            return _has_product_reference(normalized) and has_offer_detail
+
+        for clause in claim.split(";"):
+            contrast = re.search(
+                r"\b(?:mas|por[eé]m|contudo|entretanto)\b",
+                clause,
+                re.IGNORECASE,
+            )
+            if contrast:
+                suffix = clause[contrast.start():]
+                if is_positive_offer(clause[contrast.end():]):
+                    return suffix
+            if is_positive_offer(clause):
+                return clause
+        return None
 
     def remove_if_following_listing(match: re.Match[str]) -> str:
         prefix = _normalize(value[: match.start()])
@@ -5200,7 +5231,10 @@ def _strip_unavailable_catalog_claims(value: str) -> str:
                 prefix,
             )
         )
-        return " " if has_positive_listing else match.group(0)
+        if not has_positive_listing:
+            return match.group(0)
+        suffix = positive_offer_suffix(match.group(0))
+        return f" {suffix}" if suffix else " "
 
     return pattern.sub(remove_if_following_listing, value)
 
