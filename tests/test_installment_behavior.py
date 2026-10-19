@@ -530,7 +530,86 @@ async def test_installment_question_after_specific_ipad_offer_returns_table(tmp_
 
 
 @pytest.mark.asyncio
-async def test_general_installment_question_after_multi_ipad_offer_answers_payment_policy(tmp_path):
+async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selected_offer(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="ipad-11-128-seminovo",
+            name="iPad 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRATEADO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=2420.0,
+            battery_health=100,
+            search_text="ipad 11 prateado 128 gb seminovo com garantia apple",
+        ),
+    ]
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:ipad-11-128",
+            name="iPad 11",
+            capacity="128 GB",
+            price_brl=3100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 11 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:ipad-air-m4-128",
+            name='iPad Air 2026 11" M4',
+            capacity="128 GB",
+            price_brl=4800.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text='ipad air 2026 11 m4 128 gb novo lacrado',
+        ),
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "como funciona as parcelas",
+        history=[
+            {"role": "user", "content": "quero saber sobre ipad"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos estas opções de iPad: iPad 11 seminovo, 128 GB, prateado, "
+                    "bateria 100%: R$ 2.420; iPad 11 novo lacrado, 128 GB: R$ 3.100; "
+                    "iPad Air 2026 11\" M4 novo lacrado, 128 GB: R$ 4.800."
+                ),
+            },
+            {"role": "user", "content": "queria saber sobre o semi novo"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Encontrei estas opções de iPad 11 disponíveis: IPAD 11 — PRATEADO — "
+                    "128GB — SEMINOVO COM GARANTIA APPLE — R$ 2.420,00 | Bat: 100%. "
+                    "Não localizei opção seminova disponível para iPad Air."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPad 11 128 GB" in decision.reply
+    assert "Preço à vista: R$ 2.420,00" in decision.reply
+    assert "1x de" in decision.reply
+    assert "18x de" in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Vocês parcelam em quantas vezes?",
+        "como funciona as parcelas",
+        "como funcionam as parcelas?",
+    ],
+)
+async def test_general_installment_question_after_multi_ipad_offer_answers_payment_policy(tmp_path, question):
     cache, settings = build_cache(tmp_path)
     cache.items = []
     cache.sealed_cache.items = [
@@ -556,7 +635,7 @@ async def test_general_installment_question_after_multi_ipad_offer_answers_payme
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
     decision = await agent.respond(
-        "Vocês parcelam em quantas vezes?",
+        question,
         history=[
             {
                 "role": "assistant",

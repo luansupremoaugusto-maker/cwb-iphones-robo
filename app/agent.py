@@ -3505,6 +3505,8 @@ def _is_full_installment_request(text: str) -> bool:
     phrases = (
         "como fica o parcelamento",
         "como funciona o parcelamento",
+        "como funciona as parcelas",
+        "como funcionam as parcelas",
         "como fica parcelado",
         "quanto fica parcelado",
         "quanto fica o parcelamento",
@@ -3520,9 +3522,12 @@ def _is_full_installment_request(text: str) -> bool:
 
 def _is_generic_installment_count_question(text: str) -> bool:
     normalized = _normalize(text)
+    asks_how_installments_work = bool(
+        re.fullmatch(r"como funciona(?:m)? as parcelas[?!.]*", normalized)
+    )
     return bool(
         normalized
-        and "quantas vezes" in normalized
+        and ("quantas vezes" in normalized or asks_how_installments_work)
         and re.search(r"\bparcel\w*\b", normalized)
         and not _has_product_reference(normalized)
         and not _is_payment_link_request(text)
@@ -4251,6 +4256,7 @@ def _installment_context_query(
             r"\b(?:iphone|ipad|produto)\w*\b",
             _normalize(assistant_context),
         ):
+            assistant_context = _strip_unavailable_catalog_claims(assistant_context)
             if strip_assistant_constraints:
                 assistant_context = _strip_catalog_history_constraints(assistant_context)
             # Keep a unique capacity from the selected offer/table ahead of catalog ranking.
