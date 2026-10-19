@@ -530,7 +530,18 @@ async def test_installment_question_after_specific_ipad_offer_returns_table(tmp_
 
 
 @pytest.mark.asyncio
-async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selected_offer(tmp_path):
+@pytest.mark.parametrize(
+    ("question", "with_entry"),
+    [
+        ("como funciona as parcelas", False),
+        ("como funcionam as parcelas com entrada de R$ 1.000?", True),
+    ],
+)
+async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selected_offer(
+    tmp_path,
+    question,
+    with_entry,
+):
     cache, settings = build_cache(tmp_path)
     cache.items = [
         InventoryItem(
@@ -570,7 +581,7 @@ async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selecte
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
     decision = await agent.respond(
-        "como funciona as parcelas",
+        question,
         history=[
             {"role": "user", "content": "quero saber sobre ipad"},
             {
@@ -595,7 +606,12 @@ async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selecte
 
     assert decision.handoff is False
     assert "Parcelamento do iPad 11 128 GB" in decision.reply
-    assert "Preço à vista: R$ 2.420,00" in decision.reply
+    if with_entry:
+        assert "Preço total: R$ 2.420,00" in decision.reply
+        assert "Entrada à vista: R$ 1.000,00" in decision.reply
+        assert "Saldo restante para parcelar: R$ 1.420,00" in decision.reply
+    else:
+        assert "Preço à vista: R$ 2.420,00" in decision.reply
     assert "1x de" in decision.reply
     assert "18x de" in decision.reply
 
@@ -607,6 +623,7 @@ async def test_installment_simulation_after_selecting_ipad_seminovo_uses_selecte
         "Vocês parcelam em quantas vezes?",
         "como funciona as parcelas",
         "como funcionam as parcelas?",
+        "como funcionam as parcelas de vocês?",
     ],
 )
 async def test_general_installment_question_after_multi_ipad_offer_answers_payment_policy(tmp_path, question):
@@ -652,6 +669,96 @@ async def test_general_installment_question_after_multi_ipad_offer_answers_payme
     assert "em até 18 vezes" in decision.reply
     assert "Parcelamento do iPad" not in decision.reply
     assert "Não localizei esse produto" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_policy_keeps_available_offer_after_unavailable_clause(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:ipad-11-128",
+            name="iPad 11",
+            capacity="128 GB",
+            price_brl=3100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 11 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:ipad-air-m4-128",
+            name='iPad Air 2026 11" M4',
+            capacity="128 GB",
+            price_brl=4800.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text='ipad air 2026 11 m4 128 gb novo lacrado',
+        ),
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Vocês parcelam em quantas vezes?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "iPad 11 128 GB por R$ 3.100,00. Não localizei iPad Air seminovo; "
+                    "mas temos iPad Air 2026 11\" M4 lacrado por R$ 4.800,00."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "em até 18 vezes" in decision.reply
+    assert "máquina física" in decision.reply
+    assert "Parcelamento do iPad" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_installment_context_ignores_semicolon_linked_unavailable_products(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:ipad-11-128",
+            name="iPad 11",
+            capacity="128 GB",
+            price_brl=3100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 11 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:ipad-10-128",
+            name="iPad 10",
+            capacity="128 GB",
+            price_brl=2700.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="ipad 10 128 gb novo lacrado",
+        ),
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "como funcionam as parcelas de vocês?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "Temos iPad 11 128 GB por R$ 3.100,00. "
+                    "Não temos iPad Air; nem iPad 10 seminovo."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPad 11 128 GB" in decision.reply
+    assert "Preço à vista: R$ 3.100,00" in decision.reply
+    assert "R$ 2.700,00" not in decision.reply
 
 
 @pytest.mark.asyncio
