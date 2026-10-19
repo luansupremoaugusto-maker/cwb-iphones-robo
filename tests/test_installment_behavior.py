@@ -1736,6 +1736,75 @@ async def test_multi_count_installment_request_keeps_explicit_model_alias(tmp_pa
     assert "iPhone 15" not in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_installment_counts_with_repeated_em_keep_selected_iphone15_from_catalog_reply(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="11662881",
+            name="IPHONE 15 PRO",
+            category="Celular Apple",
+            capacity="256GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3410.0,
+            battery_health=81,
+            search_text=(
+                "iphone 15 pro titanio preto 256gb seminovo bateria 81 celular apple"
+            ),
+        )
+    ]
+    cache.sealed_cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Agradecemos sua mensagem. Não estamos disponíveis no momento, "
+                "mas entraremos em contato assim que possível."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Olá, entro em contato para saber mais informações sobre o produto "
+                "IPHONE 15 PRO 256gb TITÂNIO PRETO de código (estoque): 11662881 "
+                "visto no catálogo online "
+                "https://app.mercadophone.tech/index.php?class=CatalogoProdutoView&tag=cwbiphones&"
+                "produto_id=11662881&catalogo_produto_id=0"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 15 PRO disponíveis:\n"
+                "• IPHONE 15 PRO — TITÂNIO PRETO — 256GB — SEMINOVO — "
+                "R$ 3.410,00 | Bat: 81%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Poderia fazer uma simulação de parcelamento em 10 e em 12x por favor?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do IPHONE 15 PRO 256GB" in decision.reply
+    assert "Preço à vista: R$ 3.410,00" in decision.reply
+    assert "10x de" in decision.reply
+    assert "12x de" in decision.reply
+    assert "IPHONE 10 E" not in decision.reply
+    assert "não localizei" not in decision.reply.lower()
+
+
 def test_installment_price_reference_requires_one_matching_offer():
     history = [
         {

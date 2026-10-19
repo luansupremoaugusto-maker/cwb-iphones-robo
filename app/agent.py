@@ -309,8 +309,8 @@ def _without_installment_count_list(normalized: str) -> str:
     count = r"(?:1[0-8]|[1-9])"
     separator = r"(?:\s*[,/]\s*|\s+(?:e|ou)\s+)"
     count_list = re.compile(
-        rf"\b{count}(?:\s*x)?(?:{separator}{count}(?:\s*x)?)*"
-        rf"{separator}{count}\s*(?:x|vezes|parcelas?)\b"
+        rf"\b{count}(?:\s*x)?(?:{separator}(?:em\s+)?{count}(?:\s*x)?)*"
+        rf"{separator}(?:em\s+)?{count}\s*(?:x|vezes|parcelas?)\b"
     )
     return count_list.sub(" ", normalized, count=1)
 
