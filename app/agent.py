@@ -7283,19 +7283,24 @@ class AgentService:
             ),
             default=-1,
         )
-        newer_generic_catalog_list = any(
-            index > latest_customer_anchor_index
-            and entry.get("role") == "user"
-            and (
-                _is_available_list_request(entry.get("content", ""))
-                or _is_sealed_catalog_list_request(entry.get("content", ""))
-            )
-            and _has_recent_catalog_product_context(
-                history_entries[index + 1 :],
-                skip_acknowledgements=True,
-            )
-            for index, entry in enumerate(history_entries)
+        newer_generic_catalog_list_index = max(
+            (
+                index
+                for index, entry in enumerate(history_entries)
+                if index > latest_customer_anchor_index
+                and entry.get("role") == "user"
+                and (
+                    _is_available_list_request(entry.get("content", ""))
+                    or _is_sealed_catalog_list_request(entry.get("content", ""))
+                )
+                and _has_recent_catalog_product_context(
+                    history_entries[index + 1 :],
+                    skip_acknowledgements=True,
+                )
+            ),
+            default=None,
         )
+        newer_generic_catalog_list = newer_generic_catalog_list_index is not None
         current_request_has_catalog_anchor = bool(
             _has_product_reference(_normalize(text))
             or _extract_bare_catalog_model_reference(text)
@@ -7362,13 +7367,21 @@ class AgentService:
                 or customer_affordability_request
             )
         ):
+            if newer_generic_catalog_list_index is not None:
+                product_context_history = history_entries[newer_generic_catalog_list_index:]
+                while product_context_history and _CATALOG_CONTEXT_ACKNOWLEDGEMENT_RE.fullmatch(
+                    _normalize(product_context_history[-1].get("content", ""))
+                ):
+                    product_context_history = product_context_history[:-1]
+            else:
+                product_context_history = history
             query = (
                 customer_request_context
                 if customer_affordability_request
                 and customer_request_has_catalog_anchor
                 else _product_context_query(
                     current_query,
-                    history,
+                    product_context_history,
                     strip_assistant_constraints=not (
                         customer_affordability_request
                         and not customer_request_has_catalog_anchor
@@ -7476,7 +7489,10 @@ class AgentService:
             or battery_unit_selection_query is not None
             or (
                 is_current_cheapest_request
-                and _has_recent_catalog_product_context(history)
+                and _has_recent_catalog_product_context(
+                    history,
+                    skip_acknowledgements=True,
+                )
             )
         ):
             return None

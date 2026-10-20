@@ -1479,6 +1479,17 @@ async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
             battery_health=84,
             search_text="iphone 12 128 gb seminovo celular branco",
         ),
+        InventoryItem(
+            external_id="airpods-pro-3-500",
+            name="AirPods Pro 3",
+            category="Celular",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=500,
+            search_text="airpods pro 3 seminovo celular",
+        ),
     ]
     cache.last_refresh = time.time()
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
@@ -1535,6 +1546,32 @@ async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
     assert acknowledged_list_decision.product_references == ["iphone-11-128-900"]
     assert "iPhone 11" in acknowledged_list_decision.reply
     assert "iPhone 16" not in acknowledged_list_decision.reply
+
+    superseded_family_history = [
+        {"role": "user", "content": "Vocês têm AirPods?"},
+        {"role": "assistant", "content": "Temos AirPods Pro 3 por R$ 500,00."},
+        {"role": "user", "content": "Quais aparelhos vocês têm?"},
+        history[1],
+    ]
+    catalog_queries: list[str] = []
+    search_catalog = cache.search
+
+    async def record_catalog_search(query, *args, **kwargs):
+        catalog_queries.append(query)
+        return await search_catalog(query, *args, **kwargs)
+
+    cache.search = record_catalog_search
+    superseded_family_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=superseded_family_history,
+    )
+
+    assert superseded_family_decision.handoff is False
+    assert superseded_family_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in superseded_family_decision.reply
+    assert "AirPods" not in superseded_family_decision.reply
+    assert catalog_queries
+    assert all("airpods" not in _normalize(query) for query in catalog_queries)
 
     multi_model_history = [
         {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},
