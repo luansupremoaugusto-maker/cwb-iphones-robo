@@ -3633,7 +3633,7 @@ jobs:
           import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
-          from app.agent import AgentService
+          from app.agent import AgentService, _is_catalog_followup
           from app.config import Settings
           from app.faq import FAQStore
           from app.schemas import InventoryItem
@@ -3696,6 +3696,20 @@ jobs:
                   source="mercado_phone",
                   search_text="iPhone 11 128 GB seminovo celular preto",
               ),
+              InventoryItem(
+                  external_id="iphone-12-128-1300",
+                  name="iPhone 12",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="BRANCO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=1300,
+                  battery_health=84,
+                  source="mercado_phone",
+                  search_text="iPhone 12 128 GB seminovo celular branco",
+              ),
           ]
           cache.last_refresh = time.time()
           service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
@@ -3703,6 +3717,14 @@ jobs:
               {"role": "assistant", "content": "Opa! Tudo bem? Como posso ajudar?"},
               {"role": "user", "content": "iPhone"},
               {"role": "user", "content": "Usado"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                      "• IPHONE 16 PRO MAX — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                      "R$ 5.170,00 | Bat: 89%"
+                  ),
+              },
           ]
           decision = asyncio.run(service.respond("Preciso de um em conta", history=history))
           assert not decision.handoff, decision
@@ -3710,7 +3732,29 @@ jobs:
           assert "iPhone 11" in decision.reply and "R$ 900,00" in decision.reply, decision
           assert "iPhone 16 Pro Max" not in decision.reply and "R$ 5.170,00" not in decision.reply, decision
           assert not decision.image_urls, decision
+          assert _is_catalog_followup("Preciso de um em conta")
+          assert not _is_catalog_followup("Como entro em contato com vocês?")
           print("AFFORDABLE_IPHONE_SEMINOVO_SELECTION_OK")
+
+          budget_history = [
+              *history,
+              {"role": "user", "content": "Preciso de um em conta"},
+              {"role": "assistant", "content": decision.reply},
+              {"role": "user", "content": "Mais em conta"},
+          ]
+          budget_decision = asyncio.run(
+              service.respond("Até 1.500", history=budget_history)
+          )
+          assert not budget_decision.handoff, budget_decision
+          assert set(budget_decision.product_references) == {
+              "iphone-11-128-900",
+              "iphone-12-128-1300",
+          }, budget_decision
+          assert "iPhone 11" in budget_decision.reply, budget_decision.reply
+          assert "iPhone 12" in budget_decision.reply, budget_decision.reply
+          assert "R$ 5.170,00" not in budget_decision.reply, budget_decision.reply
+          assert not budget_decision.image_urls, budget_decision
+          print("AFFORDABLE_IPHONE_BUDGET_LIMIT_SELECTION_OK")
           PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health

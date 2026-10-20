@@ -539,7 +539,6 @@ def _is_catalog_followup(text: str) -> bool:
             "tem no",
             "tem na",
             "tem em",
-            "em conta",
             "fonte",
             "carregador",
             "cor",
@@ -550,7 +549,8 @@ def _is_catalog_followup(text: str) -> bool:
     # A capacity-only availability answer such as "Tb tem de 256gb" refers
     # to the product discussed immediately before it.
     return bool(
-        re.search(
+        re.search(r"\bem\s+conta\b", normalized)
+        or re.search(
             r"\btem\s+de\s+\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\b",
             normalized,
         )
@@ -7241,6 +7241,13 @@ class AgentService:
         product_interest_context = _product_interest_model_context(text, history)
         selected_model = product_interest_context[0] if product_interest_context else None
         default_condition = product_interest_context[1] if product_interest_context else None
+        customer_request_context = installment_budget_context or _customer_product_request_context_query(
+            text,
+            history,
+        )
+        customer_affordability_request = _is_cheapest_catalog_request(
+            customer_request_context
+        )
         selection_context_used = battery_unit_selection_query is not None or bool(
             selected_model and not _has_product_reference(_normalize(current_query))
         )
@@ -7287,12 +7294,17 @@ class AgentService:
                 or capacity_availability_followup
                 or battery_unit_selection_query is not None
                 or _is_contextual_pronta_entrega_followup(current_query, history)
+                or customer_affordability_request
             )
         ):
-            query = _product_context_query(
-                current_query,
-                history,
-                strip_assistant_constraints=True,
+            query = (
+                customer_request_context
+                if customer_affordability_request
+                else _product_context_query(
+                    current_query,
+                    history,
+                    strip_assistant_constraints=True,
+                )
             )
         if ipad_model_alternative_price_followup:
             query = _customer_product_request_context_query(text, history)
@@ -7396,10 +7408,6 @@ class AgentService:
         ):
             return None
 
-        customer_request_context = installment_budget_context or _customer_product_request_context_query(
-            text,
-            history,
-        )
         requested_budget = None
         if not installment_budget_context:
             requested_budget = _extract_latest_budget_limit(text)
@@ -7849,7 +7857,10 @@ class AgentService:
                 confidence="medium",
             )
 
-        cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
+        cheapest_request = (
+            requested_budget is None
+            and _is_cheapest_catalog_request(customer_request_context)
+        )
         has_explicit_catalog_attributes = (
             _requested_battery_health(catalog_filter_query) is not None
             or bool(requested_catalog_colors)

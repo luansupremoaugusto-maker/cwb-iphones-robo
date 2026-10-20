@@ -14,6 +14,7 @@ from app.agent import (
     _extract_bare_catalog_model_reference,
     _format_product_availability,
     _is_bare_model_availability_request,
+    _is_catalog_followup,
     _is_cheapest_catalog_request,
     _is_available_list_request,
     _is_product_availability_request,
@@ -1217,6 +1218,155 @@ async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
     assert "R$ 900,00" in decision.reply
     assert "iPhone 16 Pro Max" not in decision.reply
     assert "R$ 5.170,00" not in decision.reply
+
+
+def test_catalog_followup_matches_em_conta_without_matching_em_contato():
+    assert _is_catalog_followup("Preciso de um em conta") is True
+    assert _is_catalog_followup("Como entro em contato com vocês?") is False
+
+
+@pytest.mark.asyncio
+async def test_affordable_iphone_followup_ignores_previous_assistant_offer(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-5170",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max 256 gb seminovo celular titânio deserto",
+        ),
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "iPhone"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                "• IPHONE 16 PRO MAX — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                "R$ 5.170,00 | Bat: 89%"
+            ),
+        },
+        {"role": "user", "content": "Usado"},
+    ]
+
+    decision = await agent.respond("Preciso de um em conta", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in decision.reply
+    assert "R$ 900,00" in decision.reply
+    assert "iPhone 16 Pro Max" not in decision.reply
+    assert "R$ 5.170,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_explicit_budget_after_affordability_followup_lists_all_matches(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-5170",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max 256 gb seminovo celular titânio deserto",
+        ),
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=84,
+            search_text="iphone 12 128 gb seminovo celular branco",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "iPhone"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                "• IPHONE 16 PRO MAX — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                "R$ 5.170,00 | Bat: 89%"
+            ),
+        },
+        {"role": "user", "content": "Usado"},
+        {"role": "user", "content": "Mais em conta"},
+    ]
+
+    decision = await agent.respond("Até 1.500", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"iphone-11-128-900", "iphone-12-128-1300"}
+    assert "iPhone 11" in decision.reply
+    assert "iPhone 12" in decision.reply
+    assert "R$ 900,00" in decision.reply
+    assert "R$ 1.300,00" in decision.reply
+    assert "iPhone 16 Pro Max" not in decision.reply
+    assert "R$ 5.170,00" not in decision.reply
+    assert not decision.image_urls
 
 
 @pytest.mark.asyncio
