@@ -5,7 +5,7 @@ import time
 import pytest
 
 from app.adapters.mercado_phone import InventoryCache
-from app.agent import AgentService, _is_handoff_confirmation
+from app.agent import AgentService
 from app.config import Settings
 from app.faq import FAQStore
 from app.processor import _build_handoff_message
@@ -31,7 +31,15 @@ async def test_affirmative_handoff_confirmation_sets_handoff(tmp_path):
     assert "confirmou" in (decision.handoff_reason or "").lower()
 
 
-def test_generic_handoff_confirmation_requires_latest_assistant_offer():
+@pytest.mark.asyncio
+async def test_generic_handoff_confirmation_requires_latest_assistant_offer(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path="data/faq.yaml")
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "handoff.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
     history = [
         {
             "role": "assistant",
@@ -41,11 +49,8 @@ def test_generic_handoff_confirmation_requires_latest_assistant_offer():
         {"role": "assistant", "content": "Qual cor você prefere?"},
     ]
 
-    assert _is_handoff_confirmation("Pode ser", history) is False
-    assert _is_handoff_confirmation(
-        "Pode ser",
-        [{"role": "assistant", "content": "Posso encaminhar para um atendente?"}],
-    ) is True
+    decision = await service.respond("Pode ser", history=history)
+    assert decision.handoff is False, decision
 
 
 def test_handoff_summary_has_client_context_and_safe_commands():
