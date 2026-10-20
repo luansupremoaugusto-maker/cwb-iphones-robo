@@ -5215,6 +5215,62 @@ def _catalog_battery_unit_selection_query(
 
 def _battery_detail_context_query(text: str, history: list[dict[str, str]] | None) -> str | None:
     normalized = _normalize(text)
+    health_reference = None
+    if _is_battery_detail_request(text):
+        health_match = re.search(
+            r"\b(?:esse|essa|este|esta)\s+de\s+"
+            r"(?P<health>\d{1,3}(?:[.,]\d+)?)\s*(?:%|por\s+cento)?\s+"
+            r"(?:e|__copula__|tem|esta|possui)\s+(?:a\s+)?bateria\b",
+            normalized,
+        )
+        if health_match:
+            try:
+                health_reference = float(health_match.group("health").replace(",", "."))
+            except ValueError:
+                return None
+            if not 0 <= health_reference <= 100:
+                return None
+
+            if not history or history[-1].get("role") != "assistant":
+                return None
+            latest_offer = history[-1].get("content", "")
+            models = _requested_iphone_model_keys(latest_offer)
+            capacities = _requested_capacity_keys(latest_offer)
+            has_seminovo = _has_seminovo_reference(latest_offer)
+            has_sealed = _has_explicit_sealed_condition(latest_offer)
+            if len(models) != 1 or len(capacities) != 1 or has_seminovo == has_sealed:
+                return None
+
+            offered_healths: list[float] = []
+            for sentence in re.split(r"(?<=[.!?])\s+|\r?\n", latest_offer):
+                normalized_sentence = _normalize(sentence)
+                if not re.search(r"\bbateria\b", normalized_sentence):
+                    continue
+                for match in re.finditer(
+                    r"\b(\d{1,3}(?:[.,]\d+)?)\s*(?:%|por\s+cento)(?!\w)",
+                    normalized_sentence,
+                ):
+                    try:
+                        offered_healths.append(
+                            float(match.group(1).replace(",", "."))
+                        )
+                    except ValueError:
+                        continue
+            if round(health_reference, 2) not in {
+                round(value, 2) for value in offered_healths
+            }:
+                return None
+
+            (number, variant) = models[0]
+            model_label = f"iPhone {number}"
+            if variant:
+                model_label += f" {variant}"
+            condition = "seminovo" if has_seminovo else "lacrado"
+            return (
+                f"{model_label} {capacities[0].upper()} {condition} "
+                f"bateria {health_reference:g}%"
+            )
+
     model_reference = _extract_bare_catalog_model_reference(text)
     has_explicit_family = bool(
         re.search(r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b", normalized)
@@ -6833,14 +6889,31 @@ class AgentService:
             and (getattr(item, "source", None) != "mercado_phone" or _is_available_item(item))
             and not _is_sealed_item(item)
         ]
+        requested_health = _requested_battery_health(query)
+        if requested_health is not None:
+            candidates = [
+                item
+                for item in candidates
+                if _requested_battery_health(
+                    f"bateria {getattr(item, 'battery_health', '')}%"
+                )
+                == requested_health
+            ]
         if not candidates:
             alternative = await self._try_unavailable_seminew_alternative(
                 query,
-                requested_label=_extract_bare_catalog_model_reference(text),
+                requested_label=(
+                    _extract_bare_catalog_model_reference(text)
+                    or _extract_bare_catalog_model_reference(query)
+                ),
             )
             if alternative is not None:
                 return alternative
-            requested_label = _extract_bare_catalog_model_reference(text) or "esse aparelho"
+            requested_label = (
+                _extract_bare_catalog_model_reference(text)
+                or _extract_bare_catalog_model_reference(query)
+                or "esse aparelho"
+            )
             return AgentDecision(
                 reply=(
                     f"Não localizei o {requested_label} disponível no estoque no momento. "
@@ -6849,14 +6922,22 @@ class AgentService:
                 confidence="medium",
             )
 
-        selected = max(
-            candidates,
-            key=lambda item: (
-                _catalog_score(query, item),
-                _normalize(str(getattr(item, "name", "") or "")),
-                _normalize(str(getattr(item, "capacity", "") or "")),
-            ),
-        )
+        if requested_health is not None:
+            best_score = max(_catalog_score(query, item) for item in candidates)
+            selected_candidates = [
+                item for item in candidates if _catalog_score(query, item) == best_score
+            ]
+        else:
+            selected = max(
+                candidates,
+                key=lambda item: (
+                    _catalog_score(query, item),
+                    _normalize(str(getattr(item, "name", "") or "")),
+                    _normalize(str(getattr(item, "capacity", "") or "")),
+                ),
+            )
+            selected_candidates = [selected]
+        selected = selected_candidates[0]
         label_parts = [str(getattr(selected, "name", "produto") or "produto")]
         for value in (
             getattr(selected, "capacity", None),
@@ -6870,12 +6951,29 @@ class AgentService:
             battery_reply = "A saúde da bateria não está informada no cadastro."
         else:
             battery_reply = f"A saúde cadastrada da bateria é {_format_battery(battery)}."
+        if len(selected_candidates) > 1 and requested_health is not None:
+            label = (
+                f"as {len(selected_candidates)} opções de {label} com bateria "
+                f"{_format_battery(requested_health)}"
+            )
+            originality_reply = (
+                "O cadastro não informa se as baterias são originais ou se já foram "
+                "trocadas, então não consigo confirmar essa parte por aqui."
+            )
+            battery_reply = ""
+        else:
+            originality_reply = (
+                "O cadastro não informa se a bateria é original ou se já foi trocada, "
+                "então não consigo confirmar essa parte por aqui."
+            )
         return AgentDecision(
             reply=(
-                f"Sobre o {label}: {battery_reply} O cadastro não informa se a bateria é original "
-                "ou se já foi trocada, então não consigo confirmar essa parte por aqui."
+                f"Sobre {label}: "
+                f"{(battery_reply + ' ') if battery_reply else ''}{originality_reply}"
             ),
-            product_references=[str(getattr(selected, "external_id", ""))],
+            product_references=[
+                str(getattr(item, "external_id", "")) for item in selected_candidates
+            ],
             confidence="high",
         )
 
