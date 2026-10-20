@@ -2656,9 +2656,24 @@ def _is_technical_assistance_request(text: str) -> bool:
     )
 
 
-def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) -> bool:
+_CATALOG_CONTEXT_ACKNOWLEDGEMENT_RE = re.compile(
+    r"^(?:(?:muito\s+)?obrigad[oa]s?|valeu|agradeco|perfeito|beleza|blz|show|"
+    r"certo|ok|imagina|de nada|por nada)(?:\s+(?:amigo|amiga))?[.!?,\s]*$",
+    re.IGNORECASE,
+)
+
+
+def _has_recent_catalog_product_context(
+    history: list[dict[str, str]] | None,
+    *,
+    skip_acknowledgements: bool = False,
+) -> bool:
     for entry in reversed(history or []):
         if entry.get("role") == "user":
+            if skip_acknowledgements and _CATALOG_CONTEXT_ACKNOWLEDGEMENT_RE.fullmatch(
+                _normalize(entry.get("content", ""))
+            ):
+                continue
             break
         if entry.get("role") != "assistant" or not entry.get("content"):
             continue
@@ -7275,7 +7290,10 @@ class AgentService:
                 _is_available_list_request(entry.get("content", ""))
                 or _is_sealed_catalog_list_request(entry.get("content", ""))
             )
-            and _has_recent_catalog_product_context(history_entries[index + 1 :])
+            and _has_recent_catalog_product_context(
+                history_entries[index + 1 :],
+                skip_acknowledgements=True,
+            )
             for index, entry in enumerate(history_entries)
         )
         current_request_has_catalog_anchor = bool(

@@ -1521,6 +1521,21 @@ async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
     assert "iPhone 11" in superseded_model_decision.reply
     assert "iPhone 16" not in superseded_model_decision.reply
 
+    superseded_model_with_acknowledgement_history = [
+        *superseded_model_history,
+        {"role": "user", "content": "Obrigado"},
+        {"role": "assistant", "content": "Por nada!"},
+    ]
+    acknowledged_list_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=superseded_model_with_acknowledgement_history,
+    )
+
+    assert acknowledged_list_decision.handoff is False
+    assert acknowledged_list_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in acknowledged_list_decision.reply
+    assert "iPhone 16" not in acknowledged_list_decision.reply
+
     multi_model_history = [
         {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},
         history[1],
