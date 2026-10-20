@@ -1438,6 +1438,20 @@ async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
     )
     cache.items = [
         InventoryItem(
+            external_id="iphone-16-128-5170",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=88,
+            search_text="iphone 16 128 gb seminovo celular preto",
+        ),
+        InventoryItem(
             external_id="iphone-11-128-900",
             name="iPhone 11",
             category="Celular",
@@ -1487,6 +1501,25 @@ async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
     assert "iPhone 11" in decision.reply
     assert "iPhone 12" not in decision.reply
     assert "R$ 1.300,00" not in decision.reply
+
+    superseded_model_history = [
+        {"role": "user", "content": "Vocês têm iPhone 16?"},
+        {
+            "role": "assistant",
+            "content": "Temos iPhone 16 128 GB seminovo por R$ 5.170,00.",
+        },
+        {"role": "user", "content": "Quais aparelhos vocês têm?"},
+        history[1],
+    ]
+    superseded_model_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=superseded_model_history,
+    )
+
+    assert superseded_model_decision.handoff is False
+    assert superseded_model_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in superseded_model_decision.reply
+    assert "iPhone 16" not in superseded_model_decision.reply
 
     multi_model_history = [
         {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},

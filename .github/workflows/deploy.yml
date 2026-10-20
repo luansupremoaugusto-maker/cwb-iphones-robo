@@ -3797,6 +3797,24 @@ jobs:
           assert "iPhone 12" not in multi_model_cheapest.reply, multi_model_cheapest.reply
           print("MULTI_MODEL_LIST_CHEAPEST_FOLLOWUP_OK")
 
+          superseded_anchor_history = [
+              {"role": "user", "content": "Vocês têm iPhone 16 Pro Max?"},
+              {
+                  "role": "assistant",
+                  "content": "Temos iPhone 16 Pro Max 256 GB seminovo por R$ 5.170,00.",
+              },
+              {"role": "user", "content": "Quais aparelhos vocês têm?"},
+              generic_list_history[1],
+          ]
+          superseded_anchor_cheapest = asyncio.run(
+              service.respond("Qual é o mais barato?", history=superseded_anchor_history)
+          )
+          assert not superseded_anchor_cheapest.handoff, superseded_anchor_cheapest
+          assert superseded_anchor_cheapest.product_references == ["iphone-11-128-900"], superseded_anchor_cheapest
+          assert "iPhone 11" in superseded_anchor_cheapest.reply, superseded_anchor_cheapest.reply
+          assert "iPhone 16 Pro Max" not in superseded_anchor_cheapest.reply, superseded_anchor_cheapest.reply
+          print("LATEST_GENERIC_CATALOG_LIST_OVERRIDES_OLD_MODEL_OK")
+
           budget_history = [
               *history,
               {"role": "user", "content": "Preciso de um em conta"},

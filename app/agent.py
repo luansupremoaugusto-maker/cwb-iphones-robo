@@ -7255,6 +7255,33 @@ class AgentService:
             ),
             "",
         )
+        history_entries = history or []
+        latest_customer_anchor_index = max(
+            (
+                index
+                for index, entry in enumerate(history_entries)
+                if entry.get("role") == "user"
+                and (
+                    _has_product_reference(_normalize(entry.get("content", "")))
+                    or _extract_bare_catalog_model_reference(entry.get("content", ""))
+                )
+            ),
+            default=-1,
+        )
+        newer_generic_catalog_list = any(
+            index > latest_customer_anchor_index
+            and entry.get("role") == "user"
+            and (
+                _is_available_list_request(entry.get("content", ""))
+                or _is_sealed_catalog_list_request(entry.get("content", ""))
+            )
+            and _has_recent_catalog_product_context(history_entries[index + 1 :])
+            for index, entry in enumerate(history_entries)
+        )
+        current_request_has_catalog_anchor = bool(
+            _has_product_reference(_normalize(text))
+            or _extract_bare_catalog_model_reference(text)
+        )
         customer_affordability_request = is_current_cheapest_request or (
             current_request_budget is not None
             and not _has_product_reference(_normalize(text))
@@ -7265,7 +7292,7 @@ class AgentService:
             _catalog_families(customer_request_context)
             or _has_product_reference(_normalize(customer_request_context))
             or _extract_bare_catalog_model_reference(customer_request_context)
-        )
+        ) and (not newer_generic_catalog_list or current_request_has_catalog_anchor)
         selection_context_used = battery_unit_selection_query is not None or bool(
             selected_model
             and not _has_product_reference(_normalize(current_query))
