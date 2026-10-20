@@ -52,6 +52,14 @@ async def test_generic_handoff_confirmation_requires_latest_assistant_offer(tmp_
     decision = await service.respond("Pode ser", history=history)
     assert decision.handoff is False, decision
 
+    current_offer = await service.respond(
+        "Pode ser",
+        history=[
+            {"role": "assistant", "content": "Posso encaminhar para um atendente?"}
+        ],
+    )
+    assert current_offer.handoff is True, current_offer
+
 
 def test_handoff_summary_has_client_context_and_safe_commands():
     message = _build_handoff_message(
