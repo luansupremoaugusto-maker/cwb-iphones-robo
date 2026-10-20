@@ -8768,6 +8768,34 @@ class AgentService:
             is_sealed = _is_sealed_item(item)
             return is_sealed if requested_condition == "sealed" else not is_sealed
 
+        def photo_lookup_failed(item: Any) -> bool:
+            lookup_failed = getattr(self.cache, "product_photo_lookup_failed", None)
+            product_id = str(getattr(item, "external_id", "") or "")
+            return bool(
+                product_id
+                and callable(lookup_failed)
+                and lookup_failed(product_id)
+            )
+
+        def photo_item_label(item: Any) -> str:
+            product_parts = [
+                str(getattr(item, "name", "") or "esse aparelho").strip()
+            ]
+            color = getattr(item, "color", None) or getattr(item, "colors", None)
+            if isinstance(color, (list, tuple, set)):
+                color = ", ".join(str(value).strip() for value in color if value)
+            for detail in (getattr(item, "capacity", None), color):
+                detail = str(detail or "").strip()
+                if detail and _normalize(detail) not in _normalize(" ".join(product_parts)):
+                    product_parts.append(detail)
+            return " ".join(part for part in product_parts if part)
+
+        def photo_item_label_list(items: list[Any]) -> str:
+            labels = [photo_item_label(item) for item in items]
+            if len(labels) > 1:
+                return f"{', '.join(labels[:-1])} e {labels[-1]}"
+            return labels[0] if labels else "os aparelhos indicados"
+
         def exact_candidates(items: list[Any]) -> list[Any]:
             candidates: list[Any] = []
             seen: set[str] = set()
@@ -8986,48 +9014,73 @@ class AgentService:
         items = [item for item in items if condition_matches(item)]
         if items:
             if photo_model_batch_request:
-                approved_urls = [
-                    url
+                photo_rows = [
+                    (
+                        item,
+                        [
+                            url
+                            for url in (getattr(item, "photo_urls", []) or [])
+                            if isinstance(url, str) and url.lower().startswith("https://")
+                        ],
+                    )
                     for item in items
-                    for url in (getattr(item, "photo_urls", []) or [])
-                    if isinstance(url, str) and url.lower().startswith("https://")
                 ]
-                if approved_urls:
-                    labels = [
-                        " ".join(
-                            part
-                            for part in (
-                                str(getattr(item, "name", "aparelho") or "aparelho").strip(),
-                                str(getattr(item, "capacity", "") or "").strip(),
-                            )
-                            if part
-                        )
-                        for item in items
-                    ]
-                    label_text = ", ".join(labels[:-1])
-                    if label_text:
-                        label_text += f" e {labels[-1]}"
-                    else:
-                        label_text = labels[0]
+                available_items = [item for item, urls in photo_rows if urls]
+                confirmed_missing = [
+                    item
+                    for item, urls in photo_rows
+                    if not urls and not photo_lookup_failed(item)
+                ]
+                failed_lookup = [
+                    item
+                    for item, urls in photo_rows
+                    if not urls and photo_lookup_failed(item)
+                ]
+                approved_urls = list(
+                    dict.fromkeys(url for _item, urls in photo_rows for url in urls)
+                )[:MAX_PRODUCT_PHOTOS]
+                product_references = [
+                    str(getattr(item, "external_id", ""))
+                    for item in items
+                    if getattr(item, "external_id", "")
+                ]
+                if not confirmed_missing and not failed_lookup:
                     return AgentDecision(
                         reply=(
                             "Claro! Seguem as fotos dos aparelhos que você indicou: "
-                            f"{label_text}."
+                            f"{photo_item_label_list(available_items)}."
                         ),
-                        image_urls=list(dict.fromkeys(approved_urls))[:MAX_PRODUCT_PHOTOS],
-                        product_references=[
-                            str(getattr(item, "external_id", ""))
-                            for item in items
-                            if getattr(item, "external_id", "")
-                        ],
+                        image_urls=approved_urls,
+                        product_references=product_references,
                         confidence="high",
                     )
+                reply_parts: list[str] = []
+                if available_items:
+                    reply_parts.append(
+                        "Claro! Seguem as fotos cadastradas de "
+                        f"{photo_item_label_list(available_items)}."
+                    )
+                if confirmed_missing:
+                    reply_parts.append(
+                        "Não há fotos cadastradas para "
+                        f"{photo_item_label_list(confirmed_missing)}. "
+                        "Vou encaminhar o pedido para um atendente confirmar as fotos."
+                    )
+                if failed_lookup:
+                    reply_parts.append(
+                        "Não consegui confirmar as fotos de "
+                        f"{photo_item_label_list(failed_lookup)} agora. "
+                        "Tente novamente em instantes."
+                    )
                 return AgentDecision(
-                    reply=(
-                        "Encontrei os aparelhos indicados, mas não há fotos cadastradas "
-                        "para eles no momento."
+                    reply=" ".join(reply_parts),
+                    handoff=bool(confirmed_missing),
+                    handoff_reason=(
+                        PRODUCT_PHOTO_HANDOFF_REASON if confirmed_missing else None
                     ),
-                    confidence="medium",
+                    image_urls=approved_urls,
+                    product_references=product_references,
+                    confidence="medium" if failed_lookup else "high",
                 )
             if len(items) > 1:
                 capacities = {
@@ -9071,23 +9124,17 @@ class AgentService:
                     product_references=[selected.external_id],
                     confidence="high",
                 )
-            selected_color = getattr(selected, "color", None) or getattr(
-                selected, "colors", None
-            )
-            if isinstance(selected_color, (list, tuple, set)):
-                selected_color = ", ".join(
-                    str(color).strip() for color in selected_color if color
-                )
-            product_parts = [str(getattr(selected, "name", "") or "").strip()]
-            for detail in (
-                getattr(selected, "capacity", None),
-                selected_color,
-            ):
-                detail = str(detail or "").strip()
-                if detail and _normalize(detail) not in _normalize(" ".join(product_parts)):
-                    product_parts.append(detail)
-            product_label = " ".join(part for part in product_parts if part)
+            product_label = photo_item_label(selected)
             product_reference = str(getattr(selected, "external_id", "") or "")
+            if photo_lookup_failed(selected):
+                return AgentDecision(
+                    reply=(
+                        f"Não consegui confirmar as fotos do {product_label} agora. "
+                        "Tente novamente em instantes."
+                    ),
+                    confidence="low",
+                    product_references=[product_reference] if product_reference else [],
+                )
             return AgentDecision(
                 reply=(
                     f"Encontrei o {product_label}, mas ainda não há fotos cadastradas para essa opção. "

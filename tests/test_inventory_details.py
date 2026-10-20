@@ -411,7 +411,13 @@ async def test_photo_request_does_not_use_previous_complete_list_to_choose_model
 
 
 @pytest.mark.asyncio
-async def test_photo_request_never_falls_back_to_another_variant_with_photos(tmp_path):
+async def test_photo_request_never_falls_back_to_another_variant_with_photos(
+    tmp_path, monkeypatch
+):
+    async def no_product_files(*_args, **_kwargs):
+        return {"data": []}
+
+    monkeypatch.setattr("app.adapters.catalog_cache.list_product_files", no_product_files)
     settings = Settings(mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
         EmptyMercadoClient(),
@@ -449,7 +455,9 @@ async def test_photo_request_never_falls_back_to_another_variant_with_photos(tmp
 
     decision = await agent.respond("Pode mandar a foto do 16e branco?")
 
+    assert decision.handoff is True
     assert decision.image_urls == []
+    assert decision.product_references == ["16e-white"]
     assert "IPHONE 16 E" in decision.reply
     assert "16 PRO" not in decision.reply
     assert "não há fotos cadastradas" in decision.reply

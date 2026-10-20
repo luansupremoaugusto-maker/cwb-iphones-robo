@@ -5,7 +5,7 @@ import time
 import pytest
 
 from app.adapters.catalog_cache import StoreCatalogCache
-from app.agent import AgentService
+from app.agent import AgentService, PRODUCT_PHOTO_HANDOFF_REASON
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
@@ -1198,13 +1198,20 @@ async def test_color_photo_followup_uses_the_current_blue_iphone_14_unit(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_missing_photo_for_currently_offered_iphone_13_rosa_is_handed_off(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("fetch_error, expected_handoff", [(False, True), (True, False)])
+async def test_iphone_13_rosa_photo_request_hands_off_only_after_empty_lookup(
+    tmp_path, monkeypatch, fetch_error, expected_handoff
 ):
     async def no_product_files(*_args, **_kwargs):
         return {"data": []}
 
-    monkeypatch.setattr("app.adapters.catalog_cache.list_product_files", no_product_files)
+    async def failed_product_files(*_args, **_kwargs):
+        raise TimeoutError("attachment service unavailable")
+
+    monkeypatch.setattr(
+        "app.adapters.catalog_cache.list_product_files",
+        failed_product_files if fetch_error else no_product_files,
+    )
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
         EmptyMercadoClient(),
@@ -1245,27 +1252,99 @@ async def test_missing_photo_for_currently_offered_iphone_13_rosa_is_handed_off(
     cache.last_refresh = time.time()
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
-    decision = await agent.respond(
-        "Tem foto do rosa?",
-        history=[
-            {"role": "user", "content": "E o 13"},
-            {
-                "role": "assistant",
-                "content": (
-                    "No momento, o iPhone 13 branco não está disponível. Encontrei estas opções "
-                    "em outras cores:\n"
-                    "• IPHONE 13 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.650,00 | Bat: 86%\n"
-                    "• IPHONE 13 — ROSA — 128GB — SEMINOVO — R$ 1.700,00 | Bat: 100%"
-                ),
-            },
-        ],
-    )
+    history = [
+        {"role": "user", "content": "E o 13"},
+        {
+            "role": "assistant",
+            "content": (
+                "No momento, o iPhone 13 branco não está disponível. Encontrei estas opções "
+                "em outras cores:\n"
+                "• IPHONE 13 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.650,00 | Bat: 86%\n"
+                "• IPHONE 13 — ROSA — 128GB — SEMINOVO — R$ 1.700,00 | Bat: 100%"
+            ),
+        },
+    ]
+    decision = await agent.respond("Tem foto do rosa?", history=history)
 
-    assert decision.handoff is True
-    assert decision.handoff_reason
+    assert decision.handoff is expected_handoff
     assert decision.image_urls == []
     assert decision.product_references == ["iphone-13-rosa-128"]
     assert "rosa" in decision.reply.lower()
+    if expected_handoff:
+        assert decision.handoff_reason == PRODUCT_PHOTO_HANDOFF_REASON
+        assert "não há fotos cadastradas" in decision.reply.lower()
+        assert "vou encaminhar" in decision.reply.lower()
+    else:
+        assert decision.handoff_reason is None
+        assert "não consegui confirmar as fotos" in decision.reply.lower()
+        assert "não há fotos cadastradas" not in decision.reply.lower()
+
+        monkeypatch.setattr(
+            "app.adapters.catalog_cache.list_product_files", no_product_files
+        )
+        retried = await agent.respond("Tem foto do rosa?", history=history)
+        assert retried.handoff is True
+        assert retried.handoff_reason == PRODUCT_PHOTO_HANDOFF_REASON
+        assert retried.product_references == ["iphone-13-rosa-128"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_iphone_14_photo", [False, True])
+async def test_multi_model_photo_request_hands_off_only_confirmed_missing_photos(
+    tmp_path, monkeypatch, include_iphone_14_photo
+):
+    async def no_product_files(*_args, **_kwargs):
+        return {"data": []}
+
+    monkeypatch.setattr("app.adapters.catalog_cache.list_product_files", no_product_files)
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-multi-iphone-photo-handoff.json",
+        sealed_cache=None,
+    )
+    iphone_14_photo = "https://photos.example/iphone-14-azul-128.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-rosa-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1700,
+            source="mercado_phone",
+            search_text="iphone 13 rosa 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-azul-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1900,
+            source="mercado_phone",
+            search_text="iphone 14 azul 128gb celular seminovo",
+            photo_urls=[iphone_14_photo] if include_iphone_14_photo else [],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Manda as fotos do iPhone 13 e 14")
+
+    assert decision.handoff is True
+    assert decision.handoff_reason == PRODUCT_PHOTO_HANDOFF_REASON
+    assert decision.product_references == ["iphone-13-rosa-128", "iphone-14-azul-128"]
+    assert decision.image_urls == ([iphone_14_photo] if include_iphone_14_photo else [])
+    assert "iphone 13" in decision.reply.lower()
+    assert "iphone 14" in decision.reply.lower()
     assert "vou encaminhar" in decision.reply.lower()
 
 
