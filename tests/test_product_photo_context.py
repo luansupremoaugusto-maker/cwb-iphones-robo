@@ -439,8 +439,15 @@ async def test_capacity_followup_sends_the_selected_used_phone_photos(tmp_path):
 @pytest.mark.parametrize("last_has_photo", [True, False])
 async def test_yes_to_iphone_14_photo_offer_resolves_the_last_selected_unit(
     tmp_path,
+    monkeypatch,
     last_has_photo,
 ):
+    async def no_product_files(*_args, **_kwargs):
+        return {"data": []}
+
+    monkeypatch.setattr(
+        "app.adapters.catalog_cache.list_product_files", no_product_files
+    )
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
         EmptyMercadoClient(),
@@ -504,24 +511,16 @@ async def test_yes_to_iphone_14_photo_offer_resolves_the_last_selected_unit(
 
     decision = await agent.respond("Simm", history=history)
 
-    assert decision.handoff is False
     if last_has_photo:
+        assert decision.handoff is False
         assert decision.image_urls == [photo_urls["iphone-14-91-1900"]], decision
         assert decision.product_references == ["iphone-14-91-1900"], decision
     else:
+        assert decision.handoff is True, decision
+        assert decision.handoff_reason == PRODUCT_PHOTO_HANDOFF_REASON, decision
         assert decision.image_urls == [], decision
         assert "não há fotos cadastradas" in decision.reply.lower(), decision
         assert photo_urls["iphone-14-91-1890"] not in decision.image_urls
-
-        handoff_history = [
-            *history,
-            {"role": "user", "content": "Simm"},
-            {"role": "assistant", "content": decision.reply},
-        ]
-        handoff = await agent.respond("Blz. Pode ser", history=handoff_history)
-        assert handoff.handoff is True, handoff
-        assert "atendente" in handoff.reply.lower(), handoff
-        assert handoff.image_urls == []
 
 
 @pytest.mark.asyncio
