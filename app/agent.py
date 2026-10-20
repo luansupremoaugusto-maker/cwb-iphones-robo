@@ -4779,11 +4779,18 @@ def _pending_multi_model_product_request_context(
 
     for index, content in [*pending_users, *current_messages]:
         for segment in request_segments(content):
-            has_model_reference = bool(
-                _has_product_reference(_normalize(segment))
-                or _extract_bare_catalog_model_reference(segment)
-            )
             normalized_segment = _normalize(segment)
+            has_model_reference = bool(
+                _has_product_reference(normalized_segment)
+                or _extract_bare_catalog_model_reference(segment)
+                or (
+                    previous_message_was_product_request
+                    and re.fullmatch(
+                        r"(?:e|ou)\s+(?:o\s+)?1[0-9]",
+                        normalized_segment,
+                    )
+                )
+            )
             is_owned_context = is_owned_device_context(segment)
             is_trade_context = is_trade_in_request(normalized_segment)
             is_negated_purchase = has_negated_purchase_intent(segment)
@@ -4863,11 +4870,8 @@ def _pending_multi_model_product_request_context(
     requested_models: list[tuple[int | str, str]] = []
     model_message_indexes: list[int] = []
     for index, content in candidate_messages:
-        if not (
-            _has_product_reference(_normalize(content))
-            or _extract_bare_catalog_model_reference(content)
-        ):
-            continue
+        # Candidate messages already passed the contextual model-reference
+        # check above, including short continuations such as "E 12".
         models = _requested_iphone_model_keys(content)
         if not models:
             continue
