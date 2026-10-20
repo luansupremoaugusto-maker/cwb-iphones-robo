@@ -698,7 +698,9 @@ def _catalog_score(query: str, item: Any, *, match_price: bool = False) -> int:
         except (TypeError, ValueError):
             item_price_cents = None
         if requested_price_cents is not None and item_price_cents == requested_price_cents:
-            score += 1200
+            # Price only breaks ties when current selectors such as battery,
+            # color, or capacity have not selected a different unit.
+            score += 200
 
     if query_tokens.intersection({"normal", "comum", "base"}):
         variants = {"air", "pro", "max", "mini", "plus", "e"}

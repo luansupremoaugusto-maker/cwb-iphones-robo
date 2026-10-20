@@ -525,6 +525,64 @@ async def test_yes_to_iphone_14_photo_offer_resolves_the_last_selected_unit(
 
 
 @pytest.mark.asyncio
+async def test_current_battery_selection_overrides_previous_photo_price(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-current-battery-photos.json",
+    )
+    photo_urls = {
+        "iphone-14-83": "https://photos.example/iphone-14-83.jpg",
+        "iphone-14-91-1890": "https://photos.example/iphone-14-91-1890.jpg",
+        "iphone-14-91-1900": "https://photos.example/iphone-14-91-1900.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="Meia-Noite",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            source="mercado_phone",
+            search_text="iPhone 14 Meia-Noite 128 GB celular seminovo",
+            photo_urls=[photo_urls[external_id]],
+        )
+        for external_id, price, battery in (
+            ("iphone-14-83", 1760, 83),
+            ("iphone-14-91-1890", 1890, 91),
+            ("iphone-14-91-1900", 1900, 91),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Queria saber mais sobre o último iPhone 14"},
+        {
+            "role": "assistant",
+            "content": (
+                "O último é um iPhone 14 seminovo, 128 GB, cor Meia-Noite, "
+                "com saúde da bateria em 91%, por R$ 1.900. Quer que eu envie as fotos?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Na verdade, quero o de bateria 83%; manda fotos",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == [photo_urls["iphone-14-83"]], decision
+    assert decision.product_references == ["iphone-14-83"], decision
+
+
+@pytest.mark.asyncio
 async def test_batched_1tb_selection_and_payment_question_sends_1tb_photos(tmp_path):
     agent = _build_1tb_agent(tmp_path)
     history = [

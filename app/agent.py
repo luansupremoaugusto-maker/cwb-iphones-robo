@@ -2447,11 +2447,16 @@ def _is_handoff_confirmation(text: str, history: list[dict[str, str]] | None) ->
         "atendente finalizar",
         "atendente confirmar",
     )
-    return any(
-        entry.get("role") == "assistant"
-        and any(marker in _normalize(entry.get("content", "")) for marker in offer_markers)
-        for entry in (history or [])
+    latest_assistant_reply = next(
+        (
+            entry.get("content", "")
+            for entry in reversed(history or [])
+            if entry.get("role") == "assistant" and entry.get("content", "").strip()
+        ),
+        "",
     )
+    normalized_latest_reply = _normalize(latest_assistant_reply)
+    return any(marker in normalized_latest_reply for marker in offer_markers)
 
 
 def _appointment_context(text: str, history: list[dict[str, str]] | None) -> str:
