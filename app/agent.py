@@ -7409,8 +7409,10 @@ class AgentService:
             return None
 
         requested_budget = None
+        current_request_budget = None
         if not installment_budget_context:
-            requested_budget = _extract_latest_budget_limit(text)
+            current_request_budget = _extract_latest_budget_limit(text)
+            requested_budget = current_request_budget
             if requested_budget is None and not allow_buyer_interest_with_image:
                 requested_budget = _extract_latest_budget_limit(customer_request_context)
         requested_quantity = _requested_device_quantity(
@@ -7857,8 +7859,8 @@ class AgentService:
                 confidence="medium",
             )
 
-        cheapest_request = (
-            requested_budget is None
+        cheapest_request = _is_cheapest_catalog_request(text) or (
+            current_request_budget is None
             and _is_cheapest_catalog_request(customer_request_context)
         )
         has_explicit_catalog_attributes = (

@@ -3755,6 +3755,21 @@ jobs:
           assert "R$ 5.170,00" not in budget_decision.reply, budget_decision.reply
           assert not budget_decision.image_urls, budget_decision
           print("AFFORDABLE_IPHONE_BUDGET_LIMIT_SELECTION_OK")
+
+          cheapest_history = [
+              *budget_history,
+              {"role": "user", "content": "Até 1.500"},
+              {"role": "assistant", "content": budget_decision.reply},
+          ]
+          cheapest_decision = asyncio.run(
+              service.respond("Qual é o mais barato?", history=cheapest_history)
+          )
+          assert not cheapest_decision.handoff, cheapest_decision
+          assert cheapest_decision.product_references == ["iphone-11-128-900"], cheapest_decision
+          assert "iPhone 11" in cheapest_decision.reply, cheapest_decision.reply
+          assert "iPhone 12" not in cheapest_decision.reply, cheapest_decision.reply
+          assert "R$ 1.300,00" not in cheapest_decision.reply, cheapest_decision.reply
+          print("AFFORDABLE_IPHONE_BUDGET_CHEAPEST_SELECTION_OK")
           PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health

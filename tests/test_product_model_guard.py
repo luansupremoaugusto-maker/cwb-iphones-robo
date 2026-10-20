@@ -1368,6 +1368,22 @@ async def test_explicit_budget_after_affordability_followup_lists_all_matches(tm
     assert "R$ 5.170,00" not in decision.reply
     assert not decision.image_urls
 
+    cheapest_history = [
+        *history,
+        {"role": "user", "content": "Até 1.500"},
+        {"role": "assistant", "content": decision.reply},
+    ]
+    cheapest_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=cheapest_history,
+    )
+
+    assert cheapest_decision.handoff is False
+    assert cheapest_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in cheapest_decision.reply
+    assert "iPhone 12" not in cheapest_decision.reply
+    assert "R$ 1.300,00" not in cheapest_decision.reply
+
 
 @pytest.mark.asyncio
 async def test_cheapest_iphone_question_requires_a_confirmed_price(tmp_path):
