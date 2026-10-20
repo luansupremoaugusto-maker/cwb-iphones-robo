@@ -1698,6 +1698,106 @@ jobs:
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=False,
+              faq_path="/app/config/faq.yaml",
+          )
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-14-photo-current-selection-guard.json",
+          )
+          photo_urls = {
+              "iphone-14-83": "https://photos.example/iphone-14-83.jpg",
+              "iphone-14-91-1890": "https://photos.example/iphone-14-91-1890.jpg",
+              "iphone-14-91-1900": "https://photos.example/iphone-14-91-1900.jpg",
+          }
+          cache.items = [
+              InventoryItem(
+                  external_id=external_id,
+                  name="iPhone 14",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="Meia-Noite",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=price,
+                  battery_health=battery,
+                  source="mercado_phone",
+                  search_text="iPhone 14 Meia-Noite 128 GB celular seminovo",
+                  photo_urls=[photo_urls[external_id]],
+              )
+              for external_id, price, battery in (
+                  ("iphone-14-83", 1760, 83),
+                  ("iphone-14-91-1890", 1890, 91),
+                  ("iphone-14-91-1900", 1900, 91),
+              )
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          photo_decision = asyncio.run(
+              service.respond(
+                  "Na verdade, quero o de bateria 83%; manda fotos",
+                  history=[
+                      {"role": "user", "content": "Queria saber mais sobre o último iPhone 14"},
+                      {
+                          "role": "assistant",
+                          "content": (
+                              "O último é um iPhone 14 seminovo, 128 GB, cor Meia-Noite, "
+                              "com saúde da bateria em 91%, por R$ 1.900. Quer que eu envie as fotos?"
+                          ),
+                      },
+                  ],
+              )
+          )
+          assert photo_decision.image_urls == [photo_urls["iphone-14-83"]], photo_decision
+          assert photo_decision.product_references == ["iphone-14-83"], photo_decision
+          assert not photo_decision.handoff, photo_decision
+
+          stale_handoff = asyncio.run(
+              service.respond(
+                  "Pode ser",
+                  history=[
+                      {
+                          "role": "assistant",
+                          "content": "Se quiser, posso encaminhar seu pedido para um atendente.",
+                      },
+                      {"role": "user", "content": "Não precisa, obrigado."},
+                      {"role": "assistant", "content": "Qual cor você prefere?"},
+                  ],
+              )
+          )
+          assert not stale_handoff.handoff, stale_handoff
+          current_handoff = asyncio.run(
+              service.respond(
+                  "Pode ser",
+                  history=[
+                      {
+                          "role": "assistant",
+                          "content": "Posso encaminhar para um atendente?",
+                      }
+                  ],
+              )
+          )
+          assert current_handoff.handoff, current_handoff
+          print("IPHONE_14_PHOTO_AND_LATEST_HANDOFF_GUARD_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           from app.adapters.mercado_phone import InventoryCache
           from app.agent import (
               AgentService,
