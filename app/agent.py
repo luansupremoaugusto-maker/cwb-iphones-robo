@@ -544,7 +544,6 @@ def _is_catalog_followup(text: str) -> bool:
             "tem no",
             "tem na",
             "tem em",
-            "em conta",
             "fonte",
             "carregador",
             "cor",
@@ -555,7 +554,8 @@ def _is_catalog_followup(text: str) -> bool:
     # A capacity-only availability answer such as "Tb tem de 256gb" refers
     # to the product discussed immediately before it.
     return bool(
-        re.search(
+        re.search(r"\bem\s+conta\b", normalized)
+        or re.search(
             r"\btem\s+de\s+\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\b",
             normalized,
         )
@@ -2670,9 +2670,24 @@ def _is_technical_assistance_request(text: str) -> bool:
     )
 
 
-def _has_recent_catalog_product_context(history: list[dict[str, str]] | None) -> bool:
+_CATALOG_CONTEXT_ACKNOWLEDGEMENT_RE = re.compile(
+    r"^(?:(?:muito\s+)?obrigad[oa]s?|valeu|agradeco|perfeito|beleza|blz|show|"
+    r"certo|ok|imagina|de nada|por nada)(?:\s+(?:amigo|amiga))?[.!?,\s]*$",
+    re.IGNORECASE,
+)
+
+
+def _has_recent_catalog_product_context(
+    history: list[dict[str, str]] | None,
+    *,
+    skip_acknowledgements: bool = False,
+) -> bool:
     for entry in reversed(history or []):
         if entry.get("role") == "user":
+            if skip_acknowledgements and _CATALOG_CONTEXT_ACKNOWLEDGEMENT_RE.fullmatch(
+                _normalize(entry.get("content", ""))
+            ):
+                continue
             break
         if entry.get("role") != "assistant" or not entry.get("content"):
             continue
@@ -7356,8 +7371,70 @@ class AgentService:
         product_interest_context = _product_interest_model_context(text, history)
         selected_model = product_interest_context[0] if product_interest_context else None
         default_condition = product_interest_context[1] if product_interest_context else None
+        customer_request_context = installment_budget_context or _customer_product_request_context_query(
+            text,
+            history,
+        )
+        current_request_budget = _extract_latest_budget_limit(text)
+        is_current_cheapest_request = _is_cheapest_catalog_request(text)
+        latest_customer_message = next(
+            (
+                entry.get("content", "").strip()
+                for entry in reversed(history or [])
+                if entry.get("role") == "user" and entry.get("content", "").strip()
+            ),
+            "",
+        )
+        history_entries = history or []
+        latest_customer_anchor_index = max(
+            (
+                index
+                for index, entry in enumerate(history_entries)
+                if entry.get("role") == "user"
+                and (
+                    _has_product_reference(_normalize(entry.get("content", "")))
+                    or _extract_bare_catalog_model_reference(entry.get("content", ""))
+                )
+            ),
+            default=-1,
+        )
+        newer_generic_catalog_list_index = max(
+            (
+                index
+                for index, entry in enumerate(history_entries)
+                if index > latest_customer_anchor_index
+                and entry.get("role") == "user"
+                and (
+                    _is_available_list_request(entry.get("content", ""))
+                    or _is_sealed_catalog_list_request(entry.get("content", ""))
+                )
+                and _has_recent_catalog_product_context(
+                    history_entries[index + 1 :],
+                    skip_acknowledgements=True,
+                )
+            ),
+            default=None,
+        )
+        newer_generic_catalog_list = newer_generic_catalog_list_index is not None
+        current_request_has_catalog_anchor = bool(
+            _has_product_reference(_normalize(text))
+            or _extract_bare_catalog_model_reference(text)
+        )
+        customer_affordability_request = is_current_cheapest_request or (
+            current_request_budget is not None
+            and not _has_product_reference(_normalize(text))
+            and not _extract_bare_catalog_model_reference(text)
+            and _is_cheapest_catalog_request(latest_customer_message)
+        )
+        customer_request_has_catalog_anchor = bool(
+            _catalog_families(customer_request_context)
+            or _has_product_reference(_normalize(customer_request_context))
+            or _extract_bare_catalog_model_reference(customer_request_context)
+        ) and (not newer_generic_catalog_list or current_request_has_catalog_anchor)
         selection_context_used = battery_unit_selection_query is not None or bool(
-            selected_model and not _has_product_reference(_normalize(current_query))
+            selected_model
+            and not _has_product_reference(_normalize(current_query))
+            and not is_current_cheapest_request
         )
         if selection_context_used and battery_unit_selection_query is None:
             normalized_text = _normalize(text)
@@ -7402,12 +7479,29 @@ class AgentService:
                 or capacity_availability_followup
                 or battery_unit_selection_query is not None
                 or _is_contextual_pronta_entrega_followup(current_query, history)
+                or customer_affordability_request
             )
         ):
-            query = _product_context_query(
-                current_query,
-                history,
-                strip_assistant_constraints=True,
+            if newer_generic_catalog_list_index is not None:
+                product_context_history = history_entries[newer_generic_catalog_list_index:]
+                while product_context_history and _CATALOG_CONTEXT_ACKNOWLEDGEMENT_RE.fullmatch(
+                    _normalize(product_context_history[-1].get("content", ""))
+                ):
+                    product_context_history = product_context_history[:-1]
+            else:
+                product_context_history = history
+            query = (
+                customer_request_context
+                if customer_affordability_request
+                and customer_request_has_catalog_anchor
+                else _product_context_query(
+                    current_query,
+                    product_context_history,
+                    strip_assistant_constraints=not (
+                        customer_affordability_request
+                        and not customer_request_has_catalog_anchor
+                    ),
+                )
             )
         if ipad_model_alternative_price_followup:
             query = _customer_product_request_context_query(text, history)
@@ -7508,16 +7602,19 @@ class AgentService:
             or _is_contextual_pronta_entrega_followup(text, history)
             or ipad_model_alternative_price_followup
             or battery_unit_selection_query is not None
+            or (
+                is_current_cheapest_request
+                and _has_recent_catalog_product_context(
+                    history,
+                    skip_acknowledgements=True,
+                )
+            )
         ):
             return None
 
-        customer_request_context = installment_budget_context or _customer_product_request_context_query(
-            text,
-            history,
-        )
         requested_budget = None
         if not installment_budget_context:
-            requested_budget = _extract_latest_budget_limit(text)
+            requested_budget = current_request_budget
             if requested_budget is None and not allow_buyer_interest_with_image:
                 requested_budget = _extract_latest_budget_limit(customer_request_context)
         requested_quantity = _requested_device_quantity(
@@ -7964,7 +8061,7 @@ class AgentService:
                 confidence="medium",
             )
 
-        cheapest_request = _is_cheapest_catalog_request(catalog_filter_query)
+        cheapest_request = is_current_cheapest_request
         has_explicit_catalog_attributes = (
             _requested_battery_health(catalog_filter_query) is not None
             or bool(requested_catalog_colors)
@@ -8007,7 +8104,7 @@ class AgentService:
                     ),
                     confidence="medium",
                 )
-            if len(requested_models) > 1:
+            if len(requested_models) > 1 and len(_requested_model_segments(text)) > 1:
                 selected = []
                 selected_ids: set[str] = set()
                 for requested_model in requested_models:

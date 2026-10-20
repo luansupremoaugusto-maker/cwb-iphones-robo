@@ -14,6 +14,7 @@ from app.agent import (
     _extract_bare_catalog_model_reference,
     _format_product_availability,
     _is_bare_model_availability_request,
+    _is_catalog_followup,
     _is_cheapest_catalog_request,
     _is_available_list_request,
     _is_product_availability_request,
@@ -1255,6 +1256,34 @@ async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
             battery_health=82,
             search_text="iphone 11 128 gb seminovo celular preto",
         ),
+        InventoryItem(
+            external_id="iphone-11-128-white-1400",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1400,
+            battery_health=81,
+            search_text="iphone 11 128 gb seminovo celular branco",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-white-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=84,
+            search_text="iphone 12 128 gb seminovo celular branco",
+        ),
     ]
     cache.last_refresh = time.time()
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
@@ -1272,6 +1301,346 @@ async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
     assert "R$ 900,00" in decision.reply
     assert "iPhone 16 Pro Max" not in decision.reply
     assert "R$ 5.170,00" not in decision.reply
+
+    color_history = [
+        *history,
+        {"role": "user", "content": "Preciso de um em conta"},
+        {"role": "assistant", "content": decision.reply},
+    ]
+    color_decision = await agent.respond(
+        "Tem na cor branca?",
+        history=color_history,
+    )
+
+    assert color_decision.handoff is False
+    assert color_decision.product_references == ["iphone-11-128-white-1400"]
+    assert "iPhone 11" in color_decision.reply
+    assert "iPhone 12" not in color_decision.reply
+
+
+def test_catalog_followup_matches_em_conta_without_matching_em_contato():
+    assert _is_catalog_followup("Preciso de um em conta") is True
+    assert _is_catalog_followup("Como entro em contato com vocês?") is False
+
+
+@pytest.mark.asyncio
+async def test_affordable_iphone_followup_ignores_previous_assistant_offer(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-5170",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max 256 gb seminovo celular titânio deserto",
+        ),
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "iPhone"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                "• IPHONE 16 PRO MAX — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                "R$ 5.170,00 | Bat: 89%"
+            ),
+        },
+        {"role": "user", "content": "Usado"},
+    ]
+
+    decision = await agent.respond("Preciso de um em conta", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in decision.reply
+    assert "R$ 900,00" in decision.reply
+    assert "iPhone 16 Pro Max" not in decision.reply
+    assert "R$ 5.170,00" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_explicit_budget_after_affordability_followup_lists_all_matches(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-5170",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max 256 gb seminovo celular titânio deserto",
+        ),
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=84,
+            search_text="iphone 12 128 gb seminovo celular branco",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "iPhone"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                "• IPHONE 16 PRO MAX — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                "R$ 5.170,00 | Bat: 89%"
+            ),
+        },
+        {"role": "user", "content": "Usado"},
+        {"role": "user", "content": "Mais em conta"},
+    ]
+
+    decision = await agent.respond("Até 1.500", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {"iphone-11-128-900", "iphone-12-128-1300"}
+    assert "iPhone 11" in decision.reply
+    assert "iPhone 12" in decision.reply
+    assert "R$ 900,00" in decision.reply
+    assert "R$ 1.300,00" in decision.reply
+    assert "iPhone 16 Pro Max" not in decision.reply
+    assert "R$ 5.170,00" not in decision.reply
+    assert not decision.image_urls
+
+    cheapest_history = [
+        *history,
+        {"role": "user", "content": "Até 1.500"},
+        {"role": "assistant", "content": decision.reply},
+    ]
+    cheapest_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=cheapest_history,
+    )
+
+    assert cheapest_decision.handoff is False
+    assert cheapest_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in cheapest_decision.reply
+    assert "iPhone 12" not in cheapest_decision.reply
+    assert "R$ 1.300,00" not in cheapest_decision.reply
+
+
+@pytest.mark.asyncio
+async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-128-5170",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=88,
+            search_text="iphone 16 128 gb seminovo celular preto",
+        ),
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=84,
+            search_text="iphone 12 128 gb seminovo celular branco",
+        ),
+        InventoryItem(
+            external_id="airpods-pro-3-500",
+            name="AirPods Pro 3",
+            category="Celular",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=500,
+            search_text="airpods pro 3 seminovo celular",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Quais aparelhos vocês têm?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos estas opções:\n"
+                "• iPhone 11 128 GB — R$ 900,00\n"
+                "• iPhone 12 128 GB — R$ 1.300,00"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Qual é o mais barato?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-11-128-900"], decision
+    assert "iPhone 11" in decision.reply
+    assert "iPhone 12" not in decision.reply
+    assert "R$ 1.300,00" not in decision.reply
+
+    superseded_model_history = [
+        {"role": "user", "content": "Vocês têm iPhone 16?"},
+        {
+            "role": "assistant",
+            "content": "Temos iPhone 16 128 GB seminovo por R$ 5.170,00.",
+        },
+        {"role": "user", "content": "Quais aparelhos vocês têm?"},
+        history[1],
+    ]
+    superseded_model_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=superseded_model_history,
+    )
+
+    assert superseded_model_decision.handoff is False
+    assert superseded_model_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in superseded_model_decision.reply
+    assert "iPhone 16" not in superseded_model_decision.reply
+
+    superseded_model_with_acknowledgement_history = [
+        *superseded_model_history,
+        {"role": "user", "content": "Obrigado"},
+        {"role": "assistant", "content": "Por nada!"},
+    ]
+    acknowledged_list_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=superseded_model_with_acknowledgement_history,
+    )
+
+    assert acknowledged_list_decision.handoff is False
+    assert acknowledged_list_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in acknowledged_list_decision.reply
+    assert "iPhone 16" not in acknowledged_list_decision.reply
+
+    superseded_family_history = [
+        {"role": "user", "content": "Vocês têm AirPods?"},
+        {"role": "assistant", "content": "Temos AirPods Pro 3 por R$ 500,00."},
+        {"role": "user", "content": "Quais aparelhos vocês têm?"},
+        history[1],
+    ]
+    catalog_queries: list[str] = []
+    search_catalog = cache.search
+
+    async def record_catalog_search(query, *args, **kwargs):
+        catalog_queries.append(query)
+        return await search_catalog(query, *args, **kwargs)
+
+    cache.search = record_catalog_search
+    superseded_family_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=superseded_family_history,
+    )
+
+    assert superseded_family_decision.handoff is False
+    assert superseded_family_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in superseded_family_decision.reply
+    assert "AirPods" not in superseded_family_decision.reply
+    assert catalog_queries
+    assert all("airpods" not in _normalize(query) for query in catalog_queries)
+
+    multi_model_history = [
+        {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},
+        history[1],
+    ]
+    multi_model_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=multi_model_history,
+    )
+
+    assert multi_model_decision.handoff is False
+    assert multi_model_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in multi_model_decision.reply
+    assert "iPhone 12" not in multi_model_decision.reply
 
 
 @pytest.mark.asyncio

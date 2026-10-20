@@ -3803,7 +3803,7 @@ jobs:
           import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
-          from app.agent import AgentService
+          from app.agent import AgentService, _is_catalog_followup
           from app.config import Settings
           from app.faq import FAQStore
           from app.schemas import InventoryItem
@@ -3866,6 +3866,34 @@ jobs:
                   source="mercado_phone",
                   search_text="iPhone 11 128 GB seminovo celular preto",
               ),
+              InventoryItem(
+                  external_id="iphone-11-128-white-1400",
+                  name="iPhone 11",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="BRANCO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=1400,
+                  battery_health=81,
+                  source="mercado_phone",
+                  search_text="iPhone 11 128 GB seminovo celular branco",
+              ),
+              InventoryItem(
+                  external_id="iphone-12-128-1300",
+                  name="iPhone 12",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="BRANCO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=1300,
+                  battery_health=84,
+                  source="mercado_phone",
+                  search_text="iPhone 12 128 GB seminovo celular branco",
+              ),
           ]
           cache.last_refresh = time.time()
           service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
@@ -3873,6 +3901,14 @@ jobs:
               {"role": "assistant", "content": "Opa! Tudo bem? Como posso ajudar?"},
               {"role": "user", "content": "iPhone"},
               {"role": "user", "content": "Usado"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 16 PRO MAX disponíveis:\n"
+                      "• IPHONE 16 PRO MAX — TITÂNIO DESERTO — 256GB — SEMINOVO — "
+                      "R$ 5.170,00 | Bat: 89%"
+                  ),
+              },
           ]
           decision = asyncio.run(service.respond("Preciso de um em conta", history=history))
           assert not decision.handoff, decision
@@ -3880,7 +3916,110 @@ jobs:
           assert "iPhone 11" in decision.reply and "R$ 900,00" in decision.reply, decision
           assert "iPhone 16 Pro Max" not in decision.reply and "R$ 5.170,00" not in decision.reply, decision
           assert not decision.image_urls, decision
+          assert _is_catalog_followup("Preciso de um em conta")
+          assert not _is_catalog_followup("Como entro em contato com vocês?")
           print("AFFORDABLE_IPHONE_SEMINOVO_SELECTION_OK")
+
+          color_history = [
+              *history,
+              {"role": "user", "content": "Preciso de um em conta"},
+              {"role": "assistant", "content": decision.reply},
+          ]
+          color_decision = asyncio.run(
+              service.respond("Tem na cor branca?", history=color_history)
+          )
+          assert not color_decision.handoff, color_decision
+          assert color_decision.product_references == ["iphone-11-128-white-1400"], color_decision
+          assert "iPhone 11" in color_decision.reply, color_decision.reply
+          assert "iPhone 12" not in color_decision.reply, color_decision.reply
+          print("AFFORDABLE_IPHONE_SELECTED_MODEL_COLOR_FOLLOWUP_OK")
+
+          generic_list_history = [
+              {"role": "user", "content": "Quais aparelhos vocês têm?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Temos estas opções:\n"
+                      "• iPhone 11 128 GB — R$ 900,00\n"
+                      "• iPhone 12 128 GB — R$ 1.300,00"
+                  ),
+              },
+          ]
+          generic_list_cheapest = asyncio.run(
+              service.respond("Qual é o mais barato?", history=generic_list_history)
+          )
+          assert not generic_list_cheapest.handoff, generic_list_cheapest
+          assert generic_list_cheapest.product_references == ["iphone-11-128-900"], generic_list_cheapest
+          assert "iPhone 11" in generic_list_cheapest.reply, generic_list_cheapest.reply
+          assert "iPhone 12" not in generic_list_cheapest.reply, generic_list_cheapest.reply
+          print("GENERIC_CATALOG_LIST_CHEAPEST_FOLLOWUP_OK")
+
+          multi_model_history = [
+              {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},
+              generic_list_history[1],
+          ]
+          multi_model_cheapest = asyncio.run(
+              service.respond("Qual é o mais barato?", history=multi_model_history)
+          )
+          assert not multi_model_cheapest.handoff, multi_model_cheapest
+          assert multi_model_cheapest.product_references == ["iphone-11-128-900"], multi_model_cheapest
+          assert "iPhone 11" in multi_model_cheapest.reply, multi_model_cheapest.reply
+          assert "iPhone 12" not in multi_model_cheapest.reply, multi_model_cheapest.reply
+          print("MULTI_MODEL_LIST_CHEAPEST_FOLLOWUP_OK")
+
+          superseded_anchor_history = [
+              {"role": "user", "content": "Vocês têm iPhone 16 Pro Max?"},
+              {
+                  "role": "assistant",
+                  "content": "Temos iPhone 16 Pro Max 256 GB seminovo por R$ 5.170,00.",
+              },
+              {"role": "user", "content": "Quais aparelhos vocês têm?"},
+              generic_list_history[1],
+          ]
+          superseded_anchor_cheapest = asyncio.run(
+              service.respond("Qual é o mais barato?", history=superseded_anchor_history)
+          )
+          assert not superseded_anchor_cheapest.handoff, superseded_anchor_cheapest
+          assert superseded_anchor_cheapest.product_references == ["iphone-11-128-900"], superseded_anchor_cheapest
+          assert "iPhone 11" in superseded_anchor_cheapest.reply, superseded_anchor_cheapest.reply
+          assert "iPhone 16 Pro Max" not in superseded_anchor_cheapest.reply, superseded_anchor_cheapest.reply
+          print("LATEST_GENERIC_CATALOG_LIST_OVERRIDES_OLD_MODEL_OK")
+
+          budget_history = [
+              *history,
+              {"role": "user", "content": "Preciso de um em conta"},
+              {"role": "assistant", "content": decision.reply},
+              {"role": "user", "content": "Mais em conta"},
+          ]
+          budget_decision = asyncio.run(
+              service.respond("Até 1.500", history=budget_history)
+          )
+          assert not budget_decision.handoff, budget_decision
+          assert set(budget_decision.product_references) == {
+              "iphone-11-128-900",
+              "iphone-11-128-white-1400",
+              "iphone-12-128-1300",
+          }, budget_decision
+          assert "iPhone 11" in budget_decision.reply, budget_decision.reply
+          assert "iPhone 12" in budget_decision.reply, budget_decision.reply
+          assert "R$ 5.170,00" not in budget_decision.reply, budget_decision.reply
+          assert not budget_decision.image_urls, budget_decision
+          print("AFFORDABLE_IPHONE_BUDGET_LIMIT_SELECTION_OK")
+
+          cheapest_history = [
+              *budget_history,
+              {"role": "user", "content": "Até 1.500"},
+              {"role": "assistant", "content": budget_decision.reply},
+          ]
+          cheapest_decision = asyncio.run(
+              service.respond("Qual é o mais barato?", history=cheapest_history)
+          )
+          assert not cheapest_decision.handoff, cheapest_decision
+          assert cheapest_decision.product_references == ["iphone-11-128-900"], cheapest_decision
+          assert "iPhone 11" in cheapest_decision.reply, cheapest_decision.reply
+          assert "iPhone 12" not in cheapest_decision.reply, cheapest_decision.reply
+          assert "R$ 1.300,00" not in cheapest_decision.reply, cheapest_decision.reply
+          print("AFFORDABLE_IPHONE_BUDGET_CHEAPEST_SELECTION_OK")
           PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
