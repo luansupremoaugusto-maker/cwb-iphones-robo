@@ -7928,7 +7928,7 @@ class AgentService:
                     ),
                     confidence="medium",
                 )
-            if len(requested_models) > 1 and customer_request_has_catalog_anchor:
+            if len(requested_models) > 1 and len(_requested_model_segments(text)) > 1:
                 selected = []
                 selected_ids: set[str] = set()
                 for requested_model in requested_models:

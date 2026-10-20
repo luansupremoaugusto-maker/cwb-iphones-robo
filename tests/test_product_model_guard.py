@@ -1488,6 +1488,20 @@ async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
     assert "iPhone 12" not in decision.reply
     assert "R$ 1.300,00" not in decision.reply
 
+    multi_model_history = [
+        {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},
+        history[1],
+    ]
+    multi_model_decision = await agent.respond(
+        "Qual é o mais barato?",
+        history=multi_model_history,
+    )
+
+    assert multi_model_decision.handoff is False
+    assert multi_model_decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in multi_model_decision.reply
+    assert "iPhone 12" not in multi_model_decision.reply
+
 
 @pytest.mark.asyncio
 async def test_cheapest_iphone_question_requires_a_confirmed_price(tmp_path):

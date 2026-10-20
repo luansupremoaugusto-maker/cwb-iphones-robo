@@ -3784,6 +3784,19 @@ jobs:
           assert "iPhone 12" not in generic_list_cheapest.reply, generic_list_cheapest.reply
           print("GENERIC_CATALOG_LIST_CHEAPEST_FOLLOWUP_OK")
 
+          multi_model_history = [
+              {"role": "user", "content": "Quais iPhones 11 e 12 vocês têm?"},
+              generic_list_history[1],
+          ]
+          multi_model_cheapest = asyncio.run(
+              service.respond("Qual é o mais barato?", history=multi_model_history)
+          )
+          assert not multi_model_cheapest.handoff, multi_model_cheapest
+          assert multi_model_cheapest.product_references == ["iphone-11-128-900"], multi_model_cheapest
+          assert "iPhone 11" in multi_model_cheapest.reply, multi_model_cheapest.reply
+          assert "iPhone 12" not in multi_model_cheapest.reply, multi_model_cheapest.reply
+          print("MULTI_MODEL_LIST_CHEAPEST_FOLLOWUP_OK")
+
           budget_history = [
               *history,
               {"role": "user", "content": "Preciso de um em conta"},
