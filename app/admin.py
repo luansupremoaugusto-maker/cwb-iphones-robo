@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import html
 import io
+import math
 import unicodedata
 from collections.abc import Iterable
 from datetime import datetime
@@ -242,7 +243,9 @@ def public_catalog_payload(
     generated_at: str,
 ) -> dict[str, Any]:
     sections = {
-        section: [_public_item(item, section=section) for item in result.get(section, [])]
+        section: _sort_catalog_items_within_storage_groups(
+            [_public_item(item, section=section) for item in result.get(section, [])]
+        )
         for section in CATALOG_SECTION_LABELS
     }
     return {
@@ -254,6 +257,77 @@ def public_catalog_payload(
             "google_sheets_last_refresh": sheets_refresh,
         },
     }
+
+
+def _catalog_storage_group_key(item: dict[str, Any]) -> tuple[str, float] | None:
+    name = " ".join(
+        unicodedata.normalize("NFKC", str(item.get("nome") or "")).casefold().split()
+    )
+    capacity = "".join(
+        unicodedata.normalize("NFKC", str(item.get("capacidade") or "")).casefold().split()
+    )
+    if not name:
+        return None
+
+    if capacity.endswith("tb"):
+        multiplier = 1024
+        amount = capacity[:-2]
+    elif capacity.endswith("gb"):
+        multiplier = 1
+        amount = capacity[:-2]
+    else:
+        return None
+
+    try:
+        normalized_capacity = float(amount.replace(",", ".")) * multiplier
+    except ValueError:
+        return None
+    if not math.isfinite(normalized_capacity) or normalized_capacity <= 0:
+        return None
+    return name, normalized_capacity
+
+
+def _catalog_item_price_key(item: dict[str, Any]) -> float:
+    prices = item.get("precos_brl") or []
+    if not isinstance(prices, (list, tuple, set)):
+        prices = [prices]
+
+    numeric_prices: list[float] = []
+    for price in prices:
+        try:
+            numeric_price = float(price)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric_price):
+            numeric_prices.append(numeric_price)
+    return min(numeric_prices, default=math.inf)
+
+
+def _sort_catalog_items_within_storage_groups(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    groups: list[tuple[tuple[str, float] | None, list[dict[str, Any]]]] = []
+    group_indexes: dict[tuple[str, float], int] = {}
+
+    for item in items:
+        group_key = _catalog_storage_group_key(item)
+        if group_key is None:
+            groups.append((None, [item]))
+            continue
+
+        group_index = group_indexes.get(group_key)
+        if group_index is None:
+            group_indexes[group_key] = len(groups)
+            groups.append((group_key, [item]))
+        else:
+            groups[group_index][1].append(item)
+
+    sorted_items: list[dict[str, Any]] = []
+    for group_key, group_items in groups:
+        if group_key is not None:
+            group_items = sorted(group_items, key=_catalog_item_price_key)
+        sorted_items.extend(group_items)
+    return sorted_items
 
 
 def _format_brl(value: Any) -> str:

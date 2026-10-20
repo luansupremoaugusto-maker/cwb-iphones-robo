@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from io import BytesIO
+import csv
+from io import BytesIO, StringIO
 from types import SimpleNamespace
 
 import pytest
@@ -59,8 +60,11 @@ CATALOG = {
 class FakeCache:
     last_refresh = 100.0
 
+    def __init__(self, catalog=CATALOG):
+        self.catalog = catalog
+
     async def list_available_products(self, *, include_photos=False):
-        return CATALOG
+        return self.catalog
 
 
 @pytest.fixture
@@ -112,6 +116,112 @@ def test_admin_catalog_requires_basic_auth_and_returns_json_and_csv(configured_r
     assert csv_response.status_code == 200
     assert "catalogo-disponiveis.csv" in csv_response.headers["content-disposition"]
     assert csv_response.headers["cache-control"] == "no-store"
+
+
+def test_admin_catalog_sorts_prices_within_model_and_capacity_across_outputs(
+    configured_runtime,
+):
+    test_catalog = {
+        **CATALOG,
+        "seminovos": [
+            *CATALOG["seminovos"],
+            {
+                "nome": "iPhone 13",
+                "capacidade": "128GB",
+                "condicao": "Seminovo",
+                "quantidade": 1,
+                "precos_brl": [1760.0],
+                "cores": ["Meia Noite"],
+                "cor": "Meia Noite",
+                "saude_bateria": 89,
+                "fotos_disponiveis": 1,
+            },
+            {
+                "nome": "iPhone 13",
+                "capacidade": "256 GB",
+                "condicao": "Seminovo",
+                "quantidade": 1,
+                "precos_brl": [1000.0],
+                "cores": ["Azul"],
+                "cor": "Azul",
+                "saude_bateria": 90,
+                "fotos_disponiveis": 1,
+            },
+            {
+                "nome": "IPHONE 13",
+                "capacidade": "128 GB",
+                "condicao": "Seminovo",
+                "quantidade": 1,
+                "precos_brl": [1650.0],
+                "cores": ["Rosa"],
+                "cor": "Rosa",
+                "saude_bateria": 86,
+                "fotos_disponiveis": 1,
+            },
+            {
+                "nome": "iPhone 13",
+                "capacidade": "128 GB",
+                "condicao": "Seminovo",
+                "quantidade": 1,
+                "precos_brl": [1700.0],
+                "cores": ["Estelar"],
+                "cor": "Estelar",
+                "saude_bateria": 100,
+                "fotos_disponiveis": 1,
+            },
+            {
+                "nome": "iPhone 14",
+                "capacidade": "128 GB",
+                "condicao": "Seminovo",
+                "quantidade": 1,
+                "precos_brl": [900.0],
+                "cores": ["Preto"],
+                "cor": "Preto",
+                "saude_bateria": 91,
+                "fotos_disponiveis": 1,
+            },
+        ],
+    }
+    configured_runtime.cache = FakeCache(test_catalog)
+
+    with TestClient(create_app(configured_runtime)) as client:
+        json_response = client.get("/admin/api/catalog", auth=("admin", "secret"))
+        csv_response = client.get(
+            "/admin/api/catalog.csv?sections=seminovos", auth=("admin", "secret")
+        )
+        pdf_response = client.get(
+            "/admin/api/catalog.pdf?sections=seminovos", auth=("admin", "secret")
+        )
+
+    expected_prices = [1650.0, 1700.0, 1760.0]
+    json_items = json_response.json()["seminovos"]
+    json_prices = [
+        item["precos_brl"][0]
+        for item in json_items
+        if item["nome"].strip().casefold() == "iphone 13"
+        and item["capacidade"].replace(" ", "").casefold() == "128gb"
+    ]
+    assert json_prices == expected_prices
+
+    csv_rows = list(
+        csv.DictReader(
+            StringIO(csv_response.content.decode("utf-8-sig")), delimiter=";"
+        )
+    )
+    csv_prices = [
+        row["Preço(s)"]
+        for row in csv_rows
+        if row["Produto"].strip().casefold() == "iphone 13"
+        and row["Capacidade"].replace(" ", "").casefold() == "128gb"
+    ]
+    assert csv_prices == ["R$ 1.650,00", "R$ 1.700,00", "R$ 1.760,00"]
+
+    pdf_text = "\n".join(
+        page.extract_text() or "" for page in PdfReader(BytesIO(pdf_response.content)).pages
+    )
+    assert pdf_response.status_code == 200
+    assert pdf_text.index("R$ 1.650,00") < pdf_text.index("R$ 1.700,00")
+    assert pdf_text.index("R$ 1.700,00") < pdf_text.index("R$ 1.760,00")
 
 
 def test_admin_catalog_csv_exports_only_requested_sections(configured_runtime):
