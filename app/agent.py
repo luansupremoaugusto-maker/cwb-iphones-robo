@@ -4424,6 +4424,111 @@ def _photo_alternative_models_context(
     return "\n".join(candidate_lines)
 
 
+def _photo_price_selectors(value: str) -> tuple[int, ...]:
+    """Extract explicit BRL price selectors without treating capacities as prices."""
+    selectors: list[int] = []
+    pattern = re.compile(
+        r"(?<!\w)(?P<currency>r\$\s*)?"
+        r"(?P<amount>\d{1,3}(?:\.\d{3})+|\d{3,6})"
+        r"(?P<decimal>[,.]\d{2})?(?!\w)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(value or ""):
+        decimal = match.group("decimal") or ""
+        amount = match.group("amount")
+        if not match.group("currency") and not (
+            decimal.startswith(",")
+            or (decimal.startswith(".") and len(amount.replace(".", "")) >= 4)
+            or ("." in amount and not decimal)
+        ):
+            continue
+        amount = int(amount.replace(".", ""))
+        cents = int(decimal[1:]) if decimal else 0
+        selector = amount * 100 + cents
+        if selector not in selectors:
+            selectors.append(selector)
+    return tuple(selectors)
+
+
+def _active_photo_price_request(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str:
+    if _is_photo_request(text):
+        return text
+    if not _is_photo_context_followup(text, history):
+        return ""
+    return next(
+        (
+            entry.get("content", "").strip()
+            for entry in reversed(history or [])
+            if entry.get("role") == "user"
+            and _is_photo_request(entry.get("content", ""))
+        ),
+        "",
+    )
+
+
+def _photo_price_selector_context(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Recover only the prior offer rows selected by a customer's photo prices."""
+    price_request = _active_photo_price_request(text, history)
+    requested_prices = _photo_price_selectors(price_request)
+    if not requested_prices:
+        return None
+
+    entries = [
+        (index, entry.get("content", ""))
+        for index, entry in enumerate(history or [])
+        if entry.get("role") == "assistant"
+    ]
+    selected_lines: dict[int, set[int]] = {}
+    line_cache: dict[int, list[str]] = {}
+    for requested_price in requested_prices:
+        selected_entry: int | None = None
+        selected_indexes: set[int] = set()
+        for index, content in reversed(entries):
+            lines = content.splitlines()
+            matching_indexes = {
+                line_index
+                for line_index, line in enumerate(lines)
+                if requested_price in _photo_price_selectors(line)
+            }
+            if matching_indexes:
+                selected_entry = index
+                selected_indexes = matching_indexes
+                line_cache[index] = lines
+                break
+        if selected_entry is None:
+            return None
+        selected_lines.setdefault(selected_entry, set()).update(selected_indexes)
+
+    context_lines: list[str] = []
+    for index in sorted(selected_lines):
+        lines = line_cache[index]
+        chosen_indexes = selected_lines[index]
+        for line_index in sorted(chosen_indexes):
+            line = lines[line_index].strip()
+            if not _has_product_reference(_normalize(line)):
+                heading = next(
+                    (
+                        candidate.strip()
+                        for candidate in reversed(lines[:line_index])
+                        if _has_product_reference(_normalize(candidate))
+                    ),
+                    "",
+                )
+                if heading:
+                    line = f"{heading}\n{line}"
+            if line and line not in context_lines:
+                context_lines.append(line)
+
+    context_lines.extend([price_request, text])
+    return "\n".join(dict.fromkeys(line for line in context_lines if line.strip()))
+
+
 def _product_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -4433,6 +4538,9 @@ def _product_context_query(
     """Preserva a referência do produto atual ao consultar o histórico."""
     current = text.strip()
     normalized = _normalize(current)
+    price_selector_context = _photo_price_selector_context(current, history)
+    if price_selector_context:
+        return price_selector_context
     pending_variant_context = _pending_iphone_variant_price_context(current, history)
     if pending_variant_context:
         return pending_variant_context
@@ -5462,6 +5570,13 @@ def _is_photo_context_followup(
         "semi novo",
         "semi nova",
     }:
+        return True
+    if re.fullmatch(
+        r"(?:e\s+)?(?:(?:o|os|a|as)\s+)?"
+        r"(?:semi\s+nov[oa]s?|seminov[oa]s?|usad[oa]s?|lacrad[oa]s?|nov[oa]s?)"
+        r"(?:\s+(?:ali|dali|da\s+lista|de\s+antes))?",
+        normalized,
+    ):
         return True
     if _requested_capacity_keys(text):
         return True
@@ -8743,21 +8858,28 @@ class AgentService:
             query = f"foto_cor_atual: {current_color}\n{query}".strip()
         requested_models = _requested_iphone_model_keys(query)
         requested_capacities = _requested_capacity_keys(query)
+        requested_photo_prices = _photo_price_selectors(
+            _active_photo_price_request(text, history)
+        )
         requested_condition = _requested_photo_condition(query)
         photo_model_batch_request = (
-            len(requested_models) > 1
+            len(requested_photo_prices) > 1
+            or len(requested_models) > 1
             or _requested_iphone_model_floor(query) is not None
         )
         return_all_matching_photo_units = (
-            photo_model_batch_request
-            and (
-                _requested_iphone_model_floor(query) is not None
-                or not requested_capacities
-            )
-            and _requested_battery_health(query) is None
-            and not _has_requested_catalog_color(
-                query,
-                list(getattr(self.cache, "items", []) or []),
+            len(requested_photo_prices) > 1
+            or (
+                photo_model_batch_request
+                and (
+                    _requested_iphone_model_floor(query) is not None
+                    or not requested_capacities
+                )
+                and _requested_battery_health(query) is None
+                and not _has_requested_catalog_color(
+                    query,
+                    list(getattr(self.cache, "items", []) or []),
+                )
             )
         )
         finder = getattr(self.cache, "find_product_photos", None)
@@ -8854,6 +8976,15 @@ class AgentService:
                     getattr(item, "capacity", None) or getattr(item, "name", "")
                 ) not in requested_capacities:
                     continue
+                if len(requested_photo_prices) > 1:
+                    try:
+                        item_price_cents = round(
+                            float(getattr(item, "price_brl", None)) * 100
+                        )
+                    except (TypeError, ValueError):
+                        item_price_cents = None
+                    if item_price_cents not in requested_photo_prices:
+                        continue
                 score = _catalog_score(query, item, match_price=True)
                 if score <= 0:
                     continue

@@ -582,6 +582,155 @@ async def test_current_battery_selection_overrides_previous_photo_price(tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_text", "history_suffix", "photos_available"),
+    [
+        (
+            "Tem foto desse de 1890,00 e 1900,00",
+            [],
+            True,
+        ),
+        (
+            "É os seminovos ali",
+            [
+                {"role": "user", "content": "Tem foto desse de 1890,00 e 1900,00"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Os aparelhos novos lacrados são vendidos por encomenda, "
+                        "então não temos fotos do produto cadastradas no sistema."
+                    ),
+                },
+            ],
+            True,
+        ),
+        (
+            "Tem foto desse de 1890,00 e 1900,00",
+            [],
+            False,
+        ),
+    ],
+)
+async def test_photo_price_followup_resolves_older_iphone_14_seminovos(
+    tmp_path, monkeypatch, request_text, history_suffix, photos_available
+):
+    async def no_product_files(*_args, **_kwargs):
+        return {"data": []}
+
+    monkeypatch.setattr("app.adapters.catalog_cache.list_product_files", no_product_files)
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed_cache = SealedCatalog()
+    sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:iphone-16-128",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            condition="novo lacrado",
+            price_brl=4700,
+            source="google_sheets",
+            search_text="iphone 16 128 gb novo lacrado",
+        )
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-price-photo-followup.json",
+        sealed_cache=sealed_cache,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            source="mercado_phone",
+            search_text="iphone 14 meia noite 128gb celular seminovo",
+            photo_urls=(
+                [f"https://photos.example/{external_id}.jpg"]
+                if photos_available
+                else []
+            ),
+        )
+        for external_id, price, battery in (
+            ("iphone-14-1760", 1760, 83),
+            ("iphone-14-1890", 1890, 91),
+            ("iphone-14-1900", 1900, 91),
+        )
+    ] + [
+        InventoryItem(
+            external_id="iphone-16-used",
+            name="IPHONE 16",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3630,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 16 preto 128gb celular seminovo",
+            photo_urls=["https://photos.example/iphone-16-used.jpg"],
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": "Poderia me mandar as opções que tem de iPhone 14 e 15",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 14 disponíveis:\n"
+                "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.760,00 | Bat: 83%\n"
+                "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.890,00 | Bat: 91%\n"
+                "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.900,00 | Bat: 91%"
+            ),
+        },
+        {"role": "user", "content": "E 15 e 16 tem algo?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16 disponíveis:\n"
+                "📱 Seminovos disponíveis para pronta entrega:\n"
+                "• IPHONE 16 — PRETO — 128GB — SEMINOVO — R$ 3.750,00 | Bat: 90%\n"
+                "• IPHONE 16 — PRETO — 128GB — SEMINOVO — R$ 3.630,00 | Bat: 88%\n"
+                "📦 Novos lacrados por encomenda:\n"
+                "• iPhone 16 — Azul Ultramarino — 128 GB — NOVO LACRADO — R$ 4.700,00"
+            ),
+        },
+        *history_suffix,
+    ]
+
+    decision = await agent.respond(request_text, history=history)
+
+    if photos_available:
+        assert decision.handoff is False, decision
+        assert decision.image_urls == [
+            "https://photos.example/iphone-14-1890.jpg",
+            "https://photos.example/iphone-14-1900.jpg",
+        ], decision
+        assert decision.product_references == ["iphone-14-1890", "iphone-14-1900"]
+    else:
+        assert decision.handoff is True, decision
+        assert decision.handoff_reason == PRODUCT_PHOTO_HANDOFF_REASON
+        assert decision.image_urls == []
+        assert decision.product_references == ["iphone-14-1890", "iphone-14-1900"]
+        assert "não há fotos cadastradas para" in decision.reply.lower()
+    assert "iphone 14" in decision.reply.lower()
+    assert "lacrado" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_batched_1tb_selection_and_payment_question_sends_1tb_photos(tmp_path):
     agent = _build_1tb_agent(tmp_path)
     history = [

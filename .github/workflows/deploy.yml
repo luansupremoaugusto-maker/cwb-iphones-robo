@@ -4145,6 +4145,126 @@ jobs:
           assert "R$ 1.300,00" not in cheapest_decision.reply, cheapest_decision.reply
           print("AFFORDABLE_IPHONE_BUDGET_CHEAPEST_SELECTION_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class SealedCatalog:
+              def __init__(self):
+                  self.items = [
+                      InventoryItem(
+                          external_id="sheet:iphone-16-128",
+                          name="iPhone 16",
+                          category="Celular",
+                          capacity="128 GB",
+                          condition="novo lacrado",
+                          price_brl=4700,
+                          source="google_sheets",
+                          search_text="iphone 16 128 gb novo lacrado",
+                      )
+                  ]
+
+              async def search(self, _query, limit=5):
+                  return self.items[:limit]
+
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=False,
+              mercado_cache_ttl_seconds=60,
+              faq_path="/app/config/faq.yaml",
+          )
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone14-seminovo-price-photo-guard.json",
+              sealed_cache=SealedCatalog(),
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id=f"iphone-14-{price}",
+                  name="IPHONE 14",
+                  category="Celular",
+                  capacity="128GB",
+                  color="MEIA NOITE",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=price,
+                  battery_health=91,
+                  source="mercado_phone",
+                  search_text="iphone 14 meia noite 128gb celular seminovo",
+                  photo_urls=[f"https://photos.example/iphone-14-{price}.jpg"],
+              )
+              for price in (1890, 1900)
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {
+                  "role": "user",
+                  "content": "Poderia me mandar as opções que tem de iPhone 14 e 15",
+              },
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 14 disponíveis:\n"
+                      "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.760,00 | Bat: 83%\n"
+                      "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.890,00 | Bat: 91%\n"
+                      "• IPHONE 14 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.900,00 | Bat: 91%"
+                  ),
+              },
+              {"role": "user", "content": "E 15 e 16 tem algo?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de IPHONE 16 disponíveis:\n"
+                      "📱 Seminovos disponíveis para pronta entrega:\n"
+                      "• IPHONE 16 — PRETO — 128GB — SEMINOVO — R$ 3.750,00 | Bat: 90%\n"
+                      "📦 Novos lacrados por encomenda:\n"
+                      "• iPhone 16 — Azul Ultramarino — 128 GB — NOVO LACRADO — R$ 4.700,00"
+                  ),
+              },
+          ]
+          expected_urls = [
+              "https://photos.example/iphone-14-1890.jpg",
+              "https://photos.example/iphone-14-1900.jpg",
+          ]
+          expected_refs = ["iphone-14-1890", "iphone-14-1900"]
+
+          direct = asyncio.run(
+              service.respond("Tem foto desse de 1890,00 e 1900,00", history=history)
+          )
+          followup_history = [
+              *history,
+              {"role": "user", "content": "Tem foto desse de 1890,00 e 1900,00"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Os aparelhos novos lacrados são vendidos por encomenda, "
+                      "então não temos fotos do produto cadastradas no sistema."
+                  ),
+              },
+          ]
+          clarified = asyncio.run(
+              service.respond("É os seminovos ali", history=followup_history)
+          )
+          for decision in (direct, clarified):
+              assert not decision.handoff, decision
+              assert decision.image_urls == expected_urls, decision
+              assert decision.product_references == expected_refs, decision
+              assert "lacrado" not in decision.reply.lower(), decision
+          print("IPHONE_14_SEMINOVO_PRICE_PHOTO_ROUTING_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE
