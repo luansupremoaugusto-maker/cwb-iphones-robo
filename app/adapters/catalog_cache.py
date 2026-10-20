@@ -972,6 +972,7 @@ class StoreCatalogCache(InventoryCache):
     def __init__(self, client: Any, settings: Settings, *args: Any, **kwargs: Any):
         super().__init__(client, settings, *args, **kwargs)
         self._remote_photo_cache: dict[str, list[str]] = {}
+        self._remote_photo_lookup_errors: set[str] = set()
 
     def _attach_photos(self, item: Any) -> Any:
         # Photo URLs are populated only by Mercado Phone's file endpoint. This
@@ -987,17 +988,22 @@ class StoreCatalogCache(InventoryCache):
         return item.model_copy(update={"photo_urls": urls})
 
     async def _attach_remote_photos(self, item: Any) -> Any:
+        if item is None:
+            return None
         item = self._attach_photos(item)
-        if item is None or getattr(item, "photo_urls", []):
+        product_id = str(getattr(item, "external_id", "") or "")
+        if getattr(item, "photo_urls", []):
+            if product_id:
+                self._remote_photo_lookup_errors.discard(product_id)
             return item
         if getattr(item, "source", "") != "mercado_phone" or not _is_device_item(item):
             return item
 
-        product_id = str(getattr(item, "external_id", "") or "")
         if not product_id:
             return item
         if product_id in self._remote_photo_cache:
             urls = self._remote_photo_cache[product_id]
+            self._remote_photo_lookup_errors.discard(product_id)
         else:
             try:
                 payload = await list_product_files(self.client, product_id, origin=1)
@@ -1005,7 +1011,9 @@ class StoreCatalogCache(InventoryCache):
             except Exception:
                 # A photo failure must not break an otherwise valid product
                 # answer. Do not cache failures so a later request can retry.
+                self._remote_photo_lookup_errors.add(product_id)
                 return item
+            self._remote_photo_lookup_errors.discard(product_id)
             # An empty response can be transient (the attachment service may
             # lag behind the inventory update). Keep it retryable so a prior
             # catalog lookup cannot suppress a later customer photo request.
@@ -1013,6 +1021,9 @@ class StoreCatalogCache(InventoryCache):
                 self._remote_photo_cache[product_id] = urls
 
         return item.model_copy(update={"photo_urls": urls}) if urls else item
+
+    def product_photo_lookup_failed(self, product_id: Any) -> bool:
+        return str(product_id or "") in self._remote_photo_lookup_errors
 
     async def _attach_catalog_photos(self, items: list[Any]) -> list[Any]:
         """Hydrate device photos for the administrative catalog view.
