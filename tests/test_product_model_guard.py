@@ -1429,6 +1429,67 @@ async def test_explicit_budget_after_affordability_followup_lists_all_matches(tm
 
 
 @pytest.mark.asyncio
+async def test_cheapest_followup_uses_generic_assistant_catalog_list(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=84,
+            search_text="iphone 12 128 gb seminovo celular branco",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Quais aparelhos vocês têm?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos estas opções:\n"
+                "• iPhone 11 128 GB — R$ 900,00\n"
+                "• iPhone 12 128 GB — R$ 1.300,00"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Qual é o mais barato?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-11-128-900"], decision
+    assert "iPhone 11" in decision.reply
+    assert "iPhone 12" not in decision.reply
+    assert "R$ 1.300,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_cheapest_iphone_question_requires_a_confirmed_price(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

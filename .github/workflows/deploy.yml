@@ -3764,6 +3764,26 @@ jobs:
           assert "iPhone 12" not in color_decision.reply, color_decision.reply
           print("AFFORDABLE_IPHONE_SELECTED_MODEL_COLOR_FOLLOWUP_OK")
 
+          generic_list_history = [
+              {"role": "user", "content": "Quais aparelhos vocês têm?"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Temos estas opções:\n"
+                      "• iPhone 11 128 GB — R$ 900,00\n"
+                      "• iPhone 12 128 GB — R$ 1.300,00"
+                  ),
+              },
+          ]
+          generic_list_cheapest = asyncio.run(
+              service.respond("Qual é o mais barato?", history=generic_list_history)
+          )
+          assert not generic_list_cheapest.handoff, generic_list_cheapest
+          assert generic_list_cheapest.product_references == ["iphone-11-128-900"], generic_list_cheapest
+          assert "iPhone 11" in generic_list_cheapest.reply, generic_list_cheapest.reply
+          assert "iPhone 12" not in generic_list_cheapest.reply, generic_list_cheapest.reply
+          print("GENERIC_CATALOG_LIST_CHEAPEST_FOLLOWUP_OK")
+
           budget_history = [
               *history,
               {"role": "user", "content": "Preciso de um em conta"},

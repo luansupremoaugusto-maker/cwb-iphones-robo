@@ -7246,6 +7246,7 @@ class AgentService:
             history,
         )
         current_request_budget = _extract_latest_budget_limit(text)
+        is_current_cheapest_request = _is_cheapest_catalog_request(text)
         latest_customer_message = next(
             (
                 entry.get("content", "").strip()
@@ -7254,14 +7255,21 @@ class AgentService:
             ),
             "",
         )
-        customer_affordability_request = _is_cheapest_catalog_request(text) or (
+        customer_affordability_request = is_current_cheapest_request or (
             current_request_budget is not None
             and not _has_product_reference(_normalize(text))
             and not _extract_bare_catalog_model_reference(text)
             and _is_cheapest_catalog_request(latest_customer_message)
         )
+        customer_request_has_catalog_anchor = bool(
+            _catalog_families(customer_request_context)
+            or _has_product_reference(_normalize(customer_request_context))
+            or _extract_bare_catalog_model_reference(customer_request_context)
+        )
         selection_context_used = battery_unit_selection_query is not None or bool(
-            selected_model and not _has_product_reference(_normalize(current_query))
+            selected_model
+            and not _has_product_reference(_normalize(current_query))
+            and not is_current_cheapest_request
         )
         if selection_context_used and battery_unit_selection_query is None:
             normalized_text = _normalize(text)
@@ -7312,10 +7320,14 @@ class AgentService:
             query = (
                 customer_request_context
                 if customer_affordability_request
+                and customer_request_has_catalog_anchor
                 else _product_context_query(
                     current_query,
                     history,
-                    strip_assistant_constraints=True,
+                    strip_assistant_constraints=not (
+                        customer_affordability_request
+                        and not customer_request_has_catalog_anchor
+                    ),
                 )
             )
         if ipad_model_alternative_price_followup:
@@ -7417,6 +7429,10 @@ class AgentService:
             or _is_contextual_pronta_entrega_followup(text, history)
             or ipad_model_alternative_price_followup
             or battery_unit_selection_query is not None
+            or (
+                is_current_cheapest_request
+                and _has_recent_catalog_product_context(history)
+            )
         ):
             return None
 
@@ -7869,7 +7885,7 @@ class AgentService:
                 confidence="medium",
             )
 
-        cheapest_request = _is_cheapest_catalog_request(text)
+        cheapest_request = is_current_cheapest_request
         has_explicit_catalog_attributes = (
             _requested_battery_health(catalog_filter_query) is not None
             or bool(requested_catalog_colors)
@@ -7912,7 +7928,7 @@ class AgentService:
                     ),
                     confidence="medium",
                 )
-            if len(requested_models) > 1:
+            if len(requested_models) > 1 and customer_request_has_catalog_anchor:
                 selected = []
                 selected_ids: set[str] = set()
                 for requested_model in requested_models:
