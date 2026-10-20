@@ -622,7 +622,21 @@ def _requested_battery_health(value: Any) -> float | None:
     return _battery_key(max(matches, key=lambda match: match[0])[1])
 
 
-def _catalog_score(query: str, item: Any) -> int:
+def _requested_catalog_price_cents(value: Any) -> int | None:
+    """Return one unambiguous BRL price explicitly present in the query."""
+    matches = re.finditer(
+        r"\br\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2}))?\b",
+        str(value or ""),
+        flags=re.IGNORECASE,
+    )
+    prices = {
+        int(match.group(1).replace(".", "")) * 100 + int(match.group(2) or "00")
+        for match in matches
+    }
+    return next(iter(prices)) if len(prices) == 1 else None
+
+
+def _catalog_score(query: str, item: Any, *, match_price: bool = False) -> int:
     score = score_item(query, item)
     normalized_query = _score_text(query)
     query_families = _catalog_families(query)
@@ -673,6 +687,18 @@ def _catalog_score(query: str, item: Any) -> int:
     )
     if requested_capacity and item_capacity == requested_capacity:
         score += 1000
+
+    # A selected inventory row may share model, color, capacity, and battery
+    # health with another unit. Preserve its quoted BRL price to resolve photo
+    # follow-ups to the exact row described in the preceding assistant answer.
+    if match_price:
+        requested_price_cents = _requested_catalog_price_cents(query)
+        try:
+            item_price_cents = round(float(getattr(item, "price_brl", None)) * 100)
+        except (TypeError, ValueError):
+            item_price_cents = None
+        if requested_price_cents is not None and item_price_cents == requested_price_cents:
+            score += 1200
 
     if query_tokens.intersection({"normal", "comum", "base"}):
         variants = {"air", "pro", "max", "mini", "plus", "e"}
@@ -1119,7 +1145,7 @@ class StoreCatalogCache(InventoryCache):
             if not candidates:
                 return None
 
-        scored = [(_catalog_score(query, item), item) for item in candidates]
+        scored = [(_catalog_score(query, item, match_price=True), item) for item in candidates]
         best_score = max(score for score, _item in scored)
         if best_score <= 0:
             return None

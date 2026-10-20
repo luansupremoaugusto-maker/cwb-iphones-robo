@@ -9,11 +9,36 @@ from app.agent import AgentService
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import InventoryItem
+from app.trade_in import is_photo_offer_confirmation
 
 
 class EmptyMercadoClient:
     async def fetch_all_inventory(self):
         return []
+
+
+def test_photo_offer_confirmation_matches_customer_facing_offer_wording():
+    for offer in (
+        "Quer ver as fotos de algum deles?",
+        "Quer que eu envie as fotos?",
+    ):
+        assert is_photo_offer_confirmation(
+            "Simm",
+            [{"role": "assistant", "content": offer}],
+        )
+
+    assert not is_photo_offer_confirmation(
+        "Simm",
+        [
+            {
+                "role": "assistant",
+                "content": (
+                    "Não encontrei fotos cadastradas desse iPhone 14. "
+                    "Se quiser, posso encaminhar seu pedido para um atendente."
+                ),
+            }
+        ],
+    )
 
 
 class SealedCatalog:
@@ -408,6 +433,95 @@ async def test_capacity_followup_sends_the_selected_used_phone_photos(tmp_path):
     assert decision.image_urls == ["https://photos.example/15-pro-max-256.jpg"]
     assert decision.product_references == ["9445935"]
     assert "15 pro max" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("last_has_photo", [True, False])
+async def test_yes_to_iphone_14_photo_offer_resolves_the_last_selected_unit(
+    tmp_path,
+    last_has_photo,
+):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-14-last-selected-photos.json",
+    )
+    photo_urls = {
+        "iphone-14-83": "https://photos.example/iphone-14-83.jpg",
+        "iphone-14-91-1890": "https://photos.example/iphone-14-91-1890.jpg",
+        "iphone-14-91-1900": "https://photos.example/iphone-14-91-1900.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="Meia-Noite",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            source="mercado_phone",
+            search_text="iPhone 14 Meia-Noite 128 GB celular seminovo",
+            photo_urls=(
+                [photo_urls[external_id]]
+                if last_has_photo or external_id != "iphone-14-91-1900"
+                else []
+            ),
+        )
+        for external_id, price, battery in (
+            ("iphone-14-83", 1760, 83),
+            ("iphone-14-91-1890", 1890, 91),
+            ("iphone-14-91-1900", 1900, 91),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Fique interessado no iPhone 14"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos 3 iPhone 14 seminovos de 128 GB, todos na cor Meia-Noite: "
+                "um por R$ 1.760 com bateria em 83%, outro por R$ 1.890 com 91% "
+                "e outro por R$ 1.900 também com 91%. Quer ver as fotos de algum deles?"
+            ),
+        },
+        {"role": "user", "content": "Queria saber mais sobre o último"},
+        {
+            "role": "assistant",
+            "content": (
+                "O último é um iPhone 14 seminovo, 128 GB, cor Meia-Noite, "
+                "com saúde da bateria em 91%, por R$ 1.900. Está disponível "
+                "para venda; o estado de conservação não consta no cadastro. "
+                "Quer que eu envie as fotos?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Simm", history=history)
+
+    assert decision.handoff is False
+    if last_has_photo:
+        assert decision.image_urls == [photo_urls["iphone-14-91-1900"]], decision
+        assert decision.product_references == ["iphone-14-91-1900"], decision
+    else:
+        assert decision.image_urls == [], decision
+        assert "não há fotos cadastradas" in decision.reply.lower(), decision
+        assert photo_urls["iphone-14-91-1890"] not in decision.image_urls
+
+        handoff_history = [
+            *history,
+            {"role": "user", "content": "Simm"},
+            {"role": "assistant", "content": decision.reply},
+        ]
+        handoff = await agent.respond("Blz. Pode ser", history=handoff_history)
+        assert handoff.handoff is True, handoff
+        assert "atendente" in handoff.reply.lower(), handoff
+        assert handoff.image_urls == []
 
 
 @pytest.mark.asyncio

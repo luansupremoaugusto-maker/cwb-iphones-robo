@@ -202,10 +202,15 @@ REGRAS OBRIGATÓRIAS:
   se houver opção seminova em estoque e opção nova lacrada, envie as duas, separadas
   e identificadas. Só envie uma condição quando o cliente pedir explicitamente
   seminovo/usado ou lacrado/por encomenda.
-- Quando o cliente pedir fotos, use get_product_photos. Só envie image_urls que
-  vierem do catálogo ou da lista aprovada de fotos; nunca invente links ou use
-  fotos de outro modelo. Se não houver foto cadastrada, informe isso sem prometer
-  uma foto e ofereça encaminhar ao atendente.
+- Não ofereça fotos espontaneamente em uma listagem com várias unidades. Para um
+  aparelho selecionado, só ofereça fotos depois de get_product_photos confirmar
+  URLs daquele registro exato; preserve capacidade, cor, condição, bateria e preço
+  que identificam a unidade. Se o cliente confirmar uma oferta de fotos, trate a
+  confirmação como pedido para esse mesmo registro.
+- Quando o cliente pedir ou confirmar fotos, use get_product_photos. Só envie
+  image_urls que vierem do catálogo ou da lista aprovada de fotos; nunca invente
+  links ou use fotos de outro modelo. Se não houver foto cadastrada, informe isso
+  sem prometer uma foto e ofereça encaminhar ao atendente.
 - Quando o cliente perguntar se a loja compra algum produto, responda que sim,
   somente produtos da marca Apple, envie o formulário de avaliação aprovado e
   defina handoff=true.
@@ -2423,10 +2428,14 @@ def _is_handoff_confirmation(text: str, history: list[dict[str, str]] | None) ->
         "sim por favor",
         "pode",
         "pode sim",
+        "pode ser",
         "claro",
         "ok",
         "okay",
         "beleza",
+        "blz",
+        "blz pode ser",
+        "beleza pode ser",
     }:
         return False
 
@@ -7217,7 +7226,10 @@ class AgentService:
         # "tem um 11 verde". Let the photo resolver preserve that context.
         capacity_availability_followup = _is_capacity_availability_followup(text, history)
         if (
-            _is_photo_context_followup(text, history)
+            (
+                _is_photo_context_followup(text, history)
+                or is_photo_offer_confirmation(text, history)
+            )
             and not (
                 _is_catalog_price_followup(text)
                 and _has_recent_catalog_product_context(history)
@@ -8578,7 +8590,10 @@ class AgentService:
                 seen.add(external_id)
                 candidates.append(item)
 
-            scored = [(_catalog_score(query, item), item) for item in candidates]
+            scored = [
+                (_catalog_score(query, item, match_price=True), item)
+                for item in candidates
+            ]
             positive = [(score, item) for score, item in scored if score > 0]
             if not positive:
                 return []
@@ -8610,7 +8625,7 @@ class AgentService:
                     getattr(item, "capacity", None) or getattr(item, "name", "")
                 ) not in requested_capacities:
                     continue
-                score = _catalog_score(query, item)
+                score = _catalog_score(query, item, match_price=True)
                 if score <= 0:
                     continue
                 seen.add(external_id)
