@@ -83,6 +83,7 @@ CATALOG_BUYER_DETAILS_REPLY = (
     "essas informações com você."
 )
 CATALOG_BUYER_DETAILS_REASON = "Dúvidas sobre detalhes de um aparelho disponível"
+PRODUCT_PHOTO_HANDOFF_REASON = "Atendente deve confirmar as fotos do produto selecionado"
 CATALOG_PRICE_NEGOTIATION_REPLY = (
     "Vou encaminhar sua pergunta sobre o valor desse aparelho para um atendente "
     "confirmar essa negociação com você."
@@ -9070,12 +9071,32 @@ class AgentService:
                     product_references=[selected.external_id],
                     confidence="high",
                 )
+            selected_color = getattr(selected, "color", None) or getattr(
+                selected, "colors", None
+            )
+            if isinstance(selected_color, (list, tuple, set)):
+                selected_color = ", ".join(
+                    str(color).strip() for color in selected_color if color
+                )
+            product_parts = [str(getattr(selected, "name", "") or "").strip()]
+            for detail in (
+                getattr(selected, "capacity", None),
+                selected_color,
+            ):
+                detail = str(detail or "").strip()
+                if detail and _normalize(detail) not in _normalize(" ".join(product_parts)):
+                    product_parts.append(detail)
+            product_label = " ".join(part for part in product_parts if part)
+            product_reference = str(getattr(selected, "external_id", "") or "")
             return AgentDecision(
                 reply=(
-                    f"Encontrei o {selected.name}, mas ainda não há fotos cadastradas para esse modelo. "
-                    "Posso encaminhar o pedido para um atendente confirmar as fotos."
+                    f"Encontrei o {product_label}, mas ainda não há fotos cadastradas para essa opção. "
+                    "Vou encaminhar o pedido para um atendente confirmar as fotos."
                 ),
-                confidence="low",
+                handoff=True,
+                handoff_reason=PRODUCT_PHOTO_HANDOFF_REASON,
+                confidence="high",
+                product_references=[product_reference] if product_reference else [],
             )
         return None
 
