@@ -160,6 +160,61 @@ def test_battery_percentage_is_not_parsed_as_a_bare_catalog_model():
     assert _extract_bare_catalog_model_reference("Qual a saúde da bateria do 15?") == "iPhone 15"
 
 
+@pytest.mark.asyncio
+async def test_battery_originality_followup_uses_the_recent_offer_instead_of_model_91(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id=f"iphone-14-128-midnight-battery-{battery}-{price}",
+            name="iPhone 14",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA-NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            search_text=(
+                f"iPhone 14 128 GB meia-noite seminovo bateria {battery}% disponível"
+            ),
+        )
+        for battery, price in ((83, 1760), (91, 1890), (91, 1900))
+    ]
+    agent.cache.last_refresh = time.time()
+    history = [
+        {
+            "role": "user",
+            "content": "Gostaria de saber sobre os iPhones 14",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Temos estas opções de iPhone 14 seminovos, todos de 128 GB na cor "
+                "meia-noite:\nBateria 83% — R$ 1.760\nBateria 91% — R$ 1.890\n"
+                "Bateria 91% — R$ 1.900\nQual opção gostaria de conhecer melhor?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Esse de 91 é bateria original?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "iphone 91" not in decision.reply.lower()
+    assert "não localizei" not in decision.reply.lower()
+    assert "iphone 14" in decision.reply.lower()
+    assert "91%" in decision.reply
+    assert "não informa se as baterias são originais" in decision.reply.lower()
+    assert "opções" in decision.reply.lower()
+    assert set(decision.product_references) == {
+        "iphone-14-128-midnight-battery-91-1890",
+        "iphone-14-128-midnight-battery-91-1900",
+    }
+
+
 def test_warranty_question_without_stock_request_is_not_product_availability():
     assert _is_product_availability_request("Qual a garantia do iPhone 13 Pro Max seminovo?") is False
 
