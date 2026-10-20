@@ -1201,6 +1201,34 @@ async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
             battery_health=82,
             search_text="iphone 11 128 gb seminovo celular preto",
         ),
+        InventoryItem(
+            external_id="iphone-11-128-white-1400",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1400,
+            battery_health=81,
+            search_text="iphone 11 128 gb seminovo celular branco",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-white-1300",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="BRANCO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1300,
+            battery_health=84,
+            search_text="iphone 12 128 gb seminovo celular branco",
+        ),
     ]
     cache.last_refresh = time.time()
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
@@ -1218,6 +1246,21 @@ async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
     assert "R$ 900,00" in decision.reply
     assert "iPhone 16 Pro Max" not in decision.reply
     assert "R$ 5.170,00" not in decision.reply
+
+    color_history = [
+        *history,
+        {"role": "user", "content": "Preciso de um em conta"},
+        {"role": "assistant", "content": decision.reply},
+    ]
+    color_decision = await agent.respond(
+        "Tem na cor branca?",
+        history=color_history,
+    )
+
+    assert color_decision.handoff is False
+    assert color_decision.product_references == ["iphone-11-128-white-1400"]
+    assert "iPhone 11" in color_decision.reply
+    assert "iPhone 12" not in color_decision.reply
 
 
 def test_catalog_followup_matches_em_conta_without_matching_em_contato():

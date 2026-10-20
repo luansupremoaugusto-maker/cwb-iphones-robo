@@ -7245,8 +7245,20 @@ class AgentService:
             text,
             history,
         )
-        customer_affordability_request = _is_cheapest_catalog_request(
-            customer_request_context
+        current_request_budget = _extract_latest_budget_limit(text)
+        latest_customer_message = next(
+            (
+                entry.get("content", "").strip()
+                for entry in reversed(history or [])
+                if entry.get("role") == "user" and entry.get("content", "").strip()
+            ),
+            "",
+        )
+        customer_affordability_request = _is_cheapest_catalog_request(text) or (
+            current_request_budget is not None
+            and not _has_product_reference(_normalize(text))
+            and not _extract_bare_catalog_model_reference(text)
+            and _is_cheapest_catalog_request(latest_customer_message)
         )
         selection_context_used = battery_unit_selection_query is not None or bool(
             selected_model and not _has_product_reference(_normalize(current_query))
@@ -7409,9 +7421,7 @@ class AgentService:
             return None
 
         requested_budget = None
-        current_request_budget = None
         if not installment_budget_context:
-            current_request_budget = _extract_latest_budget_limit(text)
             requested_budget = current_request_budget
             if requested_budget is None and not allow_buyer_interest_with_image:
                 requested_budget = _extract_latest_budget_limit(customer_request_context)
@@ -7859,10 +7869,7 @@ class AgentService:
                 confidence="medium",
             )
 
-        cheapest_request = _is_cheapest_catalog_request(text) or (
-            current_request_budget is None
-            and _is_cheapest_catalog_request(customer_request_context)
-        )
+        cheapest_request = _is_cheapest_catalog_request(text)
         has_explicit_catalog_attributes = (
             _requested_battery_health(catalog_filter_query) is not None
             or bool(requested_catalog_colors)
