@@ -1150,6 +1150,76 @@ async def test_cheapest_iphone_question_returns_lowest_available_price(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-5170",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max 256 gb seminovo celular titânio deserto",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-5170-second",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=85,
+            search_text="iphone 16 pro max 256 gb seminovo celular titânio deserto",
+        ),
+        InventoryItem(
+            external_id="iphone-11-128-900",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=82,
+            search_text="iphone 11 128 gb seminovo celular preto",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "assistant", "content": "Opa! Tudo bem? Como posso ajudar?"},
+        {"role": "user", "content": "iPhone"},
+        {"role": "user", "content": "Usado"},
+    ]
+
+    decision = await agent.respond("Preciso de um em conta", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-11-128-900"]
+    assert "iPhone 11" in decision.reply
+    assert "R$ 900,00" in decision.reply
+    assert "iPhone 16 Pro Max" not in decision.reply
+    assert "R$ 5.170,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_cheapest_iphone_question_requires_a_confirmed_price(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
