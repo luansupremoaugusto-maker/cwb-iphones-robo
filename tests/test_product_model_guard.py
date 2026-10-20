@@ -489,6 +489,65 @@ async def test_bare_variant_followup_after_base_model_reply_lists_17_pro_max_opt
 
 
 @pytest.mark.asyncio
+async def test_color_and_promax_followup_after_iphone17_offer_selects_pro_max(tmp_path):
+    settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
+    sealed = SealedCatalog()
+    sealed.items = [
+        _sealed_item("iphone-17-base-256", "iPhone 17", "256 GB", 5700),
+        _sealed_item(
+            "iphone-17-pro-max-silver-256",
+            "iPhone 17 Pro Max",
+            "256 GB",
+            7600,
+        ).model_copy(
+            update={
+                "colors": "PRATEADO",
+                "search_text": (
+                    "iPhone 17 Pro Max 256 GB PRATEADO novo lacrado"
+                ),
+            }
+        ),
+    ]
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-17-promax-color-followup.json",
+        sealed_cache=sealed,
+    )
+    cache.items = []
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Queria fazer uma análise de valores"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPhone 17 disponíveis:\n"
+                "Novos lacrados por encomenda:\n"
+                "• iPhone 17 — Lavanda | Azul-névoa | Sálvia | Branco | Preto — "
+                "256 GB — NOVO LACRADO — R$ 5.700,00 | Bat: não se aplica"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Não tem laranja? Nem promax?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == [
+        "iphone-17-pro-max-silver-256"
+    ], decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "PRATEADO" in decision.reply
+    assert "7.600,00" in decision.reply
+    assert "iPhone 17 —" not in decision.reply
+
+    color_only = await agent.respond("Não tem laranja?", history=history)
+
+    assert "iPhone 17 Pro Max" not in color_only.reply
+    assert "iphone-17-pro-max-silver-256" not in color_only.product_references
+
+
+@pytest.mark.asyncio
 async def test_missing_iphone_13_pro_512_does_not_return_17_pro_options(tmp_path):
     agent = build_agent(tmp_path)
 

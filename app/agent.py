@@ -939,9 +939,13 @@ def _is_product_availability_request(
     normalized = _normalize(text)
     accessory_request = _is_accessory_catalog_request(normalized)
     bare_model_request = _is_bare_model_availability_request(text)
-    catalog_followup = _is_bare_model_catalog_followup(text, history) or (
-        _is_catalog_price_followup(text)
-        and _has_recent_catalog_product_context(history)
+    catalog_followup = (
+        _is_bare_model_catalog_followup(text, history)
+        or _pending_iphone_variant_catalog_context(text, history) is not None
+        or (
+            _is_catalog_price_followup(text)
+            and _has_recent_catalog_product_context(history)
+        )
     )
     contextual_ready_stock_followup = _is_contextual_pronta_entrega_followup(text, history)
     ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
@@ -4700,6 +4704,61 @@ def _pending_iphone_variant_price_context(
     return "\n".join(parts)
 
 
+def _pending_iphone_variant_catalog_context(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Resolve a Pro Max mention against one recently offered base iPhone model."""
+    normalized = _normalize(text)
+    if (
+        not normalized
+        or not history
+        or _has_product_reference(normalized)
+        or _requested_iphone_model_keys(text)
+        or _is_photo_request(text)
+        or _is_accessory_catalog_request(text)
+        or is_trade_in_request(text)
+    ):
+        return None
+
+    has_variant_followup = bool(
+        re.fullmatch(
+            r"(?:(?:e|ou|nem|tem|teria)\s+)*(?:o\s+)?pro\s+max[?!.,]*",
+            normalized,
+        )
+        or re.search(
+            r"(?:[?!.,;]\s*|\b(?:e|ou|nem)\s+)"
+            r"(?:o\s+)?pro\s+max[?!.,]*(?:$|\s)",
+            normalized,
+        )
+    )
+    if not has_variant_followup or not _has_recent_catalog_product_context(history):
+        return None
+
+    latest_assistant_answer = next(
+        (
+            entry.get("content", "").strip()
+            for entry in reversed(history)
+            if entry.get("role") == "assistant" and entry.get("content", "").strip()
+        ),
+        "",
+    )
+    offered_models = _requested_iphone_model_keys(latest_assistant_answer)
+    if (
+        len(offered_models) != 1
+        or not isinstance(offered_models[0][0], int)
+        or offered_models[0][1]
+    ):
+        return None
+
+    generation = offered_models[0][0]
+    condition = _product_interest_default_condition(latest_assistant_answer)
+    model = f"iPhone {generation} Pro Max"
+    if condition:
+        model += f" {condition}"
+    return f"{model}\n{text.strip()}"
+
+
 def _pending_multi_model_product_request_context(
     text: str,
     history: list[dict[str, str]] | None,
@@ -7455,6 +7514,10 @@ class AgentService:
             text,
             history,
         )
+        pending_variant_catalog_context = _pending_iphone_variant_catalog_context(
+            text,
+            history,
+        )
         ipad_model_alternative_price_followup = _is_ipad_model_alternative_price_followup(
             text,
             history,
@@ -7477,9 +7540,10 @@ class AgentService:
         ):
             return None
         seminovo_trade_in_query = _seminovo_trade_in_catalog_target_query(text)
-        current_query = seminovo_trade_in_query or _current_catalog_context(
-            text,
-            image_description,
+        current_query = (
+            seminovo_trade_in_query
+            or pending_variant_catalog_context
+            or _current_catalog_context(text, image_description)
         )
         if battery_unit_selection_query is not None:
             current_query = battery_unit_selection_query
