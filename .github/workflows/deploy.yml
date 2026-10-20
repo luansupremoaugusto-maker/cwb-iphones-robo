@@ -3629,6 +3629,89 @@ jobs:
           assert entry_decision.product_references == [] and entry_decision.image_urls == [], entry_decision
           print("IPHONE_14_LOOKAROUND_CATALOG_ROUTING_OK")
           PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=False,
+              faq_path="/app/config/faq.yaml",
+          )
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/affordable-iphone-budget-guard.json",
+          )
+          cache.items = [
+              InventoryItem(
+                  external_id="iphone-16-pro-max-256-5170",
+                  name="iPhone 16 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="TITÂNIO DESERTO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=5170,
+                  battery_health=89,
+                  source="mercado_phone",
+                  search_text="iPhone 16 Pro Max 256 GB seminovo celular titânio deserto",
+              ),
+              InventoryItem(
+                  external_id="iphone-16-pro-max-256-5170-second",
+                  name="iPhone 16 Pro Max",
+                  category="Celular",
+                  capacity="256 GB",
+                  color="TITÂNIO DESERTO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=5170,
+                  battery_health=85,
+                  source="mercado_phone",
+                  search_text="iPhone 16 Pro Max 256 GB seminovo celular titânio deserto",
+              ),
+              InventoryItem(
+                  external_id="iphone-11-128-900",
+                  name="iPhone 11",
+                  category="Celular",
+                  capacity="128 GB",
+                  color="PRETO",
+                  condition="SEMINOVO",
+                  availability="Disponível para venda",
+                  quantity=1,
+                  price_brl=900,
+                  battery_health=82,
+                  source="mercado_phone",
+                  search_text="iPhone 11 128 GB seminovo celular preto",
+              ),
+          ]
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "assistant", "content": "Opa! Tudo bem? Como posso ajudar?"},
+              {"role": "user", "content": "iPhone"},
+              {"role": "user", "content": "Usado"},
+          ]
+          decision = asyncio.run(service.respond("Preciso de um em conta", history=history))
+          assert not decision.handoff, decision
+          assert decision.product_references == ["iphone-11-128-900"], decision
+          assert "iPhone 11" in decision.reply and "R$ 900,00" in decision.reply, decision
+          assert "iPhone 16 Pro Max" not in decision.reply and "R$ 5.170,00" not in decision.reply, decision
+          assert not decision.image_urls, decision
+          print("AFFORDABLE_IPHONE_SEMINOVO_SELECTION_OK")
+          PY
           curl -fsS https://bot.cwbiphones.cloud/ready
           curl -fsS https://bot.cwbiphones.cloud/health
           REMOTE

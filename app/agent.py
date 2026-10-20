@@ -539,6 +539,7 @@ def _is_catalog_followup(text: str) -> bool:
             "tem no",
             "tem na",
             "tem em",
+            "em conta",
             "fonte",
             "carregador",
             "cor",
@@ -861,6 +862,7 @@ def _is_cheapest_catalog_request(text: str) -> bool:
     if not re.search(
         r"\bmais\s+barat[oa]\b"
         r"|\bmais\s+em\s+conta\b"
+        r"|\b(?:um|uma)\s+(?:mais\s+)?em\s+conta\b"
         r"|\bmenor\s+(?:preco|valor)\b",
         normalized,
     ):
