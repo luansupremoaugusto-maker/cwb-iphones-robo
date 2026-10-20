@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import html
 import io
+import math
+import re
 import unicodedata
 from collections.abc import Iterable
 from datetime import datetime
@@ -242,7 +244,9 @@ def public_catalog_payload(
     generated_at: str,
 ) -> dict[str, Any]:
     sections = {
-        section: [_public_item(item, section=section) for item in result.get(section, [])]
+        section: _sort_catalog_items_within_storage_groups(
+            [_public_item(item, section=section) for item in result.get(section, [])]
+        )
         for section in CATALOG_SECTION_LABELS
     }
     return {
@@ -254,6 +258,84 @@ def public_catalog_payload(
             "google_sheets_last_refresh": sheets_refresh,
         },
     }
+
+
+def _catalog_capacity_gb(value: Any) -> float | None:
+    capacity = "".join(unicodedata.normalize("NFKC", str(value or "")).casefold().split())
+    if capacity.endswith("tb"):
+        multiplier = 1024
+        amount = capacity[:-2]
+    elif capacity.endswith("gb"):
+        multiplier = 1
+        amount = capacity[:-2]
+    else:
+        return None
+
+    try:
+        normalized_capacity = float(amount.replace(",", ".")) * multiplier
+    except ValueError:
+        return None
+    if not math.isfinite(normalized_capacity) or normalized_capacity <= 0:
+        return None
+    return normalized_capacity
+
+
+def _catalog_storage_group_key(item: dict[str, Any]) -> tuple[str, float] | None:
+    name = " ".join(
+        unicodedata.normalize("NFKC", str(item.get("nome") or "")).casefold().split()
+    )
+    if not name:
+        return None
+
+    capacity_gb = _catalog_capacity_gb(item.get("capacidade"))
+    name_capacity_match = re.search(r"\s+((?:\d+(?:[.,]\d+)?)\s*(?:gb|tb))$", name)
+    if name_capacity_match:
+        name_capacity_gb = _catalog_capacity_gb(name_capacity_match.group(1))
+        if capacity_gb is None:
+            capacity_gb = name_capacity_gb
+        if capacity_gb is not None and capacity_gb == name_capacity_gb:
+            name = name[: name_capacity_match.start()].rstrip()
+
+    if capacity_gb is None:
+        return None
+    return name, capacity_gb
+
+
+def _catalog_item_price_key(item: dict[str, Any]) -> float:
+    prices = item.get("precos_brl") or []
+    if not isinstance(prices, (list, tuple, set)):
+        prices = [prices]
+
+    numeric_prices: list[float] = []
+    for price in prices:
+        try:
+            numeric_price = float(price)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric_price):
+            numeric_prices.append(numeric_price)
+    return min(numeric_prices, default=math.inf)
+
+
+def _sort_catalog_items_within_storage_groups(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    group_indexes: dict[tuple[str, float], list[int]] = {}
+
+    for index, item in enumerate(items):
+        group_key = _catalog_storage_group_key(item)
+        if group_key is not None:
+            group_indexes.setdefault(group_key, []).append(index)
+
+    sorted_items = list(items)
+    for indexes in group_indexes.values():
+        group_items = sorted(
+            (items[index] for index in indexes),
+            key=_catalog_item_price_key,
+        )
+        for index, item in zip(indexes, group_items):
+            sorted_items[index] = item
+    return sorted_items
 
 
 def _format_brl(value: Any) -> str:
