@@ -19,6 +19,7 @@ from app.agent import (
     _is_available_list_request,
     _is_product_availability_request,
     _normalize,
+    _pending_multi_model_product_request_context,
     _requested_catalog_colors,
     _unavailable_catalog_color_header,
     _requested_device_quantity,
@@ -6940,6 +6941,66 @@ async def test_consecutive_iphone_18_pro_price_questions_return_both_models(tmp_
     assert "iPhone 18 Pro Max" in decision.reply
     assert "R$ 9.500,00" in decision.reply
     assert "R$ 9.800,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_short_e_12_price_followup_keeps_iphone_11_and_adds_iphone_12(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-11-128-black",
+            name="iPhone 11",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=900,
+            battery_health=100,
+            source="mercado_phone",
+            search_text="iPhone 11 128 GB preto seminovo disponível",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128-black",
+            name="iPhone 12",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1200,
+            battery_health=90,
+            source="mercado_phone",
+            search_text="iPhone 12 128 GB preto seminovo disponível",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+    history = [
+        {"role": "user", "content": "Oi"},
+        {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+        {"role": "user", "content": "Valores do iphone 11"},
+    ]
+
+    decision = await agent.respond("E 12", history=history)
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-11-128-black",
+        "iphone-12-128-black",
+    }, decision
+    assert "iPhone 11" in decision.reply
+    assert "iPhone 12" in decision.reply
+    assert "R$ 900,00" in decision.reply
+    assert "R$ 1.200,00" in decision.reply
+
+
+def test_short_conjunction_model_followup_requires_catalog_context():
+    history = [{"role": "user", "content": "Valores do iphone 11"}]
+
+    assert _pending_multi_model_product_request_context("E 12x", history) is None
+    assert _pending_multi_model_product_request_context("E 12", []) is None
 
 
 @pytest.mark.asyncio
