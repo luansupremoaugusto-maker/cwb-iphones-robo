@@ -3446,6 +3446,91 @@ jobs:
           assert "R$ 11.800,00" in clarification.reply, clarification.reply
           assert "iPhone 18 —" not in clarification.reply, clarification.reply
           print("IPHONE_18_PRO_MAX_VARIANT_PRICE_FOLLOWUP_GUARD_OK")
+
+          followup_settings = Settings(
+              _env_file=None,
+              openai_api_key=None,
+              google_sheets_enabled=True,
+              mercado_cache_ttl_seconds=60,
+              google_sheets_cache_ttl_seconds=3600,
+              faq_path="/app/config/faq.yaml",
+          )
+          followup_catalog = ControlledSealedCatalog(
+              [
+                  InventoryItem(
+                      external_id="iphone-17-base-256",
+                      name="iPhone 17",
+                      category="Novo lacrado",
+                      capacity="256 GB",
+                      colors="Lavanda | Azul-névoa | Sálvia | Branco | Preto",
+                      condition="novo lacrado",
+                      availability="Preço confirmado",
+                      price_brl=5700,
+                      source="google_sheets",
+                      search_text="iPhone 17 256 GB novo lacrado",
+                  ),
+                  InventoryItem(
+                      external_id="iphone-17-pro-max-silver-256",
+                      name="iPhone 17 Pro Max",
+                      category="Novo lacrado",
+                      capacity="256 GB",
+                      colors="PRATEADO",
+                      condition="novo lacrado",
+                      availability="Preço confirmado",
+                      price_brl=7600,
+                      source="google_sheets",
+                      search_text=(
+                          "iPhone 17 Pro Max 256 GB PRATEADO novo lacrado"
+                      ),
+                  ),
+              ]
+          )
+          followup_cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              followup_settings,
+              cache_path="/tmp/iphone-17-promax-color-followup.json",
+              sealed_cache=followup_catalog,
+          )
+          followup_cache.last_refresh = time.time()
+          followup_service = AgentService(
+              followup_cache,
+              FAQStore(followup_settings.faq_file),
+              followup_settings,
+              offline=True,
+          )
+          color_history = [
+              {"role": "user", "content": "Queria fazer uma análise de valores"},
+              {
+                  "role": "assistant",
+                  "content": (
+                      "Sim 😊 Encontrei estas opções de iPhone 17 disponíveis:\\n"
+                      "Novos lacrados por encomenda:\\n"
+                      "• iPhone 17 — Lavanda | Azul-névoa | Sálvia | Branco | Preto — "
+                      "256 GB — NOVO LACRADO — R$ 5.700,00 | Bat: não se aplica"
+                  ),
+              },
+          ]
+          color_and_variant = asyncio.run(
+              followup_service.respond(
+                  "Não tem laranja? Nem promax?", history=color_history
+              )
+          )
+          assert not color_and_variant.handoff, color_and_variant
+          assert color_and_variant.product_references == [
+              "iphone-17-pro-max-silver-256"
+          ], color_and_variant
+          assert "iPhone 17 Pro Max" in color_and_variant.reply, color_and_variant.reply
+          assert "PRATEADO" in color_and_variant.reply, color_and_variant.reply
+          assert "R$ 7.600,00" in color_and_variant.reply, color_and_variant.reply
+          assert "iPhone 17 —" not in color_and_variant.reply, color_and_variant.reply
+          color_only = asyncio.run(
+              followup_service.respond("Não tem laranja?", history=color_history)
+          )
+          assert "iPhone 17 Pro Max" not in color_only.reply, color_only.reply
+          assert (
+              "iphone-17-pro-max-silver-256" not in color_only.product_references
+          ), color_only
+          print("IPHONE_17_PROMAX_COLOR_FOLLOWUP_GUARD_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
