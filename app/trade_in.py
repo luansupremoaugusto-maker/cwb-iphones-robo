@@ -1295,7 +1295,11 @@ def _is_photo_offer_message(content: str) -> bool:
     return bool(
         _FORM_EM_ANDAMENTO_MARKER not in normalized
         and re.search(r"\b(?:foto|fotos|imagem|imagens)\b", normalized)
-        and re.search(r"\b(?:posso|pode|vou|vamos|enviar|envia|mande|mandar|mostrar|mostra)\b", normalized)
+        and re.search(
+            r"\b(?:quer|queria|posso|pode|vou|vamos)\b.{0,40}"
+            r"\b(?:ver|enviar|envia|envie|mande|mandar|mostrar|mostra)\b",
+            normalized,
+        )
         and not re.search(
             r"\b(?:parte do pagamento|como entrada|para troca|trade[- ]?in|"
             r"vender|compramos|aceitam meu|pegam meu|dar meu|usar meu)\b",
@@ -1309,6 +1313,8 @@ def is_photo_offer_confirmation(
     history: list[dict[str, str]] | None,
 ) -> bool:
     normalized = _normalize(text)
+    if re.fullmatch(r"si+m+", normalized):
+        normalized = "sim"
     if normalized not in _SHORT_CONFIRMATION_REPLIES or not history:
         return False
     if any(
