@@ -4925,10 +4925,23 @@ def _pending_multi_model_product_request_context(
                 )
             )
             has_availability_question = bool(
-                has_availability_detail
-                and (
-                    "?" in segment
-                    or re.search(r"\b(?:qual|quais|sabe\s+se|voce|voces|vcs)\b", normalized_segment)
+                (
+                    has_availability_detail
+                    and (
+                        "?" in segment
+                        or re.search(
+                            r"\b(?:qual|quais|sabe\s+se|voce|voces|vcs)\b",
+                            normalized_segment,
+                        )
+                    )
+                )
+                or (
+                    has_model_reference
+                    and re.search(
+                        r"\b(?:tem|teria|possui|vende)\s+"
+                        r"(?:algum|alguma|alguns|algumas)\s*(?:[?!.,]|$)",
+                        normalized_segment,
+                    )
                 )
             )
             has_request_style_availability = not (

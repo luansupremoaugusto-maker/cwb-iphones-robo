@@ -6926,6 +6926,36 @@ async def test_ambiguous_catalog_photo_interest_hands_off_without_search(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_pending_model_alternative_keeps_first_question_and_scopes_capacity(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-512", "iPhone 18 Pro", "512 GB", 9600),
+        _sealed_item("iphone-17-pro-256", "iPhone 17 Pro", "256 GB", 7000),
+        _sealed_item("iphone-17-pro-512", "iPhone 17 Pro", "512 GB", 7100),
+        _sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 8500),
+    ]
+    history = [
+        {"role": "assistant", "content": "Temos outras opções para você."},
+        {"role": "user", "content": "entendi irmão"},
+        {"role": "user", "content": "18 pro teria algum?"},
+    ]
+
+    decision = await agent.respond("ou ate 17 pro 256 msm", history=history)
+
+    assert decision.handoff is False
+    assert "iPhone 18 Pro" in decision.reply
+    assert "iPhone 17 Pro" in decision.reply
+    assert "iPhone 17 Pro Max" not in decision.reply
+    assert "R$ 9.600,00" in decision.reply
+    assert "R$ 7.000,00" in decision.reply
+    assert "R$ 7.100,00" not in decision.reply
+    assert (
+        _pending_multi_model_product_request_context("18 pro teria algum defeito?", [])
+        is None
+    )
+
+
+@pytest.mark.asyncio
 async def test_multi_model_interest_keeps_capacity_on_the_last_requested_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
