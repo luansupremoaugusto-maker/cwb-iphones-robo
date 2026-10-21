@@ -3969,6 +3969,58 @@ async def test_complete_owned_iphone_buyback_after_selecting_catalog_phone_sends
 
 
 @pytest.mark.asyncio
+async def test_owned_iphone_with_broken_camera_and_upgrade_offer_sends_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "[vídeo do aparelho]"},
+        {
+            "role": "assistant",
+            "content": "Oi! 😊 Não recebi o conteúdo da sua mensagem. Como posso ajudar?",
+        },
+    ]
+    text = (
+        "Boa tarde, tenho este 12 pro max saúde 76% 128GB com a câmera do zoom "
+        "quebrada como aparece no vídeo, gostaria de saber quanto vocês pegam "
+        "nele para eu fazer um upgrade com vocês"
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert is_parts_buyback_request(text) is False
+    assert is_trade_in_request(text) is True
+    assert is_trade_in_context_request(text, history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    buyer_text = "Quero comprar um iPhone 12 Pro Max 128GB lacrado."
+    buyer_decision = await service.respond(buyer_text)
+    assert is_trade_in_request(buyer_text) is False
+    assert buyer_decision.reply != TRADE_IN_FORM
+    assert buyer_decision.handoff is False
+
+    repair_text = "Tenho um iPhone 12 Pro Max com a câmera quebrada. Vocês consertam?"
+    repair_decision = await service.respond(repair_text)
+    assert is_trade_in_request(repair_text) is False
+    assert repair_decision.reply != TRADE_IN_FORM
+
+    parts_text = "Vocês compram só a câmera do iPhone 12 Pro Max?"
+    parts_decision = await service.respond(parts_text)
+    assert is_parts_buyback_request(parts_text) is True
+    assert parts_decision.reply == PARTS_BUYBACK_REPLY
+    assert parts_decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_profile_selling_only_battery_stays_in_parts_flow(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
