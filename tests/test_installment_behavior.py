@@ -2229,6 +2229,82 @@ async def test_installment_followup_uses_selected_product_image_after_location_q
 
 
 @pytest.mark.asyncio
+async def test_bare_model_number_in_installment_question_overrides_last_catalog_model(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:iphone-16-128",
+            name="iPhone 16",
+            category="Novo lacrado",
+            capacity="128 GB",
+            price_brl=4700.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 16 128 gb novo lacrado",
+        ),
+        InventoryItem(
+            external_id="sheet:iphone-18-pro-max-256",
+            name="iPhone 18 Pro Max",
+            category="Novo lacrado",
+            capacity="256 GB",
+            price_brl=10100.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 18 pro max 256 gb novo lacrado",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {
+            "role": "user",
+            "content": "E os iphones lacrados sob encomenda demora em média quanto tempo pra chegar??",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Lista completa de produtos disponíveis:\n"
+                "Novos lacrados por encomenda:\n"
+                "iPhone 16\n"
+                "• Azul Ultramarino, Verde-acinzentado, Rosa, Branco, Preto - 128 GB - "
+                "NOVO LACRADO — R$ 4.700,00 | Bat: não se aplica\n"
+                "iPhone 17E\n"
+                "• Preto, Branco, Rosa - 256 GB - NOVO LACRADO — R$ 4.400,00\n"
+                "iPhone 17\n"
+                "• Lavanda, Azul-névoa, Sálvia, Branco, Preto - 256 GB - "
+                "NOVO LACRADO — R$ 5.700,00\n"
+                "iPhone 17 Air\n"
+                "• Preto Espacial, Branco Nuvem, Dourado Claro, Azul-Céu - 256 GB - "
+                "NOVO LACRADO — R$ 5.600,00\n"
+                "iPhone 17 Pro\n"
+                "• Laranja-cósmico, Azul-intenso, Prateado - 256 GB - "
+                "NOVO LACRADO — R$ 7.000,00\n"
+                "iPhone 17 Pro Max\n"
+                "• Laranja-cósmico, Azul-intenso, Prateado - 256 GB - "
+                "NOVO LACRADO — R$ 7.800,00\n"
+                "iPhone 18 Pro Max\n"
+                "• Bordô, Glacial, Preto, Prateado - 256 GB - "
+                "NOVO LACRADO — R$ 10.100,00\n"
+                "Os lacrados são por encomenda, com prazo de 1 semana."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Você consegue me informar o valor do 16 parcela em 12x?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 16 128 GB" in decision.reply
+    assert "Preço à vista: R$ 4.700,00" in decision.reply
+    assert "12x de" in decision.reply
+    assert "iPhone 18 Pro Max" not in decision.reply
+    assert "R$ 10.100,00" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_installment_correction_after_photo_reply_keeps_both_iphone13_units(tmp_path):
     cache, settings = build_cache(tmp_path)
     cache.items = [

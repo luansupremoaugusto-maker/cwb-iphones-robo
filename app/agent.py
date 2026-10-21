@@ -4199,6 +4199,39 @@ def _selected_installment_offer_context(
     return None
 
 
+def _bare_iphone_model_in_installment_question(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Resolve an abbreviated model only when a recent iPhone offer anchors it."""
+    normalized = _normalize(text)
+    if (
+        not _is_specific_installment_request(text)
+        or _requested_iphone_model_keys(text)
+        or any(family != "iphone" for family in _catalog_families(normalized))
+    ):
+        return None
+
+    match = re.search(
+        r"\b(?:do|no|para\s+o)\s+(?P<number>1[0-8])\s+parcel\w*\b",
+        normalized,
+    )
+    if match is None:
+        return None
+
+    requested_model = (int(match.group("number")), "")
+    for item in reversed(history or []):
+        if item.get("role") != "assistant":
+            continue
+        content = item.get("content", "")
+        if _catalog_family(content) != "iphone":
+            continue
+        if requested_model in _requested_iphone_model_keys(content):
+            return f"iPhone {requested_model[0]}"
+        return None
+    return None
+
+
 def _installment_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -4209,6 +4242,9 @@ def _installment_context_query(
     # Do not append an older catalog answer: its last listed model can make a
     # follow-up such as "Do iPhone 12" inherit an unrelated iPhone XR.
     current = text.strip()
+    abbreviated_model = _bare_iphone_model_in_installment_question(current, history)
+    if abbreviated_model:
+        current = f"{abbreviated_model}\n{current}"
     current_capacity_keys = _requested_capacity_keys(current)
     current_capacity_hint = (
         f"capacidade solicitada: {current_capacity_keys[0]}"
