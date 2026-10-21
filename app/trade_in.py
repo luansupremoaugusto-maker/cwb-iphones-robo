@@ -314,7 +314,8 @@ _DEVICE_AS_ENTRY_RE = re.compile(
     re.IGNORECASE,
 )
 _OWNED_NUMBERED_IPHONE_RE = re.compile(
-    r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+(?:um|uma|o|a)?\s*"
+    r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+"
+    r"(?:(?:um|uma|o|a|este|esta|esse|essa|aquele|aquela)\s+)?"
     r"|\b(?:meu|minha)\s+)"
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
@@ -511,6 +512,16 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         and _COMPLETE_DEVICE_DETAIL_RE.search(text)
         and _IMPLICIT_EXCHANGE_TARGET_RE.search(text)
     )
+    # A customer may offer a described iPhone for an unspecified upgrade,
+    # with a defect listed as its condition (for example, a broken camera).
+    # The buyback verb and owned model identify the whole phone as the object.
+    owned_device_buyback_upgrade = (
+        owned_device
+        and _BUYBACK_VERB_RE.search(text)
+        and re.search(r"\bupgrade\b", text)
+        and _IMPLICIT_UPGRADE_DETAIL_RE.search(text)
+        and not _SOFTWARE_UPGRADE_CONTEXT_RE.search(text)
+    )
     multi_device_trade_price = _MULTI_DEVICE_TRADE_PRICE_RE.search(text)
     explicit_exchange_context = _has_explicit_device_exchange_context(text)
     repair_without_exchange = (
@@ -521,6 +532,7 @@ def _has_implicit_device_upgrade_offer(text: str) -> bool:
         (
             multi_device_trade_price
             or batched_price_upgrade
+            or owned_device_buyback_upgrade
             or detailed_device_exchange_offer
             or (
                 owned_device
