@@ -3483,6 +3483,17 @@ jobs:
                           "iPhone 17 Pro Max 256 GB PRATEADO novo lacrado"
                       ),
                   ),
+                  InventoryItem(
+                      external_id="iphone-17-pro-256",
+                      name="iPhone 17 Pro",
+                      category="Novo lacrado",
+                      capacity="256 GB",
+                      condition="novo lacrado",
+                      availability="Preco confirmado",
+                      price_brl=7000,
+                      source="google_sheets",
+                      search_text="iPhone 17 Pro 256 GB novo lacrado",
+                  ),
               ]
           )
           followup_cache = StoreCatalogCache(
@@ -3530,6 +3541,28 @@ jobs:
           assert (
               "iphone-17-pro-max-silver-256" not in color_only.product_references
           ), color_only
+
+          model_change_history = [
+              {"role": "user", "content": "Eu preciso de um telefone"},
+              {"role": "assistant", "content": "Voce procura algum modelo especifico?"},
+              {"role": "user", "content": "De preferencia 16pro max"},
+              {
+                  "role": "assistant",
+                  "content": "Temos opcoes de iPhone 16 Pro Max seminovo, todos de 256GB. Qual deles voce prefere?",
+              },
+          ]
+          model_change = asyncio.run(
+              followup_service.respond(
+                  "17 pro.max Oque vc tem", history=model_change_history
+              )
+          )
+          assert not model_change.handoff, model_change
+          assert model_change.product_references == [
+              "iphone-17-pro-max-silver-256"
+          ], model_change
+          assert "iPhone 17 Pro Max" in model_change.reply, model_change.reply
+          assert "iPhone 17 Pro —" not in model_change.reply, model_change.reply
+          print("IPHONE_17_PROMAX_PERIOD_SEPARATOR_FOLLOWUP_GUARD_OK")
           print("IPHONE_17_PROMAX_COLOR_FOLLOWUP_GUARD_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'

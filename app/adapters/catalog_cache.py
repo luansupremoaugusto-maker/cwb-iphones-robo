@@ -26,7 +26,7 @@ def _normalize(value: str) -> str:
     )
     normalized = re.sub(r"\s+", " ", without_accents).strip().lower()
     normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
-    return re.sub(r"\bpromax\b", "pro max", normalized)
+    return re.sub(r"\bpro[\W_]*max\b", "pro max", normalized)
 
 
 def _score_text(value: Any) -> str:

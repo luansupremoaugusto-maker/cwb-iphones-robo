@@ -86,6 +86,10 @@ def test_shared_pro_max_suffix_extracts_each_number_as_a_requested_model():
     )
 
 
+def test_iphone_pro_max_model_parser_accepts_period_between_pro_and_max():
+    assert _requested_iphone_model_keys("17 pro.max") == ((17, "pro max"),)
+
+
 def test_pro_max_conjunction_with_do_keeps_both_requested_models():
     assert _requested_iphone_model_keys(
         "Gostaria de saber quais cores do iPhone 14 Pro Max e do 15 pro Max "
@@ -545,6 +549,36 @@ async def test_color_and_promax_followup_after_iphone17_offer_selects_pro_max(tm
 
     assert "iPhone 17 Pro Max" not in color_only.reply
     assert "iphone-17-pro-max-silver-256" not in color_only.product_references
+
+
+@pytest.mark.asyncio
+async def test_catalog_followup_keeps_17_pro_max_after_period_in_customer_selection(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Eu preciso de um telefone"},
+        {
+            "role": "assistant",
+            "content": (
+                "Claro! Voce procura algum modelo especifico ou quer me contar "
+                "seu orcamento e se prefere seminovo ou lacrado?"
+            ),
+        },
+        {"role": "user", "content": "De preferencia 16pro max"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos 3 opcoes de iPhone 16 Pro Max seminovo, todos de 256GB. "
+                "Qual deles voce prefere?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("17 pro.max Oque vc tem", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["17-pro-max-128", "17-pro-max-256"]
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "iPhone 17 Pro —" not in decision.reply
 
 
 @pytest.mark.asyncio
