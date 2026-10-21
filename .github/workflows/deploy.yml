@@ -886,6 +886,96 @@ jobs:
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
           import time
+          from app.adapters.catalog_cache import StoreCatalogCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.schemas import InventoryItem
+
+          class EmptyMercadoClient:
+              async def fetch_all_inventory(self):
+                  return []
+
+          class SealedCatalog:
+              def __init__(self):
+                  self.items = [
+                      InventoryItem(
+                          external_id="iphone-18-pro-512",
+                          name="iPhone 18 Pro",
+                          category="Novo lacrado",
+                          capacity="512 GB",
+                          price_brl=9600,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preco confirmado",
+                          search_text="iPhone 18 Pro 512 GB novo lacrado",
+                      ),
+                      InventoryItem(
+                          external_id="iphone-17-pro-256",
+                          name="iPhone 17 Pro",
+                          category="Novo lacrado",
+                          capacity="256 GB",
+                          price_brl=7000,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preco confirmado",
+                          search_text="iPhone 17 Pro 256 GB novo lacrado",
+                      ),
+                      InventoryItem(
+                          external_id="iphone-17-pro-512",
+                          name="iPhone 17 Pro",
+                          category="Novo lacrado",
+                          capacity="512 GB",
+                          price_brl=7100,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preco confirmado",
+                          search_text="iPhone 17 Pro 512 GB novo lacrado",
+                      ),
+                      InventoryItem(
+                          external_id="iphone-17-pro-max-256",
+                          name="iPhone 17 Pro Max",
+                          category="Novo lacrado",
+                          capacity="256 GB",
+                          price_brl=8500,
+                          source="google_sheets",
+                          condition="novo lacrado",
+                          availability="Preco confirmado",
+                          search_text="iPhone 17 Pro Max 256 GB novo lacrado",
+                      ),
+                  ]
+
+              async def ensure_fresh(self):
+                  return None
+
+              async def search(self, query, limit=5):
+                  return self.items[:limit]
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          cache = StoreCatalogCache(
+              EmptyMercadoClient(),
+              settings,
+              cache_path="/tmp/iphone-18-or-17-pro-256.json",
+              sealed_cache=SealedCatalog(),
+          )
+          cache.last_refresh = time.time()
+          service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+          history = [
+              {"role": "assistant", "content": "Temos outras opções para você."},
+              {"role": "user", "content": "entendi irmão"},
+              {"role": "user", "content": "18 pro teria algum?"},
+          ]
+          decision = asyncio.run(service.respond("ou ate 17 pro 256 msm", history=history))
+          assert not decision.handoff, decision
+          for value in ("iPhone 18 Pro", "iPhone 17 Pro", "R$ 9.600,00", "R$ 7.000,00"):
+              assert value in decision.reply, decision.reply
+          for value in ("iPhone 17 Pro Max", "R$ 7.100,00"):
+              assert value not in decision.reply, decision.reply
+          print("IPHONE_18_PRO_OR_17_PRO_256_PENDING_ALTERNATIVES_OK")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
+          import time
           from app.adapters.catalog_cache import StoreCatalogCache, _requested_iphone_model_keys
           from app.agent import AgentService
           from app.config import Settings
