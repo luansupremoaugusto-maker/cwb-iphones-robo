@@ -999,7 +999,16 @@ def _is_store_buyback_question(text: str) -> bool:
         if customer_buying_at_store and not _has_personal_device_reference(text):
             store_subject = None
         buyback_context = store_subject or verb_first
-    return bool(buyback_context and _has_device_reference(text)) or bool(
+    # Accept the common plural "iPhones" after an explicit buyback verb.
+    # "Vcs aceitam" alone is also used for catalog payment questions.
+    has_store_buyback_device = _has_device_reference(text) or bool(
+        re.search(
+            r"\b(?:compr\w*|peg\w*|receb\w*|avali\w*)\b.{0,45}\biphones\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    return bool(buyback_context and has_store_buyback_device) or bool(
         re.search(r"\b(?:vocês|voces|vcs|loja)\b.{0,35}\baceitam\s+usado\b", text, re.IGNORECASE)
     )
 
