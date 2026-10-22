@@ -998,6 +998,29 @@ async def test_installment_followup_after_ready_stock_question_uses_offered_macb
     assert "10x de R$" in decision.reply
 
 
+@pytest.mark.parametrize(
+    ("newer_offer", "expected_model"),
+    [
+        ("AirPods Pro 3 256 GB — R$ 2.100,00", "AirPods Pro 3"),
+        ("Apple Watch SE 3 GPS 40 mm — R$ 1.700,00", "Apple Watch SE 3"),
+    ],
+)
+def test_installment_context_prefers_newer_supported_family_over_old_macbook(
+    newer_offer,
+    expected_model,
+):
+    history = [
+        {"role": "assistant", "content": "MacBook Neo 2026 13 256 GB — R$ 4.800,00"},
+        {"role": "user", "content": f"Pode ver {expected_model}?"},
+        {"role": "assistant", "content": newer_offer},
+    ]
+
+    query = _installment_context_query("Quanto fica em 10x?", history)
+
+    assert expected_model in query
+    assert "MacBook Neo" not in query
+
+
 @pytest.mark.asyncio
 async def test_chat_followup_quantas_vezes_simulates_requested_sealed_iphone_15(tmp_path):
     cache, settings = build_cache(tmp_path)

@@ -4341,7 +4341,7 @@ def _installment_context_query(
         assistant_context = item.get("content", "")
         # Word boundaries keep "antecipado" from matching the substring "ipad".
         if item.get("role") == "assistant" and re.search(
-            r"\b(?:iphone|ipad|macbook|produto)\w*\b",
+            r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|produto)\w*\b",
             _normalize(assistant_context),
         ):
             assistant_context = _strip_unavailable_catalog_claims(assistant_context)
