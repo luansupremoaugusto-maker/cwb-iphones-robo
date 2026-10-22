@@ -1462,6 +1462,28 @@ def is_trade_in_context_request(
         if entry.get("role") == "user" and entry.get("content")
     )
     user_context = f"{recent_user_context} {normalized}".strip()
+    # A buyback price question and the phone profile can arrive as separate
+    # WhatsApp messages. Treat a later purchase-origin answer as part of that
+    # offer only when the recent history also identifies a model, capacity,
+    # and device condition.
+    fragmented_buyback_profile = bool(
+        _PRICE_BUYBACK_RE.search(recent_user_context)
+        and _BARE_IPHONE_MODEL_RE.search(user_context)
+        and re.search(r"\b\d{1,4}\s*(?:gb|tb)\b", user_context)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(user_context)
+        and re.search(r"\b(?:comprei|adquiri)\b", normalized)
+    )
+    if (
+        fragmented_buyback_profile
+        and not _NEGATION_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(user_context)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(user_context)
+        and not is_parts_buyback_request(user_context)
+        and not _NON_APPLE_RE.search(user_context)
+        and not _SOFTWARE_UPGRADE_CONTEXT_RE.search(user_context)
+    ):
+        return True
+
     # A customer may describe an owned Apple device first, then ask in a
     # separate message whether the store takes it as part of the payment.
     # Evaluate ownership and the current buyback cue separately so condition

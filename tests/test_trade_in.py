@@ -2514,6 +2514,42 @@ async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_fragmented_iphone_trade_profile_with_purchase_origin_sends_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Oii"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {"role": "user", "content": "Tudo bom?"},
+        {"role": "user", "content": "Dx eu perguntar"},
+        {"role": "user", "content": "Quanto vcs pagam num 17 pro"},
+        {"role": "user", "content": "256gb"},
+        {"role": "user", "content": "Nenhum defeito"},
+        {"role": "user", "content": "Nada trocado"},
+        {"role": "user", "content": "Caixa e nota"},
+    ]
+    text = "Comprei na Itália"
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_context_request(text, history) is True
+
+
+@pytest.mark.asyncio
 async def test_conditional_buyback_price_question_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = StoreCatalogCache(
