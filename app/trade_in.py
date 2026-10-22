@@ -945,6 +945,23 @@ def _has_device_offer(text: str) -> bool:
     )
 
 
+def _has_explicit_apple_device_sale_offer(text: str) -> bool:
+    """Keep an explicit offer to sell a device ahead of repair wording."""
+    sale_target = re.search(
+        r"\b(?:vender|vendo|vendendo|venda)\s+"
+        r"(?:(?:o|a|um|uma)\s+)?"
+        r"(?:(?:meu|minha|meus|minhas)\s+)?"
+        r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return bool(
+        sale_target
+        and _has_device_offer(text)
+        and not _NON_APPLE_RE.search(text)
+    )
+
+
 def _is_store_buyback_question(text: str) -> bool:
     """Recognize questions about the shop buying an Apple device."""
     if re.search(r"\b(?:compram|compra)\s+da\s+apple\b", text):
@@ -1160,6 +1177,7 @@ def is_trade_in_request(text: str | None) -> bool:
     if _DEVICE_COMPONENT_REPAIR_RE.search(normalized) and not (
         _has_implicit_device_upgrade_offer(normalized)
         or _has_complete_owned_device_buyback_offer(normalized)
+        or _has_explicit_apple_device_sale_offer(normalized)
         or _has_complete_device_buyback_context(normalized)
         or (
             _has_complete_owned_device_profile(normalized)
