@@ -938,6 +938,67 @@ async def test_installment_question_after_delivery_keeps_unique_battery_matched_
 
 
 @pytest.mark.asyncio
+async def test_installment_followup_after_ready_stock_question_uses_offered_macbook_neo(
+    tmp_path,
+):
+    cache, settings = build_cache(tmp_path)
+    cache.items = []
+    cache.sealed_cache.items = [
+        InventoryItem(
+            external_id="sheet:macbook-neo-256",
+            name="MacBook Neo 2026 13",
+            category="MacBook",
+            capacity="256 GB",
+            color="Prateado",
+            condition="NOVO LACRADO",
+            availability="Por encomenda",
+            quantity=0,
+            price_brl=4800.0,
+            source="google_sheets",
+            search_text=(
+                "macbook neo 2026 13 prateado 256 gb novo lacrado por encomenda"
+            ),
+        )
+    ]
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quanto fica em 10x?",
+        history=[
+            {"role": "user", "content": "Oi, vc tem Mac neo?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Sim 😊 Encontrei estas opções de MacBook Neo 2026 13\" disponíveis:\n"
+                    "📦 Novos lacrados por encomenda:\n"
+                    "• MacBook Neo 2026 13\" — Prateado | Azul | Amarelo | Rosa — "
+                    "8 / 256 GB — NOVO LACRADO — R$ 4.800,00. Os lacrados são por "
+                    "encomenda, com prazo de 1 semana."
+                ),
+            },
+            {
+                "role": "user",
+                "content": "Pra pegar em Ctba vc tem a pronta entrega já?",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Não localizei esse modelo a pronta entrega no estoque no momento. "
+                    "Se quiser, posso consultar opções por encomenda ou outros modelos."
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert "Parcelamento do MacBook Neo 2026 13 256 GB" in decision.reply
+    assert "Preço à vista: R$ 4.800,00" in decision.reply
+    assert "10x de R$" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_chat_followup_quantas_vezes_simulates_requested_sealed_iphone_15(tmp_path):
     cache, settings = build_cache(tmp_path)
     cache.items = [
