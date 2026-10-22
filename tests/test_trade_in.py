@@ -645,6 +645,7 @@ def test_parts_buyback_detector_does_not_capture_customer_purchase_of_a_part():
     "text",
     [
         "Vocês compram peças de iPhone?",
+        "Vocês compram peças de iPhones?",
         "A loja compra tela de iPhone?",
         "A loja compra a bateria do telefone antigo?",
     ],
@@ -1009,6 +1010,7 @@ async def test_possibility_to_buy_iphone_16_pro_max_returns_catalog_options(tmp_
     [
         "quero comprar um iphone",
         "quero comprar um iphone usado",
+        "quero comprar iphones usados",
         "tem iphone usado?",
         "tem usado?",
         "vou dar 2000 de entrada",
@@ -1103,6 +1105,36 @@ async def test_malformed_store_buyback_question_sends_evaluation_form(tmp_path):
     assert is_trade_in_request(text) is True
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Gostaria de saber se vocês compram iphones tbm",
+        "Gostaria de saber se vocês compram iphones tbm\n??",
+    ],
+)
+async def test_plural_iphone_buyback_question_sends_evaluation_form(tmp_path, text):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Boa tarde"},
+        {"role": "assistant", "content": "Boa tarde! 😊 Como posso te ajudar?"},
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.product_references == []
+    assert decision.image_urls == []
 
 
 @pytest.mark.asyncio
