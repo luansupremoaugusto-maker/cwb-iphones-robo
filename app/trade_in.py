@@ -343,6 +343,12 @@ _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
     r"como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_BARE_MODEL_PART_VALUE_OFFER_RE = re.compile(
+    _BUYBACK_VERB_RE.pattern
+    + r".{0,25}\b(?:(?:o|a|meu|minha)\s+(?:iphone\s*)?|iphone\s*)"
+    + r"(?:[6-9]|1[0-8])\b.{0,50}\bparte\s+do\s+valor\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_UPGRADE_TARGET_RE = re.compile(
     r"\b(?:(?:estou\s+)?querendo|quer(?:ia|o)|gostaria\s+de|pretendo)\b\s+"
     r"(?:trocar\s+(?:por|para|pra|pro|pelo|pela)\s+)?"
@@ -429,7 +435,7 @@ _BARE_MODEL_ENTRY_FOLLOWUP_RE = re.compile(
 _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro)|na\s+troca|"
     r"base\s+(?:de|para|pra)\s+troca|"
-    r"parte\s+do\s+pagamento|como\s+entrada|de\s+entrada)\b",
+    r"parte\s+do\s+(?:pagamento|valor)|como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
@@ -1607,6 +1613,7 @@ def is_trade_in_context_request(
 
     has_current_bare_model_trade_offer = bool(
         _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(normalized)
+        or _CONTEXTUAL_BARE_MODEL_PART_VALUE_OFFER_RE.search(normalized)
         # After a catalog reply, an owned bare generation plus capacity,
         # condition, and a buyback verb can identify the complete phone.
         or (
