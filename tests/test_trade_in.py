@@ -2828,6 +2828,59 @@ async def test_contextual_device_offer_after_catalog_reply_sends_evaluation_form
 
 
 @pytest.mark.asyncio
+async def test_bare_iphone_as_part_of_value_after_catalog_reply_sends_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "oi boa tarde"},
+        {"role": "assistant", "content": "Boa tarde! Como posso ajudar?"},
+        {"role": "user", "content": "vc tem o iphone 16e"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de IPHONE 16E disponíveis: "
+                "IPHONE 16E — PRETO — 128GB — SEMINOVO — R$ 2.610,00 | Bat: 100%"
+            ),
+        },
+    ]
+    text = "aceita o 13 como parte do valor?"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    cash_question = "Aceita R$ 13 como parte do valor?"
+    assert is_trade_in_context_request(cash_question, history) is False
+    cash_decision = await service.respond(cash_question, history=history)
+    assert cash_decision.reply != TRADE_IN_FORM
+
+    buyer_question = "Tem o iPhone 13?"
+    assert is_trade_in_context_request(buyer_question, history) is False
+    buyer_decision = await service.respond(buyer_question, history=history)
+    assert buyer_decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_grouped_tem_interesse_offer_returns_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
