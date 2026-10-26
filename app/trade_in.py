@@ -1760,20 +1760,6 @@ def is_trade_in_context_request(
 
     # Some customers omit "iPhone" in a short follow-up such as
     # "Tenho 14, quanto ficaria dai?" after a product price was discussed.
-    if (
-        _OWNED_NUMBERED_IPHONE_RE.search(recent_user_context)
-        and _COMPLETE_DEVICE_DETAIL_RE.search(recent_user_context)
-        and re.search(r"\b(?:quanto|valor|ficaria)\b", normalized)
-        and re.search(r"\b(?:iphone\s*)?\d{1,2}\b", normalized)
-        and any(
-            re.search(r"\b(?:encaminhar|encaminhei|encaminhada)\b", _normalize(entry.get("content", "")))
-            and re.search(r"\b(?:atendente|avaliar|avaliacao)\b", _normalize(entry.get("content", "")))
-            for entry in history[-8:]
-            if entry.get("role") == "assistant" and entry.get("content")
-        )
-        and not _CATALOG_PRICE_DEVICE_ENTRY_CUE_RE.search(normalized)
-    ):
-        return True
     owns_numbered_device = re.search(
         r"\b(?:tenho|possuo|estou com|to com)\s+(?:um\s+)?"
         r"(?:iphone\s*)?\d{1,2}\b",
