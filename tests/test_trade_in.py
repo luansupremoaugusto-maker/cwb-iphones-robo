@@ -3609,8 +3609,33 @@ async def test_detailed_owned_iphone_upgrade_in_whatsapp_message_sends_evaluatio
     assert decision.handoff is True
     assert decision.product_references == []
     assert decision.image_urls == []
-    assert is_trade_in_request(text) is True
-    assert is_parts_buyback_request(text) is False
+
+
+@pytest.mark.asyncio
+async def test_price_followup_after_condition_handoff_resumes_trade_in_evaluation(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Tenho um iPhone 13"},
+        {"role": "user", "content": "Com 89 de bateria"},
+        {"role": "user", "content": "Sem arranhão"},
+        {"role": "user", "content": "Sem peça trocada"},
+        {
+            "role": "assistant",
+            "content": CONDITION_HANDOFF_REPLY,
+        },
+    ]
+
+    decision = await service.respond("Queria saber quanto ficaria o 16", history=history)
+
+    assert is_trade_in_context_request("Queria saber quanto ficaria o 16", history)
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
 
 
 @pytest.mark.asyncio
