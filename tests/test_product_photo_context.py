@@ -130,6 +130,12 @@ def _build_1tb_agent(tmp_path) -> AgentService:
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+def _build_agent_with_items(tmp_path, items: list[InventoryItem]) -> AgentService:
+    agent = _build_agent(tmp_path)
+    agent.cache.items = items
+    return agent
+
+
 def _model_history() -> list[dict[str, str]]:
     return [
         {"role": "user", "content": "To vendo se vou pro 15 pro max"},
@@ -381,6 +387,72 @@ async def test_generic_cellphone_photo_followup_sends_previous_used_iphone_photo
     accessory_photo = await agent.respond("Consegue mandar foto da capinha", history=history)
 
     assert accessory_photo.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_photo_request_selects_exact_row_from_customer_catalog_list(tmp_path):
+    def item(external_id, name, capacity, color, price):
+        return InventoryItem(
+            external_id=external_id,
+            name=name,
+            category="Celular",
+            capacity=capacity,
+            color=color,
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=95,
+            source="mercado_phone",
+            search_text=f"{name} {color} {capacity} celular seminovo",
+            photo_urls=[f"https://photos.example/{external_id}.jpg"],
+        )
+
+    items = [
+        item("pro-256-black", "IPHONE 16 PRO", "256GB", "TITÂNIO PRETO", 3470),
+        item("pro-1tb-natural", "IPHONE 16 PRO", "1TB", "TITÂNIO NATURAL", 3790),
+        item("iphone-16-black", "IPHONE 16", "128GB", "PRETO", 3630),
+        item("iphone-16-rose", "IPHONE 16", "128GB", "ROSA", 2670),
+        item("plus-rose", "IPHONE 16 PLUS", "128GB", "ROSA", 3750),
+    ]
+    agent = _build_agent_with_items(tmp_path, items)
+    catalog = (
+        "IPHONE 15\n"
+        "• - AZUL - 128GB - SEMINOVO — R$ 2.640,00 | Bat: 88%\n"
+        "• - PRETO - 256GB - SEMINOVO — R$ 2.820,00 | Bat: 95%\n"
+        "IPHONE 15 PLUS\n"
+        "• - ROSA - 128GB - SEMINOVO — R$ 2.670,00 | Bat: 95%\n"
+        "• - PRETO - 256GB - SEMINOVO — R$ 2.830,00 | Bat: 95%\n"
+        "IPHONE 15 PRO\n"
+        "• - TITÂNIO PRETO - 128GB - SEMINOVO — R$ 3.470,00 | Bat: 97%\n"
+        "• - TITÂNIO PRETO - 256GB - SEMINOVO — R$ 3.410,00 | Bat: 81%\n"
+        "• - TITÂNIO NATURAL - 1TB - SEMINOVO — R$ 3.790,00 | Bat: 91%\n"
+        "IPHONE 16E\n"
+        "• - PRETO - 128GB - SEMINOVO — R$ 2.610,00 | Bat: 100%\n"
+        "IPHONE 16\n"
+        "• - PRETO - 128GB - SEMINOVO — R$ 3.630,00 | Bat: 88%\n"
+        "• - PRETO - 256GB - SEMINOVO — R$ 3.850,00 | Bat: 88%\n"
+        "IPHONE 16 PLUS\n"
+        "• - ROSA - 128GB - SEMINOVO — R$ 3.750,00 | Bat: 92%"
+    )
+    selected = item("iphone-15-plus-rose", "IPHONE 15 PLUS", "128GB", "ROSA", 2670)
+    agent = _build_agent_with_items(tmp_path, [selected, *items])
+    history = [
+        {
+            "role": "assistant",
+            "content": catalog,
+        },
+        {
+            "role": "user",
+            "content": "ROSA - 128GB - SEMINOVO — R$ 2.670,00 | Bat: 95%",
+        },
+    ]
+
+    decision = await agent.respond("consegue me enviar foto desse?", history=history)
+
+    assert decision.handoff is False
+    assert decision.image_urls == ["https://photos.example/iphone-15-plus-rose.jpg"]
+    assert decision.product_references == ["iphone-15-plus-rose"]
 
 
 @pytest.mark.asyncio

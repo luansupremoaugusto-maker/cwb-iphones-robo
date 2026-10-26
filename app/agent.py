@@ -4569,6 +4569,53 @@ def _photo_price_selector_context(
     return "\n".join(dict.fromkeys(line for line in context_lines if line.strip()))
 
 
+def _selected_catalog_row_context(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Keep a customer's exact choice from a preceding product list."""
+    current = _normalize(text)
+    if not re.search(r"\b(?:esse|essa|desse|dessa|deles|delas|deste|desta)\b", current):
+        return None
+    if not history:
+        return None
+
+    latest_user = next(
+        (entry.get("content", "").strip() for entry in reversed(history) if entry.get("role") == "user"),
+        "",
+    )
+    if not latest_user or _has_product_reference(_normalize(latest_user)):
+        return None
+
+    selected = _photo_price_selectors(latest_user)
+    if not selected:
+        return None
+    catalog_entries = [
+        entry.get("content", "")
+        for entry in reversed(history)
+        if entry.get("role") == "assistant"
+        and any(_photo_price_selectors(line) for line in entry.get("content", "").splitlines())
+    ]
+    if not catalog_entries:
+        return None
+
+    lines = catalog_entries[0].splitlines()
+    matches = [
+        line.strip()
+        for line in lines
+        if set(selected).intersection(_photo_price_selectors(line))
+    ]
+    if len(matches) != 1:
+        return None
+
+    line_index = lines.index(matches[0])
+    heading = next(
+        (line.strip() for line in reversed(lines[:line_index]) if _has_product_reference(_normalize(line))),
+        "",
+    )
+    return "\n".join(part for part in (heading, matches[0], latest_user, text) if part)
+
+
 def _product_context_query(
     text: str,
     history: list[dict[str, str]] | None,
@@ -4578,6 +4625,9 @@ def _product_context_query(
     """Preserva a referência do produto atual ao consultar o histórico."""
     current = text.strip()
     normalized = _normalize(current)
+    selected_row_context = _selected_catalog_row_context(current, history)
+    if selected_row_context:
+        return selected_row_context
     price_selector_context = _photo_price_selector_context(current, history)
     if price_selector_context:
         return price_selector_context
