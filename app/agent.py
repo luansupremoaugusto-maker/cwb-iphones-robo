@@ -9786,7 +9786,12 @@ class AgentService:
         has_installment_intent = (
             _requested_installments(text) is not None
             or _is_full_installment_request(text)
-            or bool(re.search(r"\b(?:parcel\w*|quantas\s+vezes)\b", normalized))
+            or bool(
+                re.search(
+                    r"\b(?:parcel\w*|quantas\s+vezes|fica\s+quanto|quanto\s+fica)\b",
+                    normalized,
+                )
+            )
         )
         if not has_installment_intent:
             return None
