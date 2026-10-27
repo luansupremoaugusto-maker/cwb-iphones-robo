@@ -41,10 +41,11 @@ from app.installments import (
     format_installment_result,
     format_installment_table,
     simulate_installment,
+    simulate_installment_table_with_entry,
     simulate_installment_with_entry,
 )
 from app.safety import protect_customer_decision
-from app.schemas import AgentDecision
+from app.schemas import AgentDecision, InventoryItem
 from app.trade_in import (
     CONDITION_HANDOFF_REASON,
     CONDITION_HANDOFF_REPLY,
@@ -6507,6 +6508,10 @@ class AgentService:
         if delivery_payment_decision is not None:
             return protect_customer_decision(delivery_payment_decision)
 
+        entry_installment_decision = await self._try_entry_installment(text, history)
+        if entry_installment_decision is not None:
+            return protect_customer_decision(entry_installment_decision)
+
         combined_catalog_payment_decision = await self._try_combined_catalog_payment_methods(
             text,
             history,
@@ -6611,10 +6616,6 @@ class AgentService:
         warranty_decision = await self._try_warranty(text, history)
         if warranty_decision is not None:
             return protect_customer_decision(warranty_decision)
-
-        entry_installment_decision = await self._try_entry_installment(text, history)
-        if entry_installment_decision is not None:
-            return protect_customer_decision(entry_installment_decision)
 
         specific_installment_decision = await self._try_specific_installment(text, history)
         if specific_installment_decision is not None:
@@ -9781,6 +9782,14 @@ class AgentService:
         entry_amount = _extract_entry_amount(text)
         if entry_amount is None:
             return None
+        normalized = _normalize(text)
+        has_installment_intent = (
+            _requested_installments(text) is not None
+            or _is_full_installment_request(text)
+            or bool(re.search(r"\b(?:parcel\w*|quantas\s+vezes)\b", normalized))
+        )
+        if not has_installment_intent:
+            return None
 
         query = _installment_context_query(text, history)
         try:
@@ -9793,6 +9802,44 @@ class AgentService:
                     reply=format_installment_table(result),
                     confidence="high",
                 )
+            if result.get("ambiguo"):
+                candidates = result.get("candidatos") or []
+                if candidates and all(isinstance(candidate, dict) for candidate in candidates):
+                    candidate_keys: set[tuple[str, str, str, float]] = set()
+                    for candidate in candidates:
+                        try:
+                            candidate_keys.add(
+                                (
+                                    _normalize(str(candidate.get("nome") or "")),
+                                    _normalize(str(candidate.get("capacidade") or "")),
+                                    _normalize(str(candidate.get("condicao") or "")),
+                                    round(float(candidate["preco_brl"]), 2),
+                                )
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            candidate_keys.clear()
+                            break
+                    if len(candidate_keys) == 1:
+                        candidate = candidates[0]
+                        item = InventoryItem(
+                            external_id=str(candidate.get("referencia") or "entry-installment"),
+                            name=str(candidate["nome"]),
+                            capacity=str(candidate["capacidade"]),
+                            condition=str(candidate["condicao"]),
+                            price_brl=float(candidate["preco_brl"]),
+                        )
+                        equivalent_result = simulate_installment_table_with_entry(
+                            item,
+                            entry_amount,
+                        )
+                        if equivalent_result.get("encontrado"):
+                            return AgentDecision(
+                                reply=format_installment_table(equivalent_result),
+                                confidence="high",
+                            )
+                ambiguous_decision = _format_ambiguous_installment_decision(result)
+                if ambiguous_decision is not None:
+                    return ambiguous_decision
         except Exception:
             return None
         return None
