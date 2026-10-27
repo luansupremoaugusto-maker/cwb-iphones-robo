@@ -3376,6 +3376,73 @@ def _is_cash_discount_question(text: str) -> bool:
     return has_cash_method and (has_discount_marker or has_price_equivalence_marker)
 
 
+def _is_cash_price_question(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized or _is_cash_discount_question(text):
+        return False
+    has_cash_method = bool(
+        re.search(r"\b(?:pix|dinheiro|debito|a\s+vista)\b", normalized)
+    )
+    asks_for_amount = bool(
+        re.search(
+            r"\b(?:quanto|valor|preco|custa\w*|fica\w*|sai\w*)\b",
+            normalized,
+        )
+    )
+    return has_cash_method and asks_for_amount
+
+
+def _cash_price_quotes_from_history(
+    history: list[dict[str, str]] | None,
+) -> list[str]:
+    if not _has_recent_catalog_sale_context(history):
+        return []
+
+    latest_catalog_reply = next(
+        (
+            entry.get("content", "")
+            for entry in reversed(history or [])
+            if entry.get("role") == "assistant"
+            and entry.get("content")
+            and _has_product_reference(_normalize(entry.get("content", "")))
+        ),
+        "",
+    )
+    if not latest_catalog_reply:
+        return []
+
+    lines = latest_catalog_reply.splitlines()
+    item_price_lines = [
+        line.split("|", 1)[0]
+        for line in lines
+        if re.search(r"\|\s*bat\s*:", line, flags=re.IGNORECASE)
+    ]
+    cash_price_lines = [
+        line
+        for line in lines
+        if re.search(r"\b(?:preco|valor)\s+a\s+vista\b", _normalize(line))
+    ]
+    price_lines = item_price_lines or cash_price_lines
+    price_pattern = re.compile(
+        r"\br\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?",
+        flags=re.IGNORECASE,
+    )
+    matches = [
+        re.sub(r"\s+", " ", match.group()).strip()
+        for line in (price_lines or [latest_catalog_reply])
+        for match in price_pattern.finditer(line)
+    ]
+    unique_prices: list[str] = []
+    for price in matches:
+        if price.casefold() not in {item.casefold() for item in unique_prices}:
+            unique_prices.append(price)
+    if price_lines:
+        return unique_prices
+    if len(unique_prices) == 1:
+        return unique_prices
+    return []
+
+
 def _is_price_validity_question(text: str) -> bool:
     normalized = _normalize(text)
     if (
@@ -6488,6 +6555,10 @@ class AgentService:
         if payment_link_decision is not None:
             return protect_customer_decision(payment_link_decision)
 
+        cash_price_decision = self._try_cash_price_followup(text, history)
+        if cash_price_decision is not None:
+            return protect_customer_decision(cash_price_decision)
+
         price_policy_decision = self._try_price_policy(text)
         if price_policy_decision is not None:
             return protect_customer_decision(price_policy_decision)
@@ -6922,6 +6993,33 @@ class AgentService:
             reply=self._append_delivery_or_pickup_info(reply, text),
             confidence="high",
         )
+
+    def _try_cash_price_followup(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not _is_cash_price_question(text) or not _has_recent_catalog_sale_context(history):
+            return None
+
+        prices = _cash_price_quotes_from_history(history)
+        policy = self.faq.get("desconto_pix") or (
+            "Não há desconto no PIX; PIX, dinheiro e cartão de débito têm "
+            "pagamento integral à vista, sem taxas."
+        )
+        if len(prices) == 1:
+            reply = f"À vista fica {prices[0]}. {policy}"
+        elif prices:
+            reply = (
+                "À vista, os valores são os mesmos informados para cada opção: "
+                f"{', '.join(prices)}. {policy}"
+            )
+        else:
+            reply = (
+                "À vista fica o mesmo valor informado para a opção do catálogo. "
+                f"{policy}"
+            )
+        return AgentDecision(reply=reply, confidence="high")
 
     def _append_delivery_or_pickup_info(self, reply: str, text: str) -> str:
         if not _is_delivery_or_pickup_request(text):

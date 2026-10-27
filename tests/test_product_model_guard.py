@@ -6647,6 +6647,22 @@ async def test_pix_discount_followup_answers_payment_policy_instead_of_repeating
 
 
 @pytest.mark.asyncio
+async def test_cash_amount_followup_quotes_catalog_price_instead_of_repeating_catalog(tmp_path):
+    agent = _build_17_pro_price_followup_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Se o pagamento for à vista qual valor ficaria?",
+        history=_price_followup_history(),
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "r$ 7.200,00" in reply
+    assert "nao ha desconto no pix" in reply
+    assert "encontrei estas opcoes" not in reply
+
+
+@pytest.mark.asyncio
 async def test_catalog_price_negotiation_does_not_send_trade_in_form(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
