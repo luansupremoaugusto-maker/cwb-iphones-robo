@@ -991,7 +991,7 @@ def _is_store_buyback_question(text: str) -> bool:
     # "Vocês realizam a compra de aparelho?" asks whether the store buys
     # customers' devices; here "compra" describes the store's service.
     store_buyback_service = re.search(
-        r"\b(?:voce|voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
+        r"\b(?:a\s+loja|loja|cwb\.iphones|voce|voces|vcs)\s+"
         r"(?:realiz\w*|faz\w*|efetu\w*)\s+(?:(?:a|uma)\s+)?compra\s+de\b",
         text,
         flags=re.IGNORECASE,
