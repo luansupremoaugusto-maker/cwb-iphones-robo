@@ -4259,6 +4259,65 @@ async def test_owned_iphone_description_then_trade_in_followup_sends_evaluation_
 
 
 @pytest.mark.asyncio
+async def test_owned_iphones_offered_after_catalog_budget_question_send_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "No momento, só encontrei o iPhone 17 Pro Max seminovo de 512GB "
+                "por R$ 7.400,00, com bateria em 100%. Não apareceu uma opção "
+                "com menos GB disponível."
+            ),
+        },
+        {"role": "user", "content": "Entendi"},
+        {
+            "role": "user",
+            "content": "É pq tenho uma proposta mas não vale tudo isso",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Entendo 😊 No momento, esse é o único iPhone 17 Pro Max seminovo "
+                "disponível. Se quiser, posso procurar outros modelos seminovos "
+                "numa faixa de preço mais acessível. Qual valor você tinha em mente?"
+            ),
+        },
+    ]
+    text = "Queria dar meus iPhones 12 de 128gb e um 14 pro de 256gb"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is True
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    buyer_history = [
+        {"role": "user", "content": "Quero comprar um iPhone 17 Pro Max"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei o iPhone 17 Pro Max seminovo por R$ 7.400,00. "
+                "Quer saber mais?"
+            ),
+        },
+    ]
+    assert is_trade_in_context_request(text, buyer_history) is False
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_details_after_catalog_trade_question_send_evaluation_form(
     tmp_path,
 ):

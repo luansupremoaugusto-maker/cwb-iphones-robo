@@ -313,6 +313,12 @@ _DEVICE_AS_ENTRY_RE = re.compile(
     r"(?:(?:iphone|celular|aparelho|telefone|smartphone)\s+)?na\s+volta\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_OWNED_APPLE_DEVICE_GIVE_OFFER_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo|vou)\s+dar\s+"
+    r"(?:(?:os?|as?)\s+)?(?:meu|minha|meus|minhas)\s+"
+    r"(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watches?)\b",
+    re.IGNORECASE,
+)
 _OWNED_NUMBERED_IPHONE_RE = re.compile(
     r"(?:\b(?:tenho|possuo|estou\s+com|to\s+com)\b\s+"
     r"(?:(?:um|uma|o|a|este|esta|esse|essa|aquele|aquela)\s+)?"
@@ -1579,6 +1585,34 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    has_recent_apple_catalog_budget_prompt = any(
+        _APPLE_PRODUCT_RE.search(assistant_content)
+        and re.search(
+            r"\b(?:catalogo|disponivel|opcoes|seminovo|lacrado|estoque|bateria)\b|\br\$",
+            assistant_content,
+        )
+        and re.search(
+            r"\b(?:qual|quais|que)\s+(?:(?:o|a)\s+)?(?:valor|preco|faixa)\b",
+            assistant_content,
+        )
+        for assistant_content in recent_assistant_contexts
+    )
+    # After a catalog offer, the customer may answer a budget question by
+    # offering owned phones instead of stating a cash amount: "Queria dar meus
+    # iPhones 12 ... e um 14 Pro ...". Treat that as an evaluation request only
+    # when the same recent assistant message contains the catalog offer and
+    # asks for a price range.
+    if (
+        has_recent_apple_catalog_budget_prompt
+        and _CONTEXTUAL_OWNED_APPLE_DEVICE_GIVE_OFFER_RE.search(normalized)
+        and not _NEGATION_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     recent_exchange_question = any(
         has_explicit_trade_in_cue(entry.get("content", ""))
         and not _is_component_repair_request(entry.get("content", ""))
