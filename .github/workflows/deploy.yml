@@ -1115,6 +1115,34 @@ jobs:
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_trade_in_context_request; history = [{"role": "user", "content": "Qual valor do 18 pro Max"}, {"role": "assistant", "content": "Encontrei estas opções de iPhone 18 Pro Max disponíveis por R$ 11.100,00."}]; offer = "Pega 17 pro Max por quantos"; assert is_trade_in_context_request(offer, history); assert not is_trade_in_context_request("Qual o valor do iPhone 17 Pro Max de 256 GB?", history); print("iPhone 17 buyback price follow-up: ok")'
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
+          from app.adapters.mercado_phone import InventoryCache
+          from app.agent import AgentService
+          from app.config import Settings
+          from app.faq import FAQStore
+          from app.trade_in import TRADE_IN_FORM, is_trade_in_context_request
+
+          settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+          service = AgentService(
+              InventoryCache(object(), settings, cache_path="/tmp/multiple-iphone-trade-in-form.json"),
+              FAQStore(settings.faq_file),
+              settings,
+              offline=True,
+          )
+          history = [
+              {"role": "assistant", "content": "No momento, só encontrei o iPhone 17 Pro Max seminovo de 512GB por R$ 7.400,00, com bateria em 100%. Não apareceu uma opção com menos GB disponível."},
+              {"role": "user", "content": "Entendi"},
+              {"role": "user", "content": "É pq tenho uma proposta mas não vale tudo isso"},
+              {"role": "assistant", "content": "Entendo 😊 No momento, esse é o único iPhone 17 Pro Max seminovo disponível. Se quiser, posso procurar outros modelos seminovos numa faixa de preço mais acessível. Qual valor você tinha em mente?"},
+          ]
+          text = "Queria dar meus iPhones 12 de 128gb e um 14 pro de 256gb"
+          decision = asyncio.run(service.respond(text, history=history))
+          assert is_trade_in_context_request(text, history), decision
+          assert decision.reply == TRADE_IN_FORM and decision.handoff, decision
+          assert decision.product_references == [] and decision.image_urls == [], decision
+          print("Multiple owned iPhones after a catalog budget question: evaluation form sent")
+          PY
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import asyncio
           import time
           from app.adapters.catalog_cache import StoreCatalogCache
           from app.agent import AgentService, _normalize
