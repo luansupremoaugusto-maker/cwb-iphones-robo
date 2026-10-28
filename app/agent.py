@@ -3588,6 +3588,26 @@ def _is_installment_fee_inclusion_question(text: str) -> bool:
     )
 
 
+def _is_installment_rate_for_referenced_price(text: str) -> bool:
+    """Recognize a machine-fee question that refers to a quoted catalog price."""
+    if (
+        not _is_installment_rate_question(text)
+        or _is_no_interest_installment_question(text)
+    ):
+        return False
+    if _customer_installment_price_reference(text) is not None:
+        return True
+    normalized = _normalize(text)
+    return bool(
+        re.search(
+            r"\b(?:sob|sobre|para|com)\s+(?:esse|este|aquele)\s+(?:valor|preco)\b|"
+            r"\b(?:nesse|neste|desse|deste|daquele)\s+(?:valor|preco)\b|"
+            r"\bem\s+cima\s+(?:desse|deste|daquele)\s+(?:valor|preco)\b",
+            normalized,
+        )
+    )
+
+
 def _has_recent_card_installment_simulation(
     history: list[dict[str, str]] | None,
 ) -> bool:
@@ -6719,7 +6739,10 @@ class AgentService:
         if store_hours_decision is not None:
             return protect_customer_decision(store_hours_decision)
 
-        installment_rate_decision = self._try_installment_rate_question(text, history=history)
+        installment_rate_decision = await self._try_installment_rate_question(
+            text,
+            history=history,
+        )
         if installment_rate_decision is not None:
             return protect_customer_decision(installment_rate_decision)
 
@@ -6842,7 +6865,7 @@ class AgentService:
                 confidence="low",
             )
 
-    def _try_installment_rate_question(
+    async def _try_installment_rate_question(
         self,
         text: str,
         history: list[dict[str, str]] | None = None,
@@ -6861,6 +6884,22 @@ class AgentService:
                 ),
                 confidence="high",
             )
+        if (
+            _is_installment_rate_for_referenced_price(text)
+            and _has_recent_catalog_sale_context(history)
+        ):
+            method = getattr(self.cache, "simulate_all_installments", None)
+            if callable(method):
+                query = _installment_context_query(text, history)
+                try:
+                    result = await method(query)
+                except Exception:
+                    result = {}
+                if result.get("encontrado"):
+                    return AgentDecision(
+                        reply=format_installment_table(result),
+                        confidence="high",
+                    )
         return AgentDecision(
             reply=format_installment_rates(
                 ask_for_model=not _is_no_interest_installment_question(text)
