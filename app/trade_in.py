@@ -307,6 +307,12 @@ _BARE_MODEL_EXCHANGE_OFFER_RE = re.compile(
     r"\s+(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?\d{1,2})\b",
     re.IGNORECASE,
 )
+_BARE_MODEL_ENTRY_OFFER_RE = re.compile(
+    _TRADE_IN_DEVICE_OFFER_VERB_RE.pattern
+    + r"\s+(?:(?:(?:o|a)\s+)?(?:meu|minha)\s+|(?:um|uma|o|a)\s+)?"
+    + r"(?:iphone\s*)?(?:[6-9]|1[0-8])\s+(?:de|como)\s+entrada\b",
+    re.IGNORECASE,
+)
 _DEVICE_AS_ENTRY_RE = re.compile(
     r"\b(?:aceita(?:m)?|peg(?:a|am|amos)|receb(?:e|em|emos))\s+"
     r"(?:(?:o|a)\s+)?(?:meu|minha)\s+"
@@ -829,6 +835,10 @@ def _has_device_offer(text: str) -> bool:
     if _has_detailed_device_entry_offer(text):
         return True
     if _has_owned_iphone_business_offer(text):
+        return True
+    # A short "aceita um 14 de entrada?" identifies a numbered iPhone even
+    # when the customer omits the word "iPhone" and has no catalog context.
+    if _BARE_MODEL_ENTRY_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
         return True
 
     # "Queria cotar o meu iPhone" is an offer to evaluate the customer's
