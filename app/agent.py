@@ -4675,11 +4675,26 @@ def _photo_price_selector_context(
         selected_lines.setdefault(selected_entry, set()).update(selected_indexes)
 
     context_lines: list[str] = []
+    requested_price_set = set(requested_prices)
+    offer_price_pattern = re.compile(
+        r"\br\s*\$\s*(?P<amount>\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?|"
+        r"\d{4,}(?:[.,]\d{2})?)",
+        flags=re.IGNORECASE,
+    )
+
+    def keep_requested_price(match: re.Match[str]) -> str:
+        amount = _parse_brl_amount(match.group("amount"))
+        if amount is not None and round(amount * 100) in requested_price_set:
+            return match.group(0)
+        return ""
+
     for index in sorted(selected_lines):
         lines = line_cache[index]
         chosen_indexes = selected_lines[index]
         for line_index in sorted(chosen_indexes):
             line = lines[line_index].strip()
+            line = offer_price_pattern.sub(keep_requested_price, line)
+            line = re.sub(r"\s+", " ", line).strip()
             if not _has_product_reference(_normalize(line)):
                 heading = next(
                     (
@@ -5647,7 +5662,11 @@ def _catalog_price_unit_selection_query(
     history: list[dict[str, str]] | None,
 ) -> str | None:
     """Resolve a selected cash price against the offer that asked for a choice."""
-    if not history or history[-1].get("role") != "assistant":
+    if (
+        _is_photo_request(text)
+        or not history
+        or history[-1].get("role") != "assistant"
+    ):
         return None
 
     offer = _normalize(history[-1].get("content", ""))

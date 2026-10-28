@@ -212,6 +212,46 @@ async def test_price_choice_after_installment_offer_simulates_selected_unit(tmp_
 
 
 @pytest.mark.asyncio
+async def test_photo_request_for_selected_price_stays_in_photo_flow(tmp_path):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id=f"iphone-15-128-{price}",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            photo_urls=[f"https://photos.example/iphone-15-{int(price)}.jpg"],
+            search_text="iphone 15 azul 128 gb seminovo",
+        )
+        for price in (2640.0, 2530.0)
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    offer = (
+        "Para o iPhone 15 128GB azul, há duas unidades seminovas com preços "
+        "diferentes: R$ 2.640 e R$ 2.530. Qual delas você quer que eu simule?"
+    )
+
+    decision = await agent.respond(
+        "Me manda foto do de 2.530",
+        history=[
+            {"role": "user", "content": "Quanto fica parcelado o iPhone 15?"},
+            {"role": "assistant", "content": offer},
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.image_urls == ["https://photos.example/iphone-15-2530.jpg"]
+    assert "r$ 2.530,00" not in decision.reply.lower()
+    assert "simulação de parcelamento" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_options_followup_filters_models_by_the_requested_monthly_installment(tmp_path):
     cache, settings = build_cache(tmp_path)
     cache.items = [
