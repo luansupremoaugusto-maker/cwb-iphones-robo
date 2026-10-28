@@ -1302,10 +1302,21 @@ class StoreCatalogCache(InventoryCache):
                 and next(iter(product_keys))[1] is not None
             )
 
-        if condition_pair or (
-            len(candidates) > 1
-            and _catalog_score(query, candidates[0]) == _catalog_score(query, candidates[1])
-        ):
+        requested_price_cents = _requested_catalog_price_cents(query)
+        price_selects_one_candidate = requested_price_cents is not None and sum(
+            round(float(item.price_brl) * 100) == requested_price_cents
+            for item in candidates
+        ) == 1
+        condition_pair = condition_pair and not price_selects_one_candidate
+
+        scored = [(_catalog_score(query, item, match_price=True), item) for item in candidates]
+        best_score = max(score for score, _item in scored)
+        best_candidates = [item for score, item in scored if score == best_score]
+        unique_best = {
+            str(getattr(item, "external_id", "")): item for item in best_candidates
+        }
+
+        if condition_pair or len(unique_best) > 1:
             return None, {
                 "encontrado": False,
                 "ambiguo": True,
@@ -1325,7 +1336,7 @@ class StoreCatalogCache(InventoryCache):
                     for item in candidates[:3]
                 ],
             }
-        return candidates[0], None
+        return next(iter(unique_best.values())), None
 
     @staticmethod
     def _add_price_source(result: dict[str, Any], item: Any) -> dict[str, Any]:

@@ -4217,6 +4217,44 @@ def _customer_installment_price_reference(text: str) -> float | None:
     return None
 
 
+def _selected_price_from_installment_choice(text: str, offer: str) -> float | None:
+    """Resolve a bare price only when it answers a recent unit-selection prompt."""
+    normalized_offer = _normalize(offer)
+    asks_which_unit = bool(
+        re.search(
+            r"\bqual\s+(?:delas|deles|das\s+duas|dos\s+dois|unidade|opcao)\b",
+            normalized_offer,
+        )
+    )
+    asks_to_simulate = bool(re.search(r"\b(?:simul\w*|parcel\w*)\b", normalized_offer))
+    if not asks_which_unit or not asks_to_simulate:
+        return None
+
+    amount_pattern = re.compile(
+        r"(?<!\w)(?:r\s*\$\s*)?"
+        r"(?P<amount>\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?|\d{4,}(?:[.,]\d{2})?)"
+        r"(?!\w)",
+        flags=re.IGNORECASE,
+    )
+    offer_price_pattern = re.compile(
+        r"\br\s*\$\s*(?P<amount>\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?|"
+        r"\d{4,}(?:[.,]\d{2})?)",
+        flags=re.IGNORECASE,
+    )
+    selected_amounts = {
+        amount
+        for match in amount_pattern.finditer(text or "")
+        if (amount := _parse_brl_amount(match.group("amount"))) is not None
+    }
+    offered_amounts = {
+        amount
+        for match in offer_price_pattern.finditer(offer or "")
+        if (amount := _parse_brl_amount(match.group("amount"))) is not None
+    }
+    matches = selected_amounts.intersection(offered_amounts)
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
 def _selected_installment_offer_context(
     history: list[dict[str, str]] | None,
 ) -> str | None:
@@ -4226,7 +4264,18 @@ def _selected_installment_offer_context(
         item = history[index]
         if item.get("role") != "user":
             continue
-        amount = _customer_installment_price_reference(item.get("content", ""))
+        content = item.get("content", "")
+        amount = _customer_installment_price_reference(content)
+        if amount is None:
+            previous_offer = next(
+                (
+                    entry.get("content", "")
+                    for entry in reversed((history or [])[:index])
+                    if entry.get("role") == "assistant"
+                ),
+                "",
+            )
+            amount = _selected_price_from_installment_choice(content, previous_offer)
         if amount is not None:
             price_reference = (index, amount)
             break
@@ -4263,7 +4312,19 @@ def _selected_installment_offer_context(
                     }:
                         matching_segments.append(segment.strip())
         if matching_segments:
-            return matching_segments[0] if len(matching_segments) == 1 else None
+            if len(matching_segments) != 1:
+                return None
+
+            selected_segment = matching_segments[0]
+
+            def keep_selected_price(match: re.Match[str]) -> str:
+                amount = _parse_brl_amount(match.group("amount"))
+                if amount is not None and abs(amount - selected_price) < 0.01:
+                    return match.group(0)
+                return ""
+
+            selected_context = price_pattern.sub(keep_selected_price, selected_segment)
+            return re.sub(r"\s+", " ", selected_context).strip()
     return None
 
 
@@ -5581,6 +5642,29 @@ def _catalog_battery_unit_selection_query(
     )
 
 
+def _catalog_price_unit_selection_query(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Resolve a selected cash price against the offer that asked for a choice."""
+    if not history or history[-1].get("role") != "assistant":
+        return None
+
+    offer = _normalize(history[-1].get("content", ""))
+    asks_which_unit = bool(
+        re.search(
+            r"\bqual\s+(?:delas|deles|das\s+duas|dos\s+dois|unidade|opcao)\b",
+            offer,
+        )
+    )
+    asks_to_simulate = bool(re.search(r"\b(?:simul\w*|parcel\w*)\b", offer))
+    if not asks_which_unit or not asks_to_simulate:
+        return None
+
+    selection_history = [*history, {"role": "user", "content": text}]
+    return _selected_installment_offer_context(selection_history)
+
+
 def _battery_detail_context_query(text: str, history: list[dict[str, str]] | None) -> str | None:
     normalized = _normalize(text)
     health_reference = None
@@ -6632,12 +6716,12 @@ class AgentService:
         if model_installment_decision is not None:
             return protect_customer_decision(model_installment_decision)
 
-        battery_installment_selection = await self._try_battery_installment_selection(
+        installment_unit_selection = await self._try_installment_unit_selection(
             text,
             history,
         )
-        if battery_installment_selection is not None:
-            return protect_customer_decision(battery_installment_selection)
+        if installment_unit_selection is not None:
+            return protect_customer_decision(installment_unit_selection)
 
         case_accessory_decision = self._try_case_accessory_information(text)
         if case_accessory_decision is not None:
@@ -6832,7 +6916,7 @@ class AgentService:
             return None
         return await self._try_full_installment_table(text, history)
 
-    async def _try_battery_installment_selection(
+    async def _try_installment_unit_selection(
         self,
         text: str,
         history: list[dict[str, str]] | None,
@@ -6849,6 +6933,8 @@ class AgentService:
             return None
 
         query = _catalog_battery_unit_selection_query(text, history)
+        if query is None:
+            query = _catalog_price_unit_selection_query(text, history)
         if not query:
             return None
 
