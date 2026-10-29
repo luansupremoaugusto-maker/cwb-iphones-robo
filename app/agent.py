@@ -3821,7 +3821,7 @@ _ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN = (
 def _parse_entry_amount(raw_value: str) -> float | None:
     normalized_value = _normalize(raw_value)
     spoken_thousands = re.fullmatch(
-        rf"(?:(?P<multiplier>{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s+)?"
+        rf"(?:(?P<multiplier>{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s*)?"
         r"mil(?:\s+reais?)?",
         normalized_value,
     )
@@ -3839,18 +3839,25 @@ def _parse_entry_amount(raw_value: str) -> float | None:
 
 def _extract_entry_amount(text: str) -> float | None:
     normalized = _normalize(text)
-    if "entrada" not in normalized and "sinal" not in normalized:
-        return None
-
     numeric_amount = r"(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?"
     spoken_thousands = (
-        rf"(?:(?:{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s+)?mil(?:\s+reais?)?"
+        rf"(?:(?:{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s*)?mil(?:\s+reais?)?"
     )
     amount = rf"(?:{numeric_amount}|{spoken_thousands})"
-    patterns = (
-        rf"\b(?:entrada|sinal)\s*(?:(?:a|à)\s+vista\s*)?(?:de|no valor de|:)??\s*(?:r\$\s*)?({amount})",
-        rf"\b(?:r\$\s*)?({amount})\s*(?:de\s+)?(?:entrada|sinal)\b",
-    )
+    has_entry_marker = "entrada" in normalized or "sinal" in normalized
+    if has_entry_marker:
+        patterns = (
+            rf"\b(?:entrada|sinal)\s*(?:(?:a|à)\s+vista\s*)?(?:de|no valor de|:)??\s*(?:r\$\s*)?({amount})",
+            rf"\b(?:r\$\s*)?({amount})\s*(?:de\s+)?(?:entrada|sinal)\b",
+        )
+    elif re.search(r"\b(?:restante|saldo|resto|falta)\b", normalized):
+        # Some customers describe a cash down payment without calling it an
+        # entry, e.g. "pagando 2mil à vista e parcelando o restante".
+        patterns = (
+            rf"\b(?:r\$\s*)?({amount})\s*(?:a|à)\s+vista\b",
+        )
+    else:
+        return None
     for pattern in patterns:
         match = re.search(pattern, text or "", flags=re.IGNORECASE)
         if match:
@@ -6660,6 +6667,10 @@ class AgentService:
             if installment_budget_decision is not None:
                 return protect_customer_decision(installment_budget_decision)
 
+        entry_installment_decision = await self._try_entry_installment(text, history)
+        if entry_installment_decision is not None:
+            return protect_customer_decision(entry_installment_decision)
+
         installment_count_decision = await self._try_generic_installment_count_question(
             text,
             history,
@@ -6702,10 +6713,6 @@ class AgentService:
         delivery_payment_decision = self._try_delivery_payment(text, history)
         if delivery_payment_decision is not None:
             return protect_customer_decision(delivery_payment_decision)
-
-        entry_installment_decision = await self._try_entry_installment(text, history)
-        if entry_installment_decision is not None:
-            return protect_customer_decision(entry_installment_decision)
 
         combined_catalog_payment_decision = await self._try_combined_catalog_payment_methods(
             text,
