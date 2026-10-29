@@ -428,6 +428,19 @@ _IMPLICIT_DEVICE_DISCOUNT_RE = re.compile(
     r".{0,50}\b(?:descont\w*|abatimento|promoc\w*)\b",
     re.IGNORECASE,
 )
+_IMPLICIT_DEVICE_DISCOUNT_QUOTE_RE = re.compile(
+    r"\b(?:quanto|qual)\b.{0,25}\b(?:descont\w*|abatimento)\b"
+    r".{0,35}\b(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+    re.IGNORECASE,
+)
+_DEVICE_EVALUATION_CONDITION_RE = re.compile(
+    r"\b(?:sem\s+(?:marcas?\s+de\s+uso|defeit\w*|avarias?|"
+    r"riscos?|arranh\w*|problemas?)|"
+    r"(?:nenhum|nenhuma)\s+(?:defeit\w*|avaria\w*|problema\w*)|"
+    r"\d{1,3}\s*%\s*(?:de\s*)?(?:bateria|saude))\b|"
+    r"\bbateria\s*(?:de|em|com)?\s*\d{1,3}\s*%(?!\d)",
+    re.IGNORECASE,
+)
 _IMPLICIT_DEVICE_ENTRY_RE = re.compile(
     r"\bdando\b.{0,25}\b(?:o|a|um|uma)?\s*(?:meu|minha)\b"
     r".{0,180}\b(?:na\s+volta|volta|diferenc\w*|troco)\b",
@@ -1595,6 +1608,23 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    # A customer may ask how much discount their described iPhone is worth,
+    # then send condition details in a separate WhatsApp message. A complete
+    # model/capacity/condition profile without a recent catalog offer is an
+    # implicit evaluation request even when they omit "meu" or "entrada".
+    if (
+        not trade_in_em_andamento(history)
+        and not has_recent_apple_catalog_context
+        and _IMPLICIT_DEVICE_DISCOUNT_QUOTE_RE.search(user_context)
+        and _APPLE_PRODUCT_RE.search(user_context)
+        and re.search(r"\b\d{1,4}\s*(?:gb|tb)\b", user_context)
+        and _DEVICE_EVALUATION_CONDITION_RE.search(user_context)
+        and not _NEGATION_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(user_context)
+        and not _NON_APPLE_RE.search(user_context)
+        and not _PURCHASE_INTENT_RE.search(normalized)
+    ):
+        return True
     has_recent_apple_catalog_budget_prompt = any(
         _APPLE_PRODUCT_RE.search(assistant_content)
         and re.search(
