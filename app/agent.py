@@ -5486,11 +5486,12 @@ def _is_product_interest_prompt(text: str) -> bool:
 _CATALOG_BUYER_INTEREST_RE = re.compile(
     r"\b(?:fiquei|estou|to|tô)\s+interessad[oa]\b"
     r"|\bme\s+interessei\s+(?:no|na|em|nesse|nessa|neste|nesta)\b"
+    r"|\bteria\s+interesse\s+(?:nesse|nessa|neste|nesta)\b"
     r"|\btenho\s+(?:o\s+)?interesse\s+(?:no|na|em|nesse|nessa|neste|nesta)\b",
     re.IGNORECASE,
 )
 _CATALOG_BUYER_INTEREST_NEGATION_RE = re.compile(
-    r"\b(?:nao|nunca)\s+(?:fiquei|estou|to|tô|me\s+interessei|"
+    r"\b(?:nao|nunca)\s+(?:fiquei|estou|to|tô|teria|me\s+interessei|"
     r"tenho\s+(?:o\s+)?interesse)\b",
     re.IGNORECASE,
 )
