@@ -3661,7 +3661,8 @@ def _is_generic_installment_count_question(text: str) -> bool:
     normalized = _normalize(text)
     asks_how_installments_work = bool(
         re.fullmatch(
-            r"como funciona(?:m)? as parcelas(?: de (?:voces|vcs))?[?!.]*",
+            r"como funciona(?:m)? (?:as parcelas|(?:o )?parcelamento)"
+            r"(?: de (?:voces|vcs))?[?!.]*",
             normalized,
         )
     )
