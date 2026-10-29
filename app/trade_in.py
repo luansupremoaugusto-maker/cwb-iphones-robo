@@ -112,6 +112,14 @@ _STOCK_QUERY_RE = re.compile(
     r"usado|seminovo)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_STOCK_QUERY_RE = re.compile(
+    r"\b(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|aparelho)\b"
+    r".{0,80}\bque\s+(?:voces|vcs|loja)\s+(?:tem|possui|vende[m]?)\b"
+    r".{0,20}\b(?:em\s+)?estoque\b"
+    r"|\b(?:voces|vcs|loja)\s+(?:tem|possui|vende[m]?)\b.{0,35}"
+    r"\b(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|aparelho|estoque)\b",
+    re.IGNORECASE,
+)
 _CATALOG_PURCHASE_OBSERVATION_RE = re.compile(
     r"\b(?:gost(?:ei|aria)|compr\w*|presentear|olhadinha)\b",
     re.IGNORECASE,
@@ -426,6 +434,19 @@ _IMPLICIT_DEVICE_DISCOUNT_RE = re.compile(
     r"|\b(?:dar|entregar|usar|oferecer|passar)\b.{0,25}"
     r"\b(?:meu|minha|o|a)?\s*(?:celular|aparelho|iphone|smartphone|telefone)\b"
     r".{0,50}\b(?:descont\w*|abatimento|promoc\w*)\b",
+    re.IGNORECASE,
+)
+_IMPLICIT_DEVICE_DISCOUNT_QUOTE_RE = re.compile(
+    r"\b(?:quanto|qual)\b.{0,25}\b(?:descont\w*|abatimento)\b"
+    r".{0,35}\b(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+    re.IGNORECASE,
+)
+_DEVICE_EVALUATION_CONDITION_RE = re.compile(
+    r"\b(?:sem\s+(?:marcas?\s+de\s+uso|defeit\w*|avarias?|"
+    r"riscos?|arranh\w*|problemas?)|"
+    r"(?:nenhum|nenhuma)\s+(?:defeit\w*|avaria\w*|problema\w*)|"
+    r"\d{1,3}\s*%\s*(?:de\s*)?(?:bateria|saude))\b|"
+    r"\bbateria\s*(?:de|em|com)?\s*\d{1,3}\s*%(?!\d)",
     re.IGNORECASE,
 )
 _IMPLICIT_DEVICE_ENTRY_RE = re.compile(
@@ -1488,6 +1509,27 @@ def _recent_catalog_price_model_generations(
     return set()
 
 
+def _recent_implicit_discount_context(
+    history: list[dict[str, str]] | None,
+    text: str,
+) -> str:
+    """Return user messages from the latest detailed-device discount question."""
+    user_messages = [
+        _normalize(entry.get("content", ""))
+        for entry in (history or [])[-8:]
+        if entry.get("role") == "user" and entry.get("content")
+    ]
+    user_messages.append(_normalize(text))
+    quote_indices = [
+        index
+        for index, message in enumerate(user_messages)
+        if _IMPLICIT_DEVICE_DISCOUNT_QUOTE_RE.search(message)
+    ]
+    if not quote_indices:
+        return ""
+    return " ".join(user_messages[quote_indices[-1] :])
+
+
 def is_trade_in_context_request(
     text: str | None,
     history: list[dict[str, str]] | None,
@@ -1595,6 +1637,27 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    # A customer may ask how much discount their described iPhone is worth,
+    # then send condition details in a separate WhatsApp message. A complete
+    # model/capacity/condition profile without catalog or explicit stock intent
+    # is an implicit evaluation request even when they omit "meu" or "entrada".
+    discount_request_context = _recent_implicit_discount_context(history, normalized)
+    if (
+        not trade_in_em_andamento(history)
+        and not has_recent_apple_catalog_context
+        and discount_request_context
+        and _IMPLICIT_DEVICE_DISCOUNT_QUOTE_RE.search(discount_request_context)
+        and _APPLE_PRODUCT_RE.search(discount_request_context)
+        and re.search(r"\b\d{1,4}\s*(?:gb|tb)\b", discount_request_context)
+        and _DEVICE_EVALUATION_CONDITION_RE.search(discount_request_context)
+        and not _NEGATION_RE.search(discount_request_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(discount_request_context)
+        and not _NON_APPLE_RE.search(discount_request_context)
+        and not _PURCHASE_INTENT_RE.search(discount_request_context)
+        and not _STOCK_QUERY_RE.search(discount_request_context)
+        and not _EXPLICIT_STOCK_QUERY_RE.search(discount_request_context)
+    ):
+        return True
     has_recent_apple_catalog_budget_prompt = any(
         _APPLE_PRODUCT_RE.search(assistant_content)
         and re.search(
