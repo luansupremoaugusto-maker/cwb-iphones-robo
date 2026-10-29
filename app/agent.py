@@ -8057,14 +8057,23 @@ class AgentService:
             )
             if pending_multi_model_context:
                 query = pending_multi_model_context
-        visual_search_query = (
-            _visual_catalog_search_query(
-                image_description,
+        visual_search_query = None
+        if allow_buyer_interest_with_image:
+            visual_catalog_context = image_description
+            requested_text_models = _requested_iphone_model_keys(text)
+            if len(requested_text_models) == 1:
+                selected_model_segments = _visual_iphone_model_segments(
+                    image_description or ""
+                ).get(requested_text_models[0], ())
+                visual_catalog_context = (
+                    "\n".join(selected_model_segments)
+                    if selected_model_segments
+                    else text
+                )
+            visual_search_query = _visual_catalog_search_query(
+                visual_catalog_context,
                 list(getattr(self.cache, "items", []) or []),
             )
-            if allow_buyer_interest_with_image
-            else None
-        )
         if allow_buyer_interest_with_image and visual_search_query is None:
             return None
         catalog_search_query = visual_search_query or query
@@ -8504,6 +8513,30 @@ class AgentService:
                 public_candidates = matching_color_candidates
 
         if not public_candidates:
+            if allow_buyer_interest_with_image:
+                selected_text_models = _requested_iphone_model_keys(text)
+                if len(selected_text_models) == 1:
+                    # If the pictured unit is gone, check for another current
+                    # unit of the explicitly selected model before answering.
+                    current_model_decision = await self._try_product_availability(
+                        text,
+                        history=history,
+                    )
+                    if current_model_decision is not None:
+                        if current_model_decision.product_references:
+                            return current_model_decision
+                        number, variant = selected_text_models[0]
+                        number_label = str(number).upper() if isinstance(number, str) else str(number)
+                        model_label = f"iPhone {number_label}"
+                        if variant:
+                            model_label += f" {variant.title()}"
+                        return AgentDecision(
+                            reply=(
+                                f"No momento, não temos o {model_label} disponível no estoque. "
+                                "Posso procurar outras opções disponíveis?"
+                            ),
+                            confidence="medium",
+                        )
             if installment_budget is not None:
                 installment_count, monthly_limit = installment_budget
                 entry_text = (
