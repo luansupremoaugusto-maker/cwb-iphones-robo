@@ -3055,7 +3055,20 @@ def _is_photo_request(text: str) -> bool:
         return False
     if any(
         phrase in normalized
-        for phrase in ("manda", "mande", "mandar", "enviar", "envia", "mostra", "ver", "tem", "possui", "disponivel")
+        for phrase in (
+            "manda",
+            "mande",
+            "mandar",
+            "enviar",
+            "envia",
+            "mostra",
+            "ver",
+            "tem",
+            "teria",
+            "teriam",
+            "possui",
+            "disponivel",
+        )
     ):
         return True
     # Short WhatsApp requests such as "fotos do 16e preto?" often omit the
