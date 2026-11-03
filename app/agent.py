@@ -3332,13 +3332,18 @@ def _has_explicit_trade_in_context(
 ) -> bool:
     normalized = _normalize(text)
     current_trade_in_cue = has_explicit_trade_in_cue(text) or is_trade_in_request(text)
-    if _is_device_condition_question(text) and current_trade_in_cue:
-        current_trade_in_cue = bool(
-            re.search(
-                r"\b(?:na troca|para troca|parte do pagamento|como entrada|de entrada|retoma\w*)\b",
-                normalized,
-            )
+    has_exchange_phrase = bool(
+        re.search(
+            r"\b(?:na troca|para troca|parte do pagamento|como entrada|de entrada|retoma\w*)\b",
+            normalized,
         )
+    )
+    if (
+        _is_device_condition_question(text)
+        and _is_payment_methods_question(text)
+        and not has_exchange_phrase
+    ):
+        current_trade_in_cue = False
     if current_trade_in_cue:
         return True
     return any(
