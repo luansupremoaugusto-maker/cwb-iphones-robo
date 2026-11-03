@@ -2559,7 +2559,7 @@ class AgentService:
         if (
             _is_device_condition_question(combined_request)
             and not trade_in_em_andamento(history)
-            and not is_trade_in_context_request(combined_request, history)
+            and not _has_explicit_trade_in_context(combined_request, history)
         ):
             return protect_customer_decision(
                 AgentDecision(
@@ -3326,6 +3326,18 @@ def _is_device_condition_question(text: str | None) -> bool:
     )
 
 
+def _has_explicit_trade_in_context(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if is_trade_in_request(text):
+        return True
+    return any(
+        entry.get("role") == "user" and is_trade_in_request(entry.get("content"))
+        for entry in (history or [])[-8:]
+    )
+
+
 def _looks_like_trade_in_handoff(decision: AgentDecision) -> bool:
     normalized = _normalize(f"{decision.reply} {decision.handoff_reason}")
     has_device = re.search(
@@ -3422,7 +3434,7 @@ def _ensure_trade_in_form_before_handoff(
     if not decision.handoff or trade_in_em_andamento(history):
         return decision
 
-    if _is_device_condition_question(request_context) and not is_trade_in_context_request(
+    if _is_device_condition_question(request_context) and not _has_explicit_trade_in_context(
         request_context, history
     ):
         return decision.model_copy(

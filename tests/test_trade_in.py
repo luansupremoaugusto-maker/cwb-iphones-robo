@@ -2975,28 +2975,53 @@ async def test_grouped_tem_interesse_offer_returns_evaluation_form(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_processor_pauses_trade_in_conversation_after_sending_form():
+async def test_processor_hands_off_only_after_filled_trade_in_form():
     settings = Settings(
         database_url="sqlite:///:memory:",
         openai_api_key=None,
+        admin_phones="5541990000000",
         outbound_mode="disabled",
     )
     runtime = build_runtime(settings, offline=True)
+    customer = "5511999999999"
+    admin = "5541990000000"
     try:
         await runtime.processor.process_payload(
             {
                 "messageId": "trade-1",
-                "phone": "5511999999999",
+                "phone": customer,
                 "text": {"message": "Aceita meu celular como parte do pagamento?"},
             }
         )
-        conversation = runtime.repository.get_conversation("5511999999999")
-        messages = runtime.repository.recent_messages("5511999999999")
+        first_status = runtime.repository.get_conversation(customer).status
+        await runtime.processor.process_payload(
+            {
+                "messageId": "trade-2",
+                "phone": customer,
+                "text": {
+                    "message": (
+                        "Qual modelo de iPhone?\nR: iPhone 13\nGb: 128\nCor: azul\n"
+                        "Marcas de uso?\nR: algumas\nRiscos na tela?\nR: um apenas\n"
+                        "Tem algo quebrado/defeituoso?\nR: não\n"
+                        "Possui algo que já foi trocado ou feito algum reparo?\nR: não\n"
+                        "É desbloqueado chip todas operadoras?\nR: sim\n"
+                        "Qual a % da Saúde da bateria?\nR: 71%\n"
+                        "Valor que pretende no seu usado?\nR: 1.500\n"
+                        "Ainda tem garantia Apple?\nR: não"
+                    )
+                },
+            }
+        )
+        conversation = runtime.repository.get_conversation(customer)
+        admin_messages = runtime.repository.recent_messages(admin, limit=5)
     finally:
         await runtime.aclose()
 
+    assert first_status == "bot_active"
     assert conversation is not None and conversation.status == "human_pending"
-    assert any(item["role"] == "assistant" and "Qual modelo de iPhone?" in item["content"] for item in messages)
+    notifications = [item["content"] for item in admin_messages if item["role"] == "assistant"]
+    assert len(notifications) == 1
+    assert "R: 71%" in notifications[0]
 
 
 def test_trade_in_context_detector_matches_abbreviated_model_followup():
