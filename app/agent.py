@@ -5320,12 +5320,20 @@ def _customer_product_condition_context_query(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> str:
-    """Carry prior conditions unless the customer states a new one now."""
+    """Carry conditions through contextual follow-ups, not complete model queries."""
     current = text.strip()
     normalized_current = _normalize(current)
     if _has_explicit_sealed_condition(normalized_current) or _has_seminovo_reference(
         normalized_current
     ):
+        return current
+    if (
+        _has_product_reference(normalized_current)
+        and _is_product_availability_request(current)
+    ):
+        # A complete model availability question such as "tem iPhone 16?" asks
+        # across conditions. Keep the old filter only for short follow-ups that
+        # rely on the previous product context.
         return current
     return _customer_product_request_context_query(text, history)
 
