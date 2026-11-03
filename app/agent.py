@@ -2241,12 +2241,43 @@ def _has_photo_request_in_history(
         "usada",
     }
 
+    retrying_photos = _is_photo_retry_request(current_text or "")
+    current_models = _requested_iphone_model_keys(current_text or "")
     for entry in reversed(history or []):
-        if entry.get("role") != "user":
-            continue
+        role = entry.get("role")
         content = entry.get("content", "").strip()
         if not content:
             continue
+
+        if role == "assistant":
+            if (
+                not retrying_photos
+                and not current_models
+                and re.search(
+                    r"\b(?:segue|seguem|enviei|mandei)\s+(?:as?\s+)?fotos?\b",
+                    _normalize(content),
+                )
+            ):
+                return False
+            continue
+
+        if role != "user":
+            continue
+
+        if _is_image_history_entry(content):
+            # The visual description of an image sent by the customer can
+            # mention a product and the word "imagem". Only its actual caption
+            # can express a photo request; the model detected in the image
+            # cannot turn the image into a request to send product photos.
+            caption = re.search(
+                r"(?im)^Legenda da imagem:\s*(.*?)(?=^Descricao visual da imagem recebida:|\Z)",
+                content,
+                flags=re.DOTALL,
+            )
+            content = caption.group(1).strip() if caption else ""
+            if not content:
+                continue
+
         if _is_photo_request(content):
             photo_families = set(_catalog_families(content))
             return not bool(

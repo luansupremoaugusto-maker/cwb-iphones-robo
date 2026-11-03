@@ -542,6 +542,65 @@ async def test_capacity_followup_sends_the_selected_used_phone_photos(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_image_of_product_after_photo_delivery_does_not_send_detected_model_photos(
+    tmp_path,
+):
+    agent = _build_agent(tmp_path)
+    agent.cache.items = [
+        _used_15_pro_max(
+            "iphone-17-pro-max-256",
+            "256GB",
+            7040.0,
+            "https://photos.example/17-pro-max-256.jpg",
+        ).model_copy(
+            update={
+                "name": "IPHONE 17 PRO MAX",
+                "color": "AZUL INTENSO",
+                "search_text": (
+                    "iphone 17 pro max azul intenso 256gb celular seminovo"
+                ),
+            }
+        )
+    ]
+    history = [
+        {"role": "user", "content": "Poderia me mandar a foto do 13 pro max"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei o iPhone 13 Pro Max seminovo em 128 GB e 256 GB. "
+                "Qual capacidade você quer que eu envie nas fotos?"
+            ),
+        },
+        {"role": "user", "content": "Tem como mandar dos dois"},
+        {
+            "role": "assistant",
+            "content": (
+                "Claro! Seguem as fotos das duas opções: iPhone 13 Pro Max "
+                "256 GB e iPhone 13 Pro Max 128 GB."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Descricao visual da imagem recebida: iPhone 17 Pro Max, 256GB, "
+                "seminovo."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Pela foto, consigo identificar apenas um iPhone da linha Pro, "
+                "mas não confirmar a geração ou a capacidade."
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Esse é 256g", history=history)
+
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("last_has_photo", [True, False])
 async def test_yes_to_iphone_14_photo_offer_resolves_the_last_selected_unit(
     tmp_path,
