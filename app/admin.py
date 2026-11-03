@@ -370,6 +370,16 @@ def _catalog_export_row(label: str, item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _spreadsheet_safe_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Prefix formula-leading text so spreadsheet apps keep cells as text."""
+    safe_row: dict[str, Any] = {}
+    for key, value in row.items():
+        if isinstance(value, str) and re.match(r"^[\s\x00-\x1f\x7f]*[=+\-@]", value):
+            value = "'" + value
+        safe_row[key] = value
+    return safe_row
+
+
 def _selected_catalog_sections(sections: Iterable[str] | None) -> tuple[str, ...]:
     if sections is None:
         return tuple(CATALOG_SECTION_LABELS)
@@ -411,7 +421,7 @@ def catalog_csv_bytes(payload: dict[str, Any], *, sections: Iterable[str] | None
     for section in _selected_catalog_sections(sections):
         label = CATALOG_SECTION_LABELS[section]
         for item in payload.get(section, []):
-            writer.writerow(_catalog_export_row(label, item))
+            writer.writerow(_spreadsheet_safe_row(_catalog_export_row(label, item)))
     return output.getvalue().encode("utf-8-sig")
 
 

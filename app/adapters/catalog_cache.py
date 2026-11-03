@@ -995,6 +995,23 @@ class StoreCatalogCache(InventoryCache):
         self._remote_photo_cache: dict[str, list[str]] = {}
         self._remote_photo_lookup_errors: set[str] = set()
 
+    def approved_photo_urls(self) -> set[str]:
+        """Return exact HTTPS photo URLs already present in catalog sources."""
+        items = [*self.items, *getattr(self.sealed_cache, "items", [])]
+        urls = {
+            url
+            for item in items
+            for url in (getattr(item, "photo_urls", []) or [])
+            if isinstance(url, str) and url.lower().startswith("https://")
+        }
+        urls.update(
+            url
+            for cached_urls in self._remote_photo_cache.values()
+            for url in cached_urls
+            if isinstance(url, str) and url.lower().startswith("https://")
+        )
+        return urls
+
     def _attach_photos(self, item: Any) -> Any:
         # Photo URLs are populated only by Mercado Phone's file endpoint. This
         # method keeps only public HTTPS URLs already attached to the item.

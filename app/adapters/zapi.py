@@ -8,6 +8,11 @@ from typing import Any
 
 import httpx
 
+from app.adapters.safe_http import (
+    ResponseTooLargeError,
+    UnsafeExternalUrlError,
+    fetch_limited_bytes,
+)
 from app.config import Settings, normalize_phone
 from app.schemas import IncomingMessage
 
@@ -87,7 +92,10 @@ class SendResult:
 class ZapiClient:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None):
         self.settings = settings
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0, connect=5.0),
+            trust_env=False,
+        )
         self._owns_client = client is None
 
     async def aclose(self) -> None:
@@ -167,15 +175,21 @@ class ZapiClient:
         return SendResult(sent=True, provider_message_id=self._provider_message_id(payload))
 
     async def download_media(self, url: str | None) -> tuple[bytes, str]:
-        if not url or not re.match(r"^https?://", url, flags=re.IGNORECASE):
+        if not url:
             raise ZapiError("URL de mídia ausente ou inválida")
         try:
-            response = await self._client.get(url)
+            content, headers = await fetch_limited_bytes(
+                self._client,
+                url,
+                self.settings.media_max_bytes,
+            )
+        except UnsafeExternalUrlError as exc:
+            raise ZapiError("URL de mídia externa não permitida") from exc
+        except ResponseTooLargeError as exc:
+            raise ZapiError("Mídia excede o tamanho máximo configurado") from exc
         except httpx.HTTPError as exc:
             raise ZapiError(f"Falha ao baixar mídia da Z-API: {exc}") from exc
-        if response.status_code >= 400:
-            raise ZapiError(f"Download de mídia HTTP {response.status_code}", response.status_code)
-        if len(response.content) > self.settings.media_max_bytes:
-            raise ZapiError("Mídia excede o tamanho máximo configurado")
-        content_type = response.headers.get("content-type", "application/octet-stream").split(";", 1)[0]
-        return response.content, content_type
+        except Exception as exc:
+            raise ZapiError(f"Falha ao baixar mídia da Z-API: {type(exc).__name__}") from exc
+        content_type = headers.get("content-type", "application/octet-stream").split(";", 1)[0]
+        return content, content_type

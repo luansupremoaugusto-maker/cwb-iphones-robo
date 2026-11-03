@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from collections import defaultdict
@@ -8,7 +9,7 @@ from typing import Any
 
 from app.adapters.openai_media import OpenAIMediaError
 from app.adapters.zapi import SendResult, ZapiClient, ZapiError, normalize_received_callback
-from app.admin import AdminCommandService
+from app.admin import AdminCommandService, admin_role_allows
 from app.agent import AgentService
 from app.config import Settings, normalize_phone
 from app.schemas import AgentDecision, IncomingMessage
@@ -375,6 +376,13 @@ class MessageProcessor:
         }.get(action)
         if canonical_action is None:
             return
+        if not admin_role_allows(self.settings.admin_role, canonical_action):
+            self.repository.audit(
+                "unauthorized_admin_command",
+                sender_phone,
+                {"action": action, "reason": "insufficient_role"},
+            )
+            return
         result = self.admin_commands.execute(
             canonical_action,
             operator=sender_phone,
@@ -406,21 +414,48 @@ class MessageProcessor:
         image_urls: list[str] | None = None,
     ) -> None:
         text = _remove_sent_image_urls(text, image_urls)
-        await self._send_phone(incoming.phone, text, reply_to=incoming.message_id)
+        if not self.repository.outbound_message_exists(
+            incoming.phone,
+            kind="text",
+            text=None,
+            reply_to=incoming.message_id,
+        ):
+            await self._send_phone(incoming.phone, text, reply_to=incoming.message_id)
         for index, image_url in enumerate(image_urls or []):
             normalized_url = image_url
             if self.photo_normalizer is not None:
                 normalized_url = await self.photo_normalizer.normalize(image_url)
+            if normalized_url is None:
+                continue
             await self._send_image(
                 incoming.phone,
                 normalized_url,
                 reply_to=incoming.message_id if index == 0 else None,
+                source_message_id=incoming.message_id,
             )
 
-    async def _send_image(self, phone: str, image_url: str, reply_to: str | None = None) -> None:
+    async def _send_image(
+        self,
+        phone: str,
+        image_url: str,
+        reply_to: str | None = None,
+        source_message_id: str | None = None,
+    ) -> None:
+        content_digest = hashlib.sha256(image_url.encode("utf-8")).hexdigest()
+        if (source_message_id or reply_to) and self.repository.outbound_message_exists(
+            phone,
+            kind="image",
+            text="",
+            reply_to=reply_to or source_message_id or "",
+            source_message_id=source_message_id,
+            content_digest=content_digest,
+        ):
+            return
         provider_id: str | None = None
         try:
             result = await self.zapi.send_image(phone, image_url, reply_to=reply_to)
+            if not result.sent and not result.suppressed:
+                raise ZapiError("Z-API não confirmou o envio da imagem")
             provider_id = result.provider_message_id
             if result.suppressed:
                 self.repository.audit(
@@ -434,13 +469,20 @@ class MessageProcessor:
                 phone,
                 {"error": str(exc)[:500], "status": exc.status_code, "kind": "image"},
             )
+            raise
         self.repository.add_message(
             normalize_phone(phone),
             direction="outbound",
             kind="image",
             text="",
             provider_message_id=provider_id,
-            raw={"suppressed": self.settings.outbound_mode != "live", "kind": "image"},
+            raw={
+                "suppressed": result.suppressed,
+                "kind": "image",
+                "reply_to": reply_to,
+                "source_message_id": source_message_id or reply_to,
+                "content_digest": content_digest,
+            },
         )
 
     async def _send_phone(
@@ -454,18 +496,21 @@ class MessageProcessor:
         provider_id: str | None = None
         try:
             result = await self.zapi.send_text(phone, text, reply_to=reply_to)
+            if not result.sent and not result.suppressed:
+                raise ZapiError("Z-API não confirmou o envio da mensagem")
             provider_id = result.provider_message_id
             if result.suppressed:
                 self.repository.audit("outbound_suppressed", phone, {"mode": self.settings.outbound_mode})
         except ZapiError as exc:
             self.repository.audit("outbound_error", phone, {"error": str(exc)[:500], "status": exc.status_code})
+            raise
         self.repository.add_message(
             normalize_phone(phone),
             direction="outbound",
             kind=kind,
             text=text,
             provider_message_id=provider_id,
-            raw={"suppressed": self.settings.outbound_mode != "live"},
+            raw={"suppressed": result.suppressed, "reply_to": reply_to},
         )
         return result
 
@@ -495,4 +540,11 @@ class MessageProcessor:
         )
         for admin in admins:
             if admin != customer_phone:
-                await self._send_phone(admin, message, kind="handoff")
+                try:
+                    await self._send_phone(admin, message, kind="handoff")
+                except ZapiError as exc:
+                    self.repository.audit(
+                        "handoff_notification_error",
+                        customer_phone,
+                        {"error_type": type(exc).__name__},
+                    )

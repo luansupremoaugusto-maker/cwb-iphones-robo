@@ -6500,13 +6500,23 @@ class AgentService:
         self.agent = None if offline else build_customer_agent(cache, faq, settings)
 
     @staticmethod
-    def _sanitize_image_urls(decision: AgentDecision) -> AgentDecision:
+    def _sanitize_image_urls(
+        decision: AgentDecision,
+        approved_urls: set[str] | None = None,
+    ) -> AgentDecision:
         urls = [
             url
             for url in decision.image_urls
             if isinstance(url, str) and re.match(r"^https://", url, flags=re.IGNORECASE)
+            and (approved_urls is None or url in approved_urls)
         ][:MAX_PRODUCT_PHOTOS]
         return decision.model_copy(update={"image_urls": urls})
+
+    def _approved_catalog_photo_urls(self) -> set[str]:
+        getter = getattr(self.cache, "approved_photo_urls", None)
+        if not callable(getter):
+            return set()
+        return set(getter())
 
     async def respond(
         self,
@@ -6970,7 +6980,12 @@ class AgentService:
                 history,
                 image_description=image_description,
             )
-            return protect_customer_decision(self._sanitize_image_urls(decision))
+            return protect_customer_decision(
+                self._sanitize_image_urls(
+                    decision,
+                    approved_urls=self._approved_catalog_photo_urls(),
+                )
+            )
         except Exception as exc:
             return AgentDecision(
                 reply="Vou encaminhar sua mensagem para um atendente confirmar essa informação.",

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     String,
     Text,
     and_,
@@ -22,11 +25,13 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 from sqlalchemy.pool import StaticPool
 
 from app.config import normalize_phone, phone_variants
+
+JOB_LEASE_SECONDS = 5 * 60
 
 
 def utc_now() -> datetime:
@@ -73,6 +78,19 @@ class RecoverySkipRecord(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
+class RecoverySendClaimRecord(Base):
+    __tablename__ = "recovery_send_claims"
+
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), primary_key=True)
+    expected_last_message_id = Column(Integer, nullable=False)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="sending", index=True)
+    invalidated = Column(Boolean, nullable=False, default=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
 class MessageRecord(Base):
     __tablename__ = "messages"
 
@@ -90,9 +108,11 @@ class MessageRecord(Base):
 
 class InboundEventRecord(Base):
     __tablename__ = "inbound_events"
+    __table_args__ = (Index("ix_inbound_events_phone_received_at", "phone", "received_at"),)
 
     id = Column(Integer, primary_key=True)
     external_id = Column(String(255), unique=True, nullable=False, index=True)
+    phone = Column(String(32), nullable=True)
     payload = Column(JSON, nullable=False)
     received_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
@@ -189,39 +209,54 @@ class Repository:
         self.engine = engine
 
     def initialize(self) -> None:
-        Base.metadata.create_all(self.engine)
-        inspector = sqlalchemy_inspect(self.engine)
-        columns = {column["name"] for column in inspector.get_columns("conversations")}
-        if "protocol" not in columns:
-            try:
-                with self.engine.begin() as connection:
-                    connection.execute(text("ALTER TABLE conversations ADD COLUMN protocol VARCHAR(32)"))
-            except OperationalError:
-                # Two app processes can initialize the same database during a
-                # deployment. Re-read before surfacing a genuinely unrelated
-                # schema error.
-                columns = {
-                    column["name"]
-                    for column in sqlalchemy_inspect(self.engine).get_columns("conversations")
-                }
-                if "protocol" not in columns:
-                    raise
-
-        with Session(self.engine) as session:
-            records = session.scalars(select(ConversationRecord).order_by(ConversationRecord.id)).all()
-            for record in records:
-                if not record.protocol:
-                    record.protocol = conversation_protocol(record.id)
-            session.commit()
-
-        # create_all does not add indexes to an already existing table.
         with self.engine.begin() as connection:
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                    {"lock_key": "robo-schema-initialize"},
+                )
+            Base.metadata.create_all(connection)
+            inspector = sqlalchemy_inspect(connection)
+            conversation_columns = {
+                column["name"] for column in inspector.get_columns("conversations")
+            }
+            if "protocol" not in conversation_columns:
+                connection.execute(text("ALTER TABLE conversations ADD COLUMN protocol VARCHAR(32)"))
+            event_columns = {
+                column["name"] for column in inspector.get_columns("inbound_events")
+            }
+            if "phone" not in event_columns:
+                connection.execute(text("ALTER TABLE inbound_events ADD COLUMN phone VARCHAR(32)"))
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_inbound_events_phone_received_at "
+                    "ON inbound_events (phone, received_at)"
+                )
+            )
+            # create_all does not add indexes to an already existing table.
             connection.execute(
                 text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_protocol "
                     "ON conversations (protocol)"
                 )
             )
+
+        with Session(self.engine) as session:
+            records = session.scalars(select(ConversationRecord).order_by(ConversationRecord.id)).all()
+            for record in records:
+                if not record.protocol:
+                    record.protocol = conversation_protocol(record.id)
+            unindexed_events = session.scalars(
+                select(InboundEventRecord).where(InboundEventRecord.phone.is_(None))
+            ).all()
+            for event in unindexed_events:
+                payload = dict(event.payload or {})
+                phone = normalize_phone(
+                    str(payload.get("phone") or payload.get("participantPhone") or "")
+                )
+                if phone:
+                    event.phone = phone
+            session.commit()
 
     def healthcheck(self) -> bool:
         try:
@@ -751,6 +786,179 @@ class Repository:
             session.commit()
             return True
 
+    @staticmethod
+    def _has_newer_inbound_event(session: Session, phone: str, after: datetime) -> bool:
+        target_phones = set(phone_variants(phone)) or {normalize_phone(phone)}
+        if not target_phones:
+            return False
+        event_id = session.scalar(
+            select(InboundEventRecord.id)
+            .where(
+                InboundEventRecord.phone.in_(target_phones),
+                InboundEventRecord.received_at >= _utc_datetime(after),
+            )
+            .limit(1)
+        )
+        if event_id is not None:
+            return True
+
+        # Keep compatibility for old or manually inserted rows whose payload
+        # could not be backfilled into the indexed phone column.
+        unindexed_events = session.scalars(
+            select(InboundEventRecord)
+            .where(
+                InboundEventRecord.phone.is_(None),
+                InboundEventRecord.received_at >= _utc_datetime(after),
+            )
+        ).all()
+        return any(
+            normalize_phone(
+                str((event.payload or {}).get("phone") or (event.payload or {}).get("participantPhone") or "")
+            )
+            in target_phones
+            for event in unindexed_events
+        )
+
+    def claim_recovery_send(
+        self,
+        phone: str,
+        expected_last_message_id: int,
+        allowed_statuses: set[str] | frozenset[str] | tuple[str, ...],
+        *,
+        lease_seconds: int = 300,
+    ) -> tuple[str | None, str]:
+        """Reserve one recovery send and reject stale or queued customer turns."""
+        with Session(self.engine) as session:
+            self._lock_pending_batch_phone(session, normalize_phone(phone))
+            conversation = self._find_conversation(session, phone)
+            if conversation is None:
+                return None, "missing"
+            conversation = session.scalar(
+                select(ConversationRecord)
+                .where(ConversationRecord.id == int(conversation.id))
+                .with_for_update()
+            )
+            if conversation is None:
+                return None, "missing"
+            if conversation.status not in allowed_statuses:
+                return None, "status"
+
+            last_message = session.scalar(
+                select(MessageRecord)
+                .where(MessageRecord.conversation_id == int(conversation.id))
+                .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
+                .limit(1)
+            )
+            if last_message is None or int(last_message.id) != int(expected_last_message_id):
+                return None, "stale"
+            if self._has_newer_inbound_event(session, phone, last_message.created_at):
+                return None, "stale"
+
+            now = utc_now()
+            claim = session.scalar(
+                select(RecoverySendClaimRecord)
+                .where(RecoverySendClaimRecord.conversation_id == int(conversation.id))
+                .with_for_update()
+            )
+            if claim is not None:
+                if (
+                    int(claim.expected_last_message_id) == int(expected_last_message_id)
+                    and claim.status in {"sent", "suppressed"}
+                ):
+                    return None, "already_sent"
+                if claim.status == "sending" and _utc_datetime(claim.expires_at) > now:
+                    return None, "sending"
+                claim.expected_last_message_id = int(expected_last_message_id)
+                claim.token = uuid4().hex
+                claim.status = "sending"
+                claim.invalidated = False
+                claim.expires_at = now + timedelta(seconds=max(30, int(lease_seconds)))
+                claim.updated_at = now
+            else:
+                claim = RecoverySendClaimRecord(
+                    conversation_id=int(conversation.id),
+                    expected_last_message_id=int(expected_last_message_id),
+                    token=uuid4().hex,
+                    status="sending",
+                    invalidated=False,
+                    expires_at=now + timedelta(seconds=max(30, int(lease_seconds))),
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(claim)
+            session.commit()
+            return str(claim.token), "claimed"
+
+    def recovery_send_claim_is_current(
+        self,
+        token: str,
+        allowed_statuses: set[str] | frozenset[str] | tuple[str, ...],
+        *,
+        advisory_lock_held: bool = False,
+    ) -> bool:
+        now = utc_now()
+        with Session(self.engine) as session:
+            claim = session.scalar(
+                select(RecoverySendClaimRecord).where(RecoverySendClaimRecord.token == str(token))
+            )
+            if claim is None:
+                return False
+            conversation = session.get(ConversationRecord, int(claim.conversation_id))
+            if conversation is not None:
+                if not advisory_lock_held:
+                    self._lock_pending_batch_phone(session, conversation.phone)
+                conversation = session.scalar(
+                    select(ConversationRecord)
+                    .where(ConversationRecord.id == int(claim.conversation_id))
+                    .with_for_update()
+                )
+                claim = session.scalar(
+                    select(RecoverySendClaimRecord)
+                    .where(RecoverySendClaimRecord.token == str(token))
+                    .with_for_update()
+                )
+            last_message = (
+                session.scalar(
+                    select(MessageRecord)
+                    .where(MessageRecord.conversation_id == int(conversation.id))
+                    .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
+                    .limit(1)
+                )
+                if conversation is not None
+                else None
+            )
+            return bool(
+                claim is not None
+                and conversation is not None
+                and claim.status == "sending"
+                and not claim.invalidated
+                and _utc_datetime(claim.expires_at) > now
+                and conversation.status in allowed_statuses
+                and last_message is not None
+                and int(last_message.id) == int(claim.expected_last_message_id)
+                and not self._has_newer_inbound_event(session, conversation.phone, last_message.created_at)
+            )
+
+    def finish_recovery_send_claim(
+        self,
+        token: str,
+        *,
+        sent: bool,
+        suppressed: bool = False,
+    ) -> None:
+        with Session(self.engine) as session:
+            claim = session.scalar(
+                select(RecoverySendClaimRecord)
+                .where(RecoverySendClaimRecord.token == str(token))
+                .with_for_update()
+            )
+            if claim is None or claim.status != "sending":
+                return
+            claim.status = "sent" if sent else "suppressed" if suppressed else "failed"
+            claim.expires_at = utc_now()
+            claim.updated_at = utc_now()
+            session.commit()
+
     def claim_human_handoff(self, phone: str, reason: str | None = None) -> bool:
         """Atomically claim the first handoff for an active bot conversation.
 
@@ -835,6 +1043,100 @@ class Repository:
             session.commit()
             return int(record.id)
 
+    def outbound_message_exists(
+        self,
+        phone: str,
+        *,
+        kind: str,
+        text: str | None,
+        reply_to: str,
+        source_message_id: str | None = None,
+        content_digest: str | None = None,
+    ) -> bool:
+        with Session(self.engine) as session:
+            conversation = self._find_conversation(session, phone)
+            if conversation is None:
+                return False
+            expected_source = str(source_message_id or reply_to)
+            statement = select(MessageRecord.id).where(
+                MessageRecord.conversation_id == int(conversation.id),
+                MessageRecord.direction == "outbound",
+                MessageRecord.kind == kind,
+                or_(
+                    MessageRecord.raw["source_message_id"].as_string() == expected_source,
+                    MessageRecord.raw["reply_to"].as_string() == expected_source,
+                ),
+            )
+            if text is not None:
+                statement = statement.where(MessageRecord.text == text)
+            if content_digest is not None:
+                statement = statement.where(
+                    MessageRecord.raw["content_digest"].as_string() == content_digest
+                )
+            if session.scalar(statement.limit(1)) is not None:
+                return True
+
+            # Before source IDs were stored on outbound rows, a successful
+            # provider response could still be recognized by its provider ID
+            # and the inbound message interval. This avoids replaying confirmed
+            # legacy text sends while leaving ambiguous/failed attempts retryable.
+            if kind != "text" or text is not None or content_digest is not None:
+                return False
+            inbound_id = session.scalar(
+                select(MessageRecord.id)
+                .where(
+                    MessageRecord.conversation_id == int(conversation.id),
+                    MessageRecord.direction == "inbound",
+                    MessageRecord.provider_message_id == expected_source,
+                )
+                .order_by(MessageRecord.id)
+                .limit(1)
+            )
+            if inbound_id is None:
+                return False
+            prior_inbound_id = session.scalar(
+                select(MessageRecord.id)
+                .where(
+                    MessageRecord.conversation_id == int(conversation.id),
+                    MessageRecord.direction == "inbound",
+                    MessageRecord.id < int(inbound_id),
+                    or_(
+                        MessageRecord.provider_message_id.is_(None),
+                        MessageRecord.provider_message_id != expected_source,
+                    ),
+                )
+                .limit(1)
+            )
+            if prior_inbound_id is not None:
+                # Older records do not identify which turn a response belongs
+                # to. Do not infer a match once the conversation has multiple
+                # turns; a false positive would suppress a current reply.
+                return False
+            next_inbound_id = session.scalar(
+                select(MessageRecord.id)
+                .where(
+                    MessageRecord.conversation_id == int(conversation.id),
+                    MessageRecord.direction == "inbound",
+                    MessageRecord.id > int(inbound_id),
+                    or_(
+                        MessageRecord.provider_message_id.is_(None),
+                        MessageRecord.provider_message_id != expected_source,
+                    ),
+                )
+                .order_by(MessageRecord.id)
+                .limit(1)
+            )
+            legacy_send = select(MessageRecord.id).where(
+                MessageRecord.conversation_id == int(conversation.id),
+                MessageRecord.direction == "outbound",
+                MessageRecord.kind == "text",
+                MessageRecord.id > int(inbound_id),
+                MessageRecord.provider_message_id.is_not(None),
+            )
+            if next_inbound_id is not None:
+                legacy_send = legacy_send.where(MessageRecord.id < int(next_inbound_id))
+            return session.scalar(legacy_send.limit(1)) is not None
+
     def update_message_text(self, message_id: int, text: str) -> None:
         """Update derived text for an already stored media message.
 
@@ -881,12 +1183,28 @@ class Repository:
                 if item.text
             ]
 
-    def register_inbound_event(self, external_id: str, payload: dict) -> tuple[int, bool]:
+    def register_inbound_event(
+        self,
+        external_id: str,
+        payload: dict,
+        *,
+        phone: str | None = None,
+    ) -> tuple[int, bool]:
+        normalized_phone = normalize_phone(
+            phone or str(payload.get("phone") or payload.get("participantPhone") or "")
+        )
         with Session(self.engine, expire_on_commit=False) as session:
             existing = session.scalar(select(InboundEventRecord).where(InboundEventRecord.external_id == external_id))
             if existing is not None:
+                if not existing.phone and normalized_phone:
+                    existing.phone = normalized_phone
+                    session.commit()
                 return int(existing.id), False
-            record = InboundEventRecord(external_id=external_id, payload=payload)
+            record = InboundEventRecord(
+                external_id=external_id,
+                phone=normalized_phone or None,
+                payload=payload,
+            )
             session.add(record)
             try:
                 session.commit()
@@ -895,8 +1213,195 @@ class Repository:
                 existing = session.scalar(select(InboundEventRecord).where(InboundEventRecord.external_id == external_id))
                 if existing is None:
                     raise
+                if not existing.phone and normalized_phone:
+                    existing.phone = normalized_phone
+                    session.commit()
                 return int(existing.id), False
             return int(record.id), True
+
+    def unlinked_inbound_events(self, *, limit: int = 100) -> list[tuple[int, dict[str, Any]]]:
+        """Return durable webhook receipts that still need a queue link."""
+        has_job = select(JobRecord.id).where(JobRecord.event_id == InboundEventRecord.id).exists()
+        has_batch = select(BatchEventRecord.id).where(BatchEventRecord.event_id == InboundEventRecord.id).exists()
+        with Session(self.engine) as session:
+            events = session.scalars(
+                select(InboundEventRecord)
+                .where(~has_job, ~has_batch)
+                .order_by(InboundEventRecord.received_at, InboundEventRecord.id)
+                .limit(max(1, int(limit)))
+            ).all()
+            return [(int(event.id), dict(event.payload or {})) for event in events]
+
+    @staticmethod
+    def _lock_pending_batch_phone(session: Session, phone: str) -> None:
+        bind = session.get_bind()
+        if bind.dialect.name == "postgresql":
+            lock_key = f"message-batch:{phone}"
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": lock_key},
+            )
+
+    def acquire_recovery_send_lock(self, phone: str):
+        """Hold the per-phone advisory lock across one external recovery send."""
+        if self.engine.dialect.name != "postgresql":
+            return None
+        connection = self.engine.connect()
+        lock_key = f"message-batch:{normalize_phone(phone)}"
+        acquired = False
+        try:
+            connection.execute(
+                text("SELECT pg_advisory_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": lock_key},
+            )
+            acquired = True
+            connection.commit()
+            return connection
+        except Exception:
+            if acquired:
+                try:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(hashtextextended(:lock_key, 0))"),
+                        {"lock_key": lock_key},
+                    )
+                    connection.commit()
+                except Exception:
+                    connection.invalidate()
+            connection.close()
+            raise
+
+    @staticmethod
+    def release_recovery_send_lock(phone: str, connection) -> None:
+        if connection is None:
+            return
+        lock_key = f"message-batch:{normalize_phone(phone)}"
+        try:
+            connection.execute(
+                text("SELECT pg_advisory_unlock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": lock_key},
+            )
+            connection.commit()
+        except Exception:
+            connection.invalidate()
+            raise
+        finally:
+            connection.close()
+
+    def _enqueue_job_in_session(
+        self,
+        session: Session,
+        event_id: int,
+        phone: str | None,
+        debounce_seconds: int,
+    ) -> int:
+        if phone is not None or debounce_seconds > 0:
+            batch_phone = phone or f"event:{event_id}"
+            self._lock_pending_batch_phone(session, batch_phone)
+
+        existing_link = session.scalar(
+            select(BatchEventRecord).where(BatchEventRecord.event_id == event_id)
+        )
+        if existing_link is not None:
+            return int(existing_link.batch_id)
+
+        existing_job = session.scalar(
+            select(JobRecord).where(JobRecord.event_id == event_id).order_by(JobRecord.id).limit(1)
+        )
+        if existing_job is not None:
+            return int(existing_job.id)
+
+        if phone is None and debounce_seconds <= 0:
+            job = JobRecord(event_id=event_id, status="pending", available_at=utc_now())
+            session.add(job)
+            session.flush()
+            return int(job.id)
+
+        due_at = utc_now() + timedelta(seconds=max(0, int(debounce_seconds)))
+        batch_phone = phone or f"event:{event_id}"
+        batch = session.scalar(
+            select(MessageBatchRecord)
+            .where(MessageBatchRecord.phone == batch_phone, MessageBatchRecord.status == "pending")
+            .order_by(MessageBatchRecord.id.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        if batch is None:
+            batch = MessageBatchRecord(
+                phone=batch_phone,
+                status="pending",
+                available_at=due_at,
+                updated_at=utc_now(),
+            )
+            session.add(batch)
+            session.flush()
+        else:
+            batch.available_at = due_at
+            batch.updated_at = utc_now()
+        session.add(BatchEventRecord(batch_id=batch.id, event_id=event_id))
+        session.flush()
+        return int(batch.id)
+
+    @staticmethod
+    def _invalidate_recovery_send_claim_in_session(session: Session, phone: str) -> None:
+        conversation = Repository._find_conversation(session, phone)
+        if conversation is None:
+            return
+        claim = session.scalar(
+            select(RecoverySendClaimRecord)
+            .where(RecoverySendClaimRecord.conversation_id == int(conversation.id))
+            .with_for_update()
+        )
+        if claim is not None and claim.status == "sending":
+            claim.invalidated = True
+            claim.updated_at = utc_now()
+
+    def register_inbound_event_and_enqueue(
+        self,
+        external_id: str,
+        payload: dict,
+        *,
+        phone: str,
+        debounce_seconds: int,
+    ) -> tuple[int, bool, int]:
+        """Persist a callback and its queue link in the same transaction.
+
+        Replayed callbacks also repair an older orphan event that has no job or
+        batch link, while existing queued/processed events remain idempotent.
+        """
+        for attempt in range(3):
+            with Session(self.engine, expire_on_commit=False) as session:
+                try:
+                    self._lock_pending_batch_phone(session, phone)
+                    record = session.scalar(
+                        select(InboundEventRecord).where(InboundEventRecord.external_id == external_id)
+                    )
+                    created = record is None
+                    if record is None:
+                        record = InboundEventRecord(
+                            external_id=external_id,
+                            phone=normalize_phone(phone) or None,
+                            payload=payload,
+                        )
+                        session.add(record)
+                        session.flush()
+                    elif not record.phone:
+                        record.phone = normalize_phone(phone) or None
+                    event_id = int(record.id)
+                    job_id = self._enqueue_job_in_session(
+                        session,
+                        event_id,
+                        phone,
+                        debounce_seconds,
+                    )
+                    if created:
+                        self._invalidate_recovery_send_claim_in_session(session, phone)
+                    session.commit()
+                    return event_id, created, job_id
+                except IntegrityError:
+                    session.rollback()
+                    if attempt == 2:
+                        raise
+        raise RuntimeError("Could not register inbound event after concurrent retries")
 
     def enqueue_job(
         self,
@@ -909,77 +1414,104 @@ class Repository:
         Calls without a phone and without a delay retain the legacy one-event
         behavior used by older integrations and tests.
         """
-        if phone is None and debounce_seconds <= 0:
+        for attempt in range(3):
             with Session(self.engine, expire_on_commit=False) as session:
-                job = JobRecord(event_id=event_id, status="pending", available_at=utc_now())
-                session.add(job)
-                session.commit()
-                return int(job.id)
+                try:
+                    job_id = self._enqueue_job_in_session(
+                        session,
+                        event_id,
+                        phone,
+                        debounce_seconds,
+                    )
+                    session.commit()
+                    return job_id
+                except IntegrityError:
+                    session.rollback()
+                    if attempt == 2:
+                        raise
+        raise RuntimeError("Could not enqueue inbound event after concurrent retries")
 
-        due_at = utc_now() + timedelta(seconds=max(0, int(debounce_seconds)))
-        batch_phone = phone or f"event:{event_id}"
-        with Session(self.engine, expire_on_commit=False) as session:
-            existing_link = session.scalar(select(BatchEventRecord).where(BatchEventRecord.event_id == event_id))
-            if existing_link is not None:
-                return int(existing_link.batch_id)
-            batch = session.scalar(
-                select(MessageBatchRecord)
-                .where(MessageBatchRecord.phone == batch_phone, MessageBatchRecord.status == "pending")
-                .order_by(MessageBatchRecord.id.desc())
-                .limit(1)
-            )
-            if batch is None:
-                batch = MessageBatchRecord(
-                    phone=batch_phone,
-                    status="pending",
-                    available_at=due_at,
-                    updated_at=utc_now(),
-                )
-                session.add(batch)
-                session.flush()
-            else:
-                batch.available_at = due_at
-                batch.updated_at = utc_now()
-            session.add(BatchEventRecord(batch_id=batch.id, event_id=event_id))
-            session.commit()
-            return int(batch.id)
-
-    def _claim_legacy_job(self, session: Session, now: datetime) -> tuple[int, dict] | None:
+    def _claim_legacy_job(self, session: Session, now: datetime) -> tuple[int, dict, int] | None:
         job = session.scalar(
             select(JobRecord)
             .where(JobRecord.status == "pending", JobRecord.available_at <= now)
             .order_by(JobRecord.id)
             .limit(1)
+            .with_for_update(skip_locked=True)
         )
         if job is None:
             return None
         job.status = "processing"
         job.attempts += 1
+        job.available_at = now + timedelta(seconds=JOB_LEASE_SECONDS)
+        attempts = int(job.attempts)
         event = session.get(InboundEventRecord, job.event_id)
         session.commit()
-        return int(job.id), dict(event.payload) if event is not None else {}
+        return int(job.id), dict(event.payload) if event is not None else {}, attempts
 
-    def claim_next_job(self) -> tuple[int, dict] | None:
+    @staticmethod
+    def _reclaim_expired_jobs(session: Session, now: datetime) -> None:
+        expired_jobs = session.scalars(
+            select(JobRecord)
+            .where(JobRecord.status == "processing", JobRecord.available_at <= now)
+            .order_by(JobRecord.id)
+            .with_for_update(skip_locked=True)
+        ).all()
+        for job in expired_jobs:
+            job.error = "Worker lease expired before completion"
+            if job.attempts < 3:
+                job.status = "pending"
+                job.available_at = now
+            else:
+                job.status = "failed"
+                job.finished_at = now
+
+        expired_batches = session.scalars(
+            select(MessageBatchRecord)
+            .where(MessageBatchRecord.status == "processing", MessageBatchRecord.available_at <= now)
+            .order_by(MessageBatchRecord.id)
+            .with_for_update(skip_locked=True)
+        ).all()
+        for batch in expired_batches:
+            batch.error = "Worker lease expired before completion"
+            batch.updated_at = now
+            if batch.attempts < 3:
+                batch.status = "pending"
+                batch.available_at = now
+            else:
+                batch.status = "failed"
+                batch.finished_at = now
+
+    def claim_next_job(
+        self,
+        *,
+        include_attempt: bool = False,
+    ) -> tuple[int, dict] | tuple[int, dict, int] | None:
         with Session(self.engine, expire_on_commit=False) as session:
             now = utc_now()
+            self._reclaim_expired_jobs(session, now)
+            session.commit()
             legacy = self._claim_legacy_job(session, now)
             if legacy is not None:
-                return legacy
+                return legacy if include_attempt else legacy[:2]
             batch = session.scalar(
                 select(MessageBatchRecord)
                 .where(MessageBatchRecord.status == "pending", MessageBatchRecord.available_at <= now)
                 .order_by(MessageBatchRecord.available_at, MessageBatchRecord.id)
                 .limit(1)
+                .with_for_update(skip_locked=True)
             )
             if batch is None:
                 return None
             batch.status = "processing"
             batch.attempts += 1
+            attempts = int(batch.attempts)
             batch.updated_at = now
+            batch.available_at = now + timedelta(seconds=JOB_LEASE_SECONDS)
             links = session.scalars(
                 select(BatchEventRecord)
                 .where(BatchEventRecord.batch_id == batch.id)
-                .order_by(BatchEventRecord.id)
+                .order_by(BatchEventRecord.event_id)
             ).all()
             payloads = [dict(link.event.payload) for link in links if link.event is not None]
             session.commit()
@@ -987,13 +1519,44 @@ class Repository:
                 payload: dict = payloads[0]
             else:
                 payload = {"_batch_payloads": payloads}
-            return -int(batch.id), payload
+            claimed = (-int(batch.id), payload, attempts)
+            return claimed if include_attempt else claimed[:2]
 
-    def finish_job(self, job_id: int) -> None:
+    def renew_job_lease(self, job_id: int, expected_attempts: int | None = None) -> bool:
+        now = utc_now()
+        with Session(self.engine) as session:
+            if job_id < 0:
+                conditions = [
+                    MessageBatchRecord.id == -job_id,
+                    MessageBatchRecord.status == "processing",
+                ]
+                if expected_attempts is not None:
+                    conditions.append(MessageBatchRecord.attempts == int(expected_attempts))
+                result = session.execute(
+                    update(MessageBatchRecord)
+                    .where(*conditions)
+                    .values(available_at=now + timedelta(seconds=JOB_LEASE_SECONDS), updated_at=now)
+                )
+            else:
+                conditions = [JobRecord.id == job_id, JobRecord.status == "processing"]
+                if expected_attempts is not None:
+                    conditions.append(JobRecord.attempts == int(expected_attempts))
+                result = session.execute(
+                    update(JobRecord)
+                    .where(*conditions)
+                    .values(available_at=now + timedelta(seconds=JOB_LEASE_SECONDS))
+                )
+            session.commit()
+            return int(result.rowcount or 0) == 1
+
+    def finish_job(self, job_id: int, expected_attempts: int | None = None) -> None:
         with Session(self.engine) as session:
             if job_id < 0:
                 batch = session.get(MessageBatchRecord, -job_id)
-                if batch:
+                if batch and (
+                    expected_attempts is None
+                    or (batch.status == "processing" and batch.attempts == int(expected_attempts))
+                ):
                     batch.status = "done"
                     batch.finished_at = utc_now()
                     batch.updated_at = utc_now()
@@ -1001,17 +1564,29 @@ class Repository:
                     session.commit()
                 return
             job = session.get(JobRecord, job_id)
-            if job:
+            if job and (
+                expected_attempts is None
+                or (job.status == "processing" and job.attempts == int(expected_attempts))
+            ):
                 job.status = "done"
                 job.finished_at = utc_now()
                 job.error = None
                 session.commit()
 
-    def fail_job(self, job_id: int, error: str, retry: bool = True) -> None:
+    def fail_job(
+        self,
+        job_id: int,
+        error: str,
+        retry: bool = True,
+        expected_attempts: int | None = None,
+    ) -> None:
         with Session(self.engine) as session:
             if job_id < 0:
                 batch = session.get(MessageBatchRecord, -job_id)
-                if batch:
+                if batch and (
+                    expected_attempts is None
+                    or (batch.status == "processing" and batch.attempts == int(expected_attempts))
+                ):
                     batch.status = "pending" if retry and batch.attempts < 3 else "failed"
                     batch.error = error[:4000]
                     batch.available_at = utc_now() + timedelta(seconds=min(30, max(1, 2**batch.attempts)))
@@ -1021,7 +1596,10 @@ class Repository:
                     session.commit()
                 return
             job = session.get(JobRecord, job_id)
-            if job:
+            if job and (
+                expected_attempts is None
+                or (job.status == "processing" and job.attempts == int(expected_attempts))
+            ):
                 job.status = "pending" if retry and job.attempts < 3 else "failed"
                 job.error = error[:4000]
                 job.available_at = utc_now()
@@ -1106,6 +1684,18 @@ class Repository:
             old_batches = session.scalars(
                 select(MessageBatchRecord).where(MessageBatchRecord.updated_at < older_than)
             ).all()
+            old_conversation_ids = [int(record.id) for record in old_conversations]
+            if old_conversation_ids:
+                session.execute(
+                    delete(RecoverySkipRecord).where(
+                        RecoverySkipRecord.conversation_id.in_(old_conversation_ids)
+                    )
+                )
+                session.execute(
+                    delete(RecoverySendClaimRecord).where(
+                        RecoverySendClaimRecord.conversation_id.in_(old_conversation_ids)
+                    )
+                )
             for record in old_conversations:
                 session.delete(record)
             for record in old_events:
