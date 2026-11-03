@@ -429,6 +429,13 @@ _IMPLICIT_MODEL_EXCHANGE_RE = re.compile(
     r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
     re.IGNORECASE,
 )
+_TRADE_UP_MODEL = r"\d{1,2}(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
+_EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE = re.compile(
+    r"\btrocar\s+(?:(?:o|a)\s+)?(?:meu|minha)\s+(?:iphone\s*)"
+    rf"(?P<owned_model>{_TRADE_UP_MODEL}).{{0,24}}?\b(?:por|para|pra)\s+"
+    rf"(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?(?P<target_model>{_TRADE_UP_MODEL})\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_UPGRADE_DETAIL_RE = re.compile(
     r"\b(?:\d{2,4}\s*(?:gb|tb)|bateria|tela|face\s*id|funcion\w*|original)\b",
     re.IGNORECASE,
@@ -505,12 +512,28 @@ def _has_explicit_device_exchange_context(text: str) -> bool:
     return bool(
         _NON_APPLE_EXCHANGE_RE.search(text)
         or _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
+        or _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text)
         or re.search(
             r"\b(?:troca\s+de\s+celular|diferenc\w*|troco|"
             r"trocar\s+(?:por|para|pra|pro|pelo|pela))\b",
             text,
         )
     )
+
+
+def trade_in_catalog_target(text: str | None) -> str | None:
+    """Extract the target iPhone when a customer explicitly offers theirs to trade."""
+    if _NEGATION_RE.search(_normalize(text)):
+        return None
+    match = _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text or "")
+    if not match:
+        return None
+    model = re.sub(r"\s+", " ", match.group("target_model")).strip()
+    target_line_end = (text or "").find("\n", match.end("target_model"))
+    if target_line_end < 0:
+        target_line_end = len(text or "")
+    details = (text or "")[match.end("target_model") : target_line_end].strip()
+    return " ".join(part for part in (f"iPhone {model}", details) if part)
 
 
 def _has_compact_owned_iphone_exchange_offer(text: str) -> bool:
@@ -860,6 +883,8 @@ def _has_owned_iphone_business_offer(text: str) -> bool:
 
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
+    if _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text):
+        return not _NON_APPLE_RE.search(text)
     if _has_detailed_device_entry_offer(text):
         return True
     if _has_owned_iphone_business_offer(text):
@@ -1251,6 +1276,8 @@ def is_trade_in_request(text: str | None) -> bool:
         return False
     if is_catalog_purchase_advice_request(normalized):
         return False
+    if is_completed_trade_in_form(text) or trade_in_catalog_target(text):
+        return True
     if _has_abbreviated_iphone_buyback_profile(normalized):
         return True
     if is_parts_buyback_request(normalized):
@@ -1486,7 +1513,43 @@ def is_completed_trade_in_form(text: str | None) -> bool:
     normalized = _normalize(text)
     field_count = len(_TRADE_IN_FORM_FIELD_RE.findall(normalized))
     answer_count = len(_TRADE_IN_FORM_ANSWER_RE.findall(text))
-    return field_count >= 4 and answer_count >= 4
+    if field_count >= 4 and answer_count >= 4:
+        return True
+
+    # Some customers paste the answer values as consecutive lines and omit
+    # the R:/Gb:/Cor labels. Recognize a complete iPhone profile by its
+    # model, storage, condition, yes/no answers, battery health, and value.
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        first = _normalize(line)
+        if not re.fullmatch(
+            r"iphone\s+\d{1,2}(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?",
+            first,
+        ):
+            continue
+        answers = lines[index : index + 13]
+        if len(answers) < 12:
+            continue
+        if not re.fullmatch(r"\d{2,4}\s*(?:gb|tb)?", _normalize(answers[1])):
+            continue
+        condition_answers = _normalize(" ".join(answers[3:6]))
+        if not re.search(r"\b(?:semi\s*novo|seminovo|usado|novo)\b", condition_answers):
+            continue
+        yes_no_count = sum(
+            bool(re.match(r"^(?:sim|nao)\b", _normalize(answer)))
+            for answer in answers[4:]
+        )
+        has_battery_health = any(
+            re.search(r"\b\d{1,3}\s*%(?!\d)", _normalize(answer))
+            for answer in answers[4:]
+        )
+        has_value = any(
+            re.fullmatch(r"(?:r\$\s*)?\d{2,5}(?:[.,]\d{1,2})?", _normalize(answer))
+            for answer in answers[4:]
+        )
+        if yes_no_count >= 4 and has_battery_health and has_value:
+            return True
+    return False
 
 
 def _iphone_model_generations(text: str) -> set[int]:

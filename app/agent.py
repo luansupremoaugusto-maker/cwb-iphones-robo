@@ -64,6 +64,7 @@ from app.trade_in import (
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
+    trade_in_catalog_target,
     is_catalog_purchase_advice_request,
     catalog_price_recall_amount,
     trade_in_em_andamento,
@@ -2576,15 +2577,59 @@ class AgentService:
             ),
         )
 
+    async def _try_trade_in_with_catalog_target(
+        self,
+        catalog_request: str,
+        *,
+        form_completed: bool,
+    ) -> AgentDecision:
+        catalog_decision = await self._try_product_availability(catalog_request)
+        catalog_reply = (
+            catalog_decision.reply.strip()
+            if catalog_decision is not None
+            else "Não consegui confirmar agora a disponibilidade do modelo pedido."
+        )
+        follow_up = (
+            TRADE_IN_NEGOTIATION_REPLY if form_completed else TRADE_IN_FORM
+        )
+        return AgentDecision(
+            reply=f"{catalog_reply}\n\n{follow_up}",
+            handoff=form_completed,
+            handoff_reason=TRADE_IN_REASON if form_completed else None,
+            confidence="high",
+            product_references=(
+                catalog_decision.product_references
+                if catalog_decision is not None
+                else []
+            ),
+            image_urls=(
+                catalog_decision.image_urls if catalog_decision is not None else []
+            ),
+        )
+
     async def respond(
         self,
         text: str,
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
-        if trade_in_em_andamento(history) and (
-            is_completed_trade_in_form(text) or is_trade_in_negotiation(text)
-        ):
+        form_completed = is_completed_trade_in_form(text)
+        trade_target = trade_in_catalog_target(text)
+        if form_completed:
+            if trade_target:
+                return protect_customer_decision(
+                    await self._try_trade_in_with_catalog_target(
+                        trade_target,
+                        form_completed=True,
+                    )
+                )
+            return AgentDecision(
+                reply=TRADE_IN_NEGOTIATION_REPLY,
+                handoff=True,
+                handoff_reason=TRADE_IN_REASON,
+                confidence="high",
+            )
+        if trade_in_em_andamento(history) and is_trade_in_negotiation(text):
             return AgentDecision(
                 reply=TRADE_IN_NEGOTIATION_REPLY,
                 handoff=True,
@@ -2602,6 +2647,13 @@ class AgentService:
             return protect_customer_decision(
                 await self._try_combined_iphone_17_catalog_and_trade_in(
                     combined_catalog_request
+                )
+            )
+        if trade_target and not trade_in_em_andamento(history):
+            return protect_customer_decision(
+                await self._try_trade_in_with_catalog_target(
+                    trade_target,
+                    form_completed=False,
                 )
             )
         image_availability_models = _explicit_image_availability_query(
