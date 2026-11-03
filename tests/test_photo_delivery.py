@@ -28,6 +28,9 @@ class _RepositoryStub:
     def audit(self, event, phone, details):
         self.audits.append({"event": event, "phone": phone, "details": details})
 
+    def outbound_message_exists(self, *args, **kwargs):
+        return False
+
 
 class _ZapiStub:
     def __init__(self):

@@ -6,6 +6,7 @@
 - Docker Engine e Docker Compose Plugin instalados.
 - `.env.local` criado com permissão restrita e sem commit.
 - `DOMAIN` definido para o domínio público.
+- `ZAPI_WEBHOOK_SECRET` definido como segredo aleatório exclusivo, com pelo menos 32 caracteres.
 - `POSTGRES_PASSWORD` forte definido no ambiente usado pelo Compose.
 - Chave Mercado Phone limitada à loja `X-Unit-Id=2620` e credenciais Z-API configuradas.
 - Conta de serviço Google criada, com a Sheets API ativa e acesso **Leitor** somente
@@ -37,6 +38,11 @@ https://SEU_DOMINIO/webhooks/zapi/SEU_WEBHOOK_SECRET
 ~~~
 
 Use `ZAPI_EXPECTED_INSTANCE_ID` quando a conta tiver mais de uma instância.
+O webhook não aceita segredo ausente ou o valor de exemplo. Cadastre na Z-API o
+mesmo segredo aleatório configurado em `ZAPI_WEBHOOK_SECRET`; não reutilize esse
+segredo em outras integrações. Corpos HTTP acima de `MAX_REQUEST_BODY_BYTES`
+(1 MB por padrão) são rejeitados tanto pelo Caddy quanto pela aplicação, antes
+do parse do JSON. A diretiva do Caddy requer a versão 2.10 ou superior.
 Eventos de grupos, mensagens próprias, newsletters, status e duplicatas são ignorados.
 
 ## Painel administrativo

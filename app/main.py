@@ -7,7 +7,9 @@ import hmac
 import logging
 import os
 import secrets
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -41,9 +43,10 @@ from app.admin import (
     normalize_catalog_sections,
     public_catalog_payload,
 )
-from app.adapters.zapi import normalize_received_callback
+from app.adapters.zapi import ZapiError, normalize_received_callback
 from app.admin_page import render_admin_login_page, render_admin_page
 from app.config import get_settings, normalize_phone
+from app.http_limits import RequestBodySizeLimitMiddleware
 from app.runtime import Runtime, build_runtime
 from app.recovery import (
     build_recovery_draft,
@@ -180,6 +183,216 @@ def _require_admin_csrf(request: Request, settings: Any) -> None:
     provided = request.headers.get("x-admin-csrf", "")
     if not provided or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=403, detail="Token CSRF inválido")
+
+
+def _webhook_secret_configured(settings: Any) -> bool:
+    secret = str(getattr(settings, "zapi_webhook_secret", None) or "").strip()
+    if not secret or secret.casefold() == "change-this-webhook-secret":
+        return False
+    is_production = str(getattr(settings, "app_env", "") or "").strip().casefold() in {
+        "prod",
+        "production",
+    }
+    return not is_production or len(secret) >= 32
+
+
+class _KeyedAsyncLocks:
+    def __init__(self):
+        self._guard = threading.Lock()
+        self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
+        self._pending: dict[str, int] = {}
+
+    @asynccontextmanager
+    async def hold(self, key: str):
+        normalized_key = str(key)
+        with self._guard:
+            entry = self._locks.get(normalized_key)
+            lock, users = entry if entry is not None else (asyncio.Lock(), 0)
+            self._locks[normalized_key] = (lock, users + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            with self._guard:
+                current_lock, users = self._locks[normalized_key]
+                if users <= 1:
+                    del self._locks[normalized_key]
+                else:
+                    self._locks[normalized_key] = (current_lock, users - 1)
+
+    @asynccontextmanager
+    async def mark_pending(self, key: str):
+        normalized_key = str(key)
+        with self._guard:
+            self._pending[normalized_key] = self._pending.get(normalized_key, 0) + 1
+        try:
+            yield
+        finally:
+            with self._guard:
+                count = self._pending.get(normalized_key, 0)
+                if count <= 1:
+                    self._pending.pop(normalized_key, None)
+                else:
+                    self._pending[normalized_key] = count - 1
+
+    def has_pending(self, key: str) -> bool:
+        with self._guard:
+            return self._pending.get(str(key), 0) > 0
+
+
+_PHONE_OPERATION_LOCKS = _KeyedAsyncLocks()
+
+
+@asynccontextmanager
+async def _recovery_send_guard(repository: Any, phone: str):
+    if repository.engine.dialect.name != "postgresql":
+        yield
+        return
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop = asyncio.get_running_loop()
+    acquisition = loop.run_in_executor(
+        executor,
+        repository.acquire_recovery_send_lock,
+        phone,
+    )
+    connection = None
+    try:
+        try:
+            connection = await asyncio.shield(acquisition)
+            if connection is None:
+                raise RuntimeError("Recovery send lock was not acquired")
+        except asyncio.CancelledError:
+            try:
+                connection = await acquisition
+            except Exception:
+                executor.shutdown(wait=True)
+                raise
+            if connection is not None:
+                release = loop.run_in_executor(
+                    executor,
+                    repository.release_recovery_send_lock,
+                    phone,
+                    connection,
+                )
+                await asyncio.shield(release)
+                connection = None
+            executor.shutdown(wait=True)
+            raise
+
+        yield
+    finally:
+        if connection is not None:
+            release = loop.run_in_executor(
+                executor,
+                repository.release_recovery_send_lock,
+                phone,
+                connection,
+            )
+            try:
+                await asyncio.shield(release)
+            finally:
+                executor.shutdown(wait=True)
+        else:
+            executor.shutdown(wait=True)
+
+
+async def _send_recovery_reply(
+    current: Runtime,
+    phone: str,
+    message: str,
+    operator: str,
+    expected_last_message_id: int,
+) -> JSONResponse:
+    async with _PHONE_OPERATION_LOCKS.hold(phone):
+        claim_token, claim_state = await asyncio.to_thread(
+            current.repository.claim_recovery_send,
+            phone,
+            expected_last_message_id,
+            RECOVERY_CONVERSATION_STATUSES,
+        )
+        if claim_token is None:
+            if claim_state == "missing":
+                raise HTTPException(status_code=404, detail="Conversa não encontrada")
+            raise HTTPException(
+                status_code=409,
+                detail="A conversa recebeu uma nova mensagem ou já está sendo respondida. Atualize a fila antes de enviar.",
+            )
+
+        async with _recovery_send_guard(current.repository, phone):
+            if not current.repository.recovery_send_claim_is_current(
+                claim_token,
+                RECOVERY_CONVERSATION_STATUSES,
+                advisory_lock_held=True,
+            ):
+                current.repository.finish_recovery_send_claim(claim_token, sent=False)
+                raise HTTPException(
+                    status_code=409,
+                    detail="Chegou uma nova mensagem; prepare o rascunho novamente antes de enviar.",
+                )
+            if _PHONE_OPERATION_LOCKS.has_pending(phone):
+                current.repository.finish_recovery_send_claim(claim_token, sent=False)
+                raise HTTPException(
+                    status_code=409,
+                    detail="Chegou uma nova mensagem; prepare o rascunho novamente antes de enviar.",
+                )
+            try:
+                result = await current.processor.send_admin_reply(phone, message)
+            except ZapiError as exc:
+                current.repository.finish_recovery_send_claim(claim_token, sent=False)
+                current.repository.audit(
+                    "admin_recovery_send_error",
+                    phone,
+                    {"operator": operator, "channel": "web", "message_length": len(message)},
+                )
+                logger.warning("admin recovery send failed: %s", type(exc).__name__)
+                raise HTTPException(status_code=502, detail="Não foi possível enviar a resposta ao cliente.") from exc
+            except Exception:
+                current.repository.finish_recovery_send_claim(claim_token, sent=False)
+                raise
+            if not result.sent and not result.suppressed:
+                current.repository.finish_recovery_send_claim(claim_token, sent=False)
+                current.repository.audit(
+                    "admin_recovery_send_error",
+                    phone,
+                    {"operator": operator, "channel": "web", "message_length": len(message)},
+                )
+                raise HTTPException(status_code=502, detail="Não foi possível enviar a resposta ao cliente.")
+            current.repository.finish_recovery_send_claim(
+                claim_token,
+                sent=result.sent,
+                suppressed=result.suppressed,
+            )
+            current.repository.audit(
+                "admin_recovery_sent",
+                phone,
+                {
+                    "operator": operator,
+                    "channel": "web",
+                    "message_length": len(message),
+                    "sent": result.sent,
+                    "suppressed": result.suppressed,
+                },
+            )
+            current.repository.set_conversation_status(
+                phone,
+                "human_active",
+                f"Resposta manual pelo painel por {operator}",
+            )
+
+        return _admin_json(
+            {
+                "phone": phone,
+                "sent": result.sent,
+                "suppressed": result.suppressed,
+                "status": "human_active",
+                "message": (
+                    "Resposta registrada; o envio externo está suprimido neste ambiente."
+                    if result.suppressed
+                    else "Resposta enviada ao cliente."
+                ),
+            }
+        )
 
 
 async def _admin_catalog_payload(current: Runtime) -> dict[str, Any]:
@@ -330,6 +543,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         await app.state.runtime.aclose()
 
     app = FastAPI(title="Robo loja WhatsApp", version="0.1.0", lifespan=lifespan)
+    settings = runtime.settings if runtime is not None else get_settings()
+    app.add_middleware(
+        RequestBodySizeLimitMiddleware,
+        max_bytes=settings.max_request_body_bytes,
+    )
 
     @app.get("/health")
     async def health(request: Request) -> dict[str, Any]:
@@ -355,6 +573,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 current.settings.zapi_instance_id
                 and current.settings.zapi_token
             ),
+            "zapi_webhook_secret": _webhook_secret_configured(current.settings),
         }
         payload = {"ready": all(checks.values()), "checks": checks}
         return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
@@ -709,43 +928,18 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 status_code=409,
                 detail="Chegou uma nova mensagem; prepare o rascunho novamente antes de enviar.",
             )
-        result = await current.processor.send_admin_reply(phone, message)
-        if not result.sent and not result.suppressed:
-            current.repository.audit(
-                "admin_recovery_send_error",
+        # Each manual send temporarily holds one pooled PostgreSQL connection
+        # for its cross-process advisory lock and needs a second connection to
+        # persist the send. Serialize these sends per app process so concurrent
+        # replies cannot occupy the whole pool while waiting for another slot.
+        async with _PHONE_OPERATION_LOCKS.hold("__recovery_send_capacity__"):
+            return await _send_recovery_reply(
+                current,
                 phone,
-                {"operator": operator, "channel": "web", "message_length": len(message)},
+                message,
+                operator,
+                command.expected_last_message_id,
             )
-            raise HTTPException(status_code=502, detail="Não foi possível enviar a resposta ao cliente.")
-        current.repository.audit(
-            "admin_recovery_sent",
-            phone,
-            {
-                "operator": operator,
-                "channel": "web",
-                "message_length": len(message),
-                "sent": result.sent,
-                "suppressed": result.suppressed,
-            },
-        )
-        current.repository.set_conversation_status(
-            phone,
-            "human_active",
-            f"Resposta manual pelo painel por {operator}",
-        )
-        return _admin_json(
-            {
-                "phone": phone,
-                "sent": result.sent,
-                "suppressed": result.suppressed,
-                "status": "human_active",
-                "message": (
-                    "Resposta registrada; o envio externo está suprimido neste ambiente."
-                    if result.suppressed
-                    else "Resposta enviada ao cliente."
-                ),
-            }
-        )
 
     @app.get("/admin/api/audit")
     async def admin_audit(
@@ -936,7 +1130,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         request: Request,
         command: AdminRefreshRequest,
     ) -> dict[str, Any]:
-        operator = _require_admin_operator(request)
+        operator = _require_admin_owner(request)
         current: Runtime = request.app.state.runtime
         _require_admin_csrf(request, current.settings)
         source = str(command.source or "").strip().lower()
@@ -984,7 +1178,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.post("/webhooks/zapi/{webhook_secret}")
     async def zapi_webhook(webhook_secret: str, request: Request) -> dict[str, Any]:
         current: Runtime = request.app.state.runtime
-        if not hmac.compare_digest(webhook_secret, current.settings.zapi_webhook_secret):
+        configured_secret = str(current.settings.zapi_webhook_secret or "").strip()
+        if not _webhook_secret_configured(current.settings):
+            raise HTTPException(status_code=503, detail="Webhook secret is not configured")
+        if not hmac.compare_digest(webhook_secret, configured_secret):
             raise HTTPException(status_code=404, detail="not found")
         try:
             payload = await request.json()
@@ -1029,14 +1226,30 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             return {"accepted": True, "ignored": True}
 
         external_id = incoming.event_id or hashlib.sha256(await request.body()).hexdigest()
-        event_id, created = current.repository.register_inbound_event(external_id, payload)
+        async def register_event_and_queue():
+            return await asyncio.to_thread(
+                current.repository.register_inbound_event_and_enqueue,
+                external_id,
+                payload,
+                phone=incoming.phone,
+                debounce_seconds=current.settings.message_batch_wait_seconds,
+            )
+
+        async with _PHONE_OPERATION_LOCKS.mark_pending(incoming.phone):
+            _event_id, created = await asyncio.to_thread(
+                current.repository.register_inbound_event,
+                external_id,
+                payload,
+                phone=incoming.phone,
+            )
+            if created:
+                async with _PHONE_OPERATION_LOCKS.hold(incoming.phone):
+                    _queued_event_id, _queue_created, job_id = await register_event_and_queue()
+        if not created:
+            async with _PHONE_OPERATION_LOCKS.hold(incoming.phone):
+                _queued_event_id, _queue_created, job_id = await register_event_and_queue()
         if not created:
             return {"accepted": True, "duplicate": True}
-        job_id = current.repository.enqueue_job(
-            event_id,
-            phone=incoming.phone,
-            debounce_seconds=current.settings.message_batch_wait_seconds,
-        )
         return {
             "accepted": True,
             "job_id": job_id,

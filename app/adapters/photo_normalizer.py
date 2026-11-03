@@ -8,6 +8,11 @@ from typing import Any
 import httpx
 from PIL import Image, ImageOps
 
+from app.adapters.safe_http import (
+    ResponseTooLargeError,
+    UnsafeExternalUrlError,
+    fetch_limited_bytes,
+)
 from app.config import Settings
 
 
@@ -34,28 +39,42 @@ class ProductPhotoNormalizer:
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None):
         self.settings = settings
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0, connect=5.0),
+            trust_env=False,
+        )
         self._owns_client = client is None
         self._cache: dict[str, str] = {}
 
-    async def normalize(self, url: str) -> str:
+    async def normalize(self, url: str) -> str | None:
         if not isinstance(url, str) or not url.lower().startswith("https://"):
-            return url
+            return None
         if url in self._cache:
             return self._cache[url]
 
         try:
-            response = await self._client.get(url)
-            response.raise_for_status()
-            if len(response.content) > self.settings.media_max_bytes:
-                return url
-            normalized = normalize_image_bytes(
-                response.content,
-                response.headers.get("content-type", "image/jpeg"),
+            content, headers = await fetch_limited_bytes(
+                self._client,
+                url,
+                self.settings.media_max_bytes,
             )
+            normalized = normalize_image_bytes(
+                content,
+                headers.get("content-type", "image/jpeg"),
+            )
+        except UnsafeExternalUrlError as exc:
+            logger.warning("product photo URL rejected: %s", type(exc).__name__)
+            return None
+        except ResponseTooLargeError:
+            # The URL remains available for provider-side delivery without
+            # buffering an oversized response inside this process.
+            return url
+        except httpx.HTTPError as exc:
+            # A transient fetch failure should not suppress an otherwise
+            # approved catalog photo.
+            logger.warning("product photo normalization failed: %s", type(exc).__name__)
+            return url
         except Exception as exc:
-            # Sending the original approved HTTPS URL is safer than failing
-            # the whole answer when a remote attachment is not an image.
             logger.warning("product photo normalization failed: %s", type(exc).__name__)
             return url
 

@@ -44,6 +44,7 @@ def test_ready_requires_loaded_catalog_sources():
             mercado_phone_api_key="configured",
             zapi_instance_id="instance",
             zapi_token="token",
+            zapi_webhook_secret="a" * 32,
             zapi_client_token="client-token",
         )
         repository = FakeRepository()
@@ -76,6 +77,7 @@ def test_ready_accepts_loaded_stale_catalog_snapshots():
             mercado_phone_api_key="configured",
             zapi_instance_id="instance",
             zapi_token="token",
+            zapi_webhook_secret="a" * 32,
         )
         repository = FakeRepository()
         cache = SimpleNamespace(items=[object()], last_refresh=1.0)
@@ -104,5 +106,6 @@ def test_ready_accepts_loaded_stale_catalog_snapshots():
             "mercado_phone": True,
             "google_sheets": True,
             "zapi": True,
+            "zapi_webhook_secret": True,
         },
     }

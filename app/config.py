@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     zapi_instance_id: str | None = None
     zapi_token: str | None = None
     zapi_client_token: str | None = None
-    zapi_webhook_secret: str = "change-this-webhook-secret"
+    zapi_webhook_secret: str | None = None
     zapi_expected_instance_id: str | None = None
     zapi_group_diagnostics_enabled: bool = False
 
@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     faq_path: str = "data/faq.yaml"
     retention_days: int = Field(default=30, ge=1)
     media_max_bytes: int = Field(default=15_000_000, ge=1_000)
+    max_request_body_bytes: int = Field(default=1_000_000, ge=1_024, le=10_000_000)
     message_batch_wait_seconds: int = Field(default=10, ge=0, le=60)
 
     @property
