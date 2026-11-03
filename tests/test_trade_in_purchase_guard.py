@@ -85,7 +85,7 @@ def test_catalog_photo_does_not_override_an_explicit_iphone_sale_offer():
     )
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
 
 
 def test_pix_pickup_price_offer_cannot_be_rewritten_as_trade_in_handoff():

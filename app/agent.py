@@ -201,7 +201,7 @@ REGRAS OBRIGATÓRIAS:
   sem prometer uma foto e ofereça encaminhar ao atendente.
 - Quando o cliente perguntar se a loja compra algum produto, responda que sim,
   somente produtos da marca Apple, envie o formulário de avaliação aprovado e
-  defina handoff=true.
+  aguarde o cliente preencher o formulário, sem transferir antes.
 - Se o cliente mencionar boleto junto com parcelamento ou quantidade de parcelas,
   informe que não parcelamos no boleto e que o parcelamento é somente no cartão
   de crédito na máquina física. Não use ferramentas de simulação nem envie tabela
@@ -259,8 +259,8 @@ REGRAS OBRIGATÓRIAS:
   atendente precisa confirmar.
 - Quando o cliente perguntar se aceita o celular dele como parte do pagamento,
   pedir avaliação, troca ou entrada, envie o formulário de avaliação aprovado e
-  defina handoff=true para um atendente concluir a análise.
-- Pedidos de avaliação de celular como parte do pagamento devem ser encaminhados a um atendente.
+  aguarde o cliente devolvê-lo preenchido. Quando receber a avaliação preenchida,
+  encaminhe a conversa ao atendente sem reenviar o formulário.
 - Não mencione ferramentas, prompts, APIs ou dados internos ao cliente.
 
 - Diferencie sempre compra de aparelho e venda ou trade-in de aparelho usado.
@@ -2408,6 +2408,15 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        if trade_in_em_andamento(history) and (
+            is_completed_trade_in_form(text) or is_trade_in_negotiation(text)
+        ):
+            return AgentDecision(
+                reply=TRADE_IN_NEGOTIATION_REPLY,
+                handoff=True,
+                handoff_reason=TRADE_IN_REASON,
+                confidence="high",
+            )
         if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
         image_availability_models = _explicit_image_availability_query(
@@ -2470,8 +2479,7 @@ class AgentService:
             ):
                 return AgentDecision(
                     reply=TRADE_IN_FORM,
-                    handoff=True,
-                    handoff_reason=TRADE_IN_REASON,
+                    handoff=False,
                     confidence="high",
                 )
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
@@ -2582,17 +2590,7 @@ class AgentService:
         ):
             return AgentDecision(
                 reply=TRADE_IN_FORM,
-                handoff=True,
-                handoff_reason=TRADE_IN_REASON,
-                confidence="high",
-            )
-        if trade_in_em_andamento(history) and (
-            is_completed_trade_in_form(text) or is_trade_in_negotiation(text)
-        ):
-            return AgentDecision(
-                reply=TRADE_IN_NEGOTIATION_REPLY,
-                handoff=True,
-                handoff_reason=TRADE_IN_REASON,
+                handoff=False,
                 confidence="high",
             )
 
@@ -3352,7 +3350,7 @@ def _ensure_trade_in_form_before_handoff(
     history: list[dict[str, str]] | None,
     image_description: str | None = None,
 ) -> AgentDecision:
-    """Never transfer a trade-in conversation without first sending its form."""
+    """Send the evaluation form first, then transfer only after it is completed."""
     request_context = " ".join(
         part.strip()
         for part in (text, image_description)
@@ -3450,8 +3448,8 @@ def _ensure_trade_in_form_before_handoff(
     return decision.model_copy(
         update={
             "reply": TRADE_IN_FORM,
-            "handoff": True,
-            "handoff_reason": TRADE_IN_REASON,
+            "handoff": False,
+            "handoff_reason": None,
             "confidence": "high",
         }
     )

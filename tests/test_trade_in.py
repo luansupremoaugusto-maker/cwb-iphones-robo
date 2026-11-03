@@ -61,7 +61,7 @@ async def test_bare_iphone_13_buyback_with_battery_health_sends_evaluation_form(
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -96,7 +96,7 @@ async def test_selling_iphone_with_screen_repair_and_second_iphone_sends_evaluat
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -124,7 +124,7 @@ async def test_bare_iphone_13_buyback_history_keeps_condition_followup_in_evalua
         history=history,
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -175,7 +175,7 @@ async def test_bare_iphone_models_shop_take_question_sends_evaluation_form(tmp_p
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -220,7 +220,7 @@ async def test_owned_iphone_buyback_purchase_context_sends_evaluation_form(tmp_p
 
     decision = await service.respond("Vocês compram meu iPhone pra compra de um novo?")
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -248,7 +248,7 @@ async def test_shop_offer_for_detailed_iphone_profile_sends_evaluation_form(tmp_
 
     decision = await service.respond(text)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -284,7 +284,7 @@ async def test_complete_iphone_upgrade_with_battery_health_sends_form_on_first_t
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_parts_buyback_request(text) is False
@@ -330,7 +330,7 @@ async def test_ipad_offered_to_offset_catalog_macbook_sends_evaluation_form_with
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -356,7 +356,7 @@ async def test_explicit_buyback_question_can_identify_device_from_attached_image
     )
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -407,7 +407,7 @@ async def test_apple_device_offer_is_kept_when_purchase_target_is_non_apple(tmp_
     assert is_non_apple_trade_in_request(text) is False
     assert is_trade_in_request(text) is True
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -568,7 +568,7 @@ async def test_iphone_buyback_with_battery_percentage_after_battery_sends_evalua
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_request(text) is True
@@ -598,7 +598,7 @@ async def test_pegaria_detailed_iphone_offer_sends_evaluation_form_with_catalog_
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert is_trade_in_request(text) is True
 
 
@@ -622,7 +622,7 @@ async def test_pegem_detailed_iphone_offer_sends_evaluation_form(tmp_path):
     decision = await service.respond(text)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert is_trade_in_request(text) is True
 
 
@@ -665,7 +665,7 @@ async def test_jogada_device_offer_sends_evaluation_form(tmp_path, text):
     decision = await service.respond(text)
 
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -730,7 +730,7 @@ async def test_owned_iphone_battery_replacement_context_sends_evaluation_form(tm
 
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "assistência técnica" not in decision.reply.lower()
 
@@ -755,7 +755,7 @@ async def test_owned_iphone_offered_for_business_with_connector_defect_sends_eva
         image_description="Descrição visual da imagem recebida: fotos de um iPhone 13 Pro Max azul Sierra.",
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
     assert is_trade_in_request(text) is True
@@ -1173,7 +1173,7 @@ async def test_malformed_store_buyback_question_sends_evaluation_form(tmp_path):
     decision = await service.respond(text, history=history)
 
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1201,7 +1201,7 @@ async def test_plural_iphone_buyback_question_sends_evaluation_form(tmp_path, te
     decision = await service.respond(text, history=history)
 
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
     assert decision.image_urls == []
@@ -1235,7 +1235,7 @@ async def test_owned_ipad_11_sale_with_pronoun_sends_evaluation_list(tmp_path):
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -1312,33 +1312,57 @@ async def test_filled_evaluation_form_after_bot_form_is_forwarded_to_attendant(t
     )
 
     filled_form = (
-        "R: nao\n"
+        "Qual modelo de iPhone?\n"
+        "R: iPhone 13\n"
+        "Gb: 128\n"
+        "Cor: azul\n"
+        "Se não for iPhone, informe qual produto Apple:\n"
+        "R:\n"
+        "Comprou ele novo ou semi novo?\n"
+        "R: seminovo\n"
+        "Acessórios que acompanham?\n"
+        "R: carregador e capinha\n"
         "Marcas de uso?\n"
-        "R: nao\n"
+        "R: algumas\n"
         "Riscos na tela?\n"
-        "R: nao\n"
+        "R: um apenas\n"
         "Tem algo quebrado/defeituoso?\n"
         "(Mesmo que simples informar qualquer anormalidade)\n"
-        "R: nao\n"
+        "R: não\n"
         "Possui algo que já foi trocado ou feito algum reparo?\n"
-        "R: nao\n"
+        "R: não\n"
         "É desbloqueado chip todas operadoras?\n"
         "R: sim\n"
         "Qual a % da Saúde da bateria? (Veja em Ajustes > Bateria > Saúde da bateria)\n"
         "R: 71%\n"
         "Valor que pretende no seu usado? (Lembrando que precisamos de margem para revenda)\n"
-        "R: R$ 3.000,00\n"
+        "R: 1.500, mas pode analisar melhor\n"
         "Ainda tem garantia Apple? Se sim, quanto?\n"
-        "R:\n"
+        "R: não\n"
         "Se puder mandar fotos agradecemos.\n"
         "Com essas informações já podemos fazer uma avaliação prévia!!\n"
         "Só avaliamos produtos da marca Apple. Após preencher, vou encaminhar o atendimento para um atendente concluir a avaliação."
     )
 
-    decision = await service.respond(
-        filled_form,
-        history=[{"role": "assistant", "content": TRADE_IN_FORM}],
-    )
+    history = [
+        {"role": "user", "content": "Bom dia, vocês só trabalham com seminovos?"},
+        {
+            "role": "assistant",
+            "content": "Também trabalhamos com lacrados por encomenda e temos seminovos em estoque.",
+        },
+        {"role": "user", "content": "Eu tenho o 13 e queria mudar pro 16 ou 17."},
+        {
+            "role": "assistant",
+            "content": "Temos iPhone 16 e 17 disponíveis. Você pretende usar seu iPhone 13 como parte do pagamento?",
+        },
+        {
+            "role": "user",
+            "content": "Isso, usaria o 13 como parte e o restante à vista.",
+        },
+        {"role": "assistant", "content": TRADE_IN_FORM},
+    ]
+
+    decision = await service.respond(filled_form, history=history)
 
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
@@ -1376,7 +1400,7 @@ async def test_trade_in_response_is_form_and_handoff(tmp_path):
 
     decision = await service.respond("Vocês pegam meu iPhone como parte do pagamento?")
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "Qual modelo de iPhone?" in decision.reply
     assert "Saúde da bateria" in decision.reply
@@ -1412,7 +1436,7 @@ async def test_plural_used_phone_buyback_after_catalog_reply_sends_evaluation_fo
     )
 
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1448,7 +1472,7 @@ async def test_owned_iphone_entry_difference_after_catalog_reply_sends_evaluatio
 
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1471,7 +1495,7 @@ async def test_progressive_used_iphone_buyback_question_sends_evaluation_form(tm
 
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1504,7 +1528,7 @@ async def test_iphone_16_pro_max_offer_na_volta_with_battery_health_sends_evalua
 
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1522,7 +1546,7 @@ async def test_abbreviated_pegm_trade_in_question_returns_evaluation_form(tmp_pa
         "Oii qual valor vcs pegM na troca, iPhone 13 pro max, 128gb 83% bateria?"
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1558,7 +1582,7 @@ async def test_detailed_bare_iphone_trade_up_question_sends_evaluation_form(tmp_
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
@@ -1590,7 +1614,7 @@ async def test_abbreviated_exchange_model_with_condition_details_returns_evaluat
         image_description="Descrição visual da imagem recebida: iPhone 13 Pro Max seminovo",
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1622,7 +1646,7 @@ async def test_batched_exchange_battery_detail_returns_evaluation_form(tmp_path)
         ],
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1644,7 +1668,7 @@ async def test_multiple_iphone_exchange_offer_with_battery_details_sends_evaluat
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1663,7 +1687,7 @@ async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evalua
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1698,7 +1722,7 @@ async def test_batched_buyback_price_and_upgrade_request_sends_evaluation_form(t
 
     decision = await service.respond(text)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "assistência técnica" not in decision.reply.lower()
 
@@ -1731,7 +1755,7 @@ async def test_implicit_owned_iphone_upgrade_offer_sends_evaluation_form(tmp_pat
 
     decision = await service.respond(text)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -1770,7 +1794,7 @@ async def test_catalog_upgrade_of_owned_iphone_sends_evaluation_form(tmp_path):
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -1833,7 +1857,7 @@ async def test_bare_iphone_trade_offer_after_catalog_sends_evaluation_form(
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -1874,7 +1898,7 @@ async def test_bare_iphone_buyback_price_after_newer_catalog_request_sends_evalu
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
     assert decision.image_urls == []
@@ -2052,7 +2076,7 @@ async def test_looking_at_iphone_14_stays_in_catalog_after_greeting(tmp_path):
     entry_decision = await service.respond(entry_offer)
 
     assert is_trade_in_request(entry_offer) is True
-    assert entry_decision.handoff is True
+    assert entry_decision.handoff is False
     assert entry_decision.reply == TRADE_IN_FORM
     assert entry_decision.product_references == []
     assert entry_decision.image_urls == []
@@ -2088,7 +2112,7 @@ async def test_explicit_device_entry_overrides_catalog_price_question(tmp_path):
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -2157,7 +2181,7 @@ async def test_updating_owned_iphone_for_catalog_upgrade_sends_evaluation_form(t
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -2246,7 +2270,7 @@ async def test_batched_16_pro_entry_offer_with_battery_returns_evaluation_form(t
         ],
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -2282,7 +2306,7 @@ async def test_part_payment_offer_with_bare_iphone_model_and_battery_health_retu
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -2322,7 +2346,7 @@ async def test_detailed_owned_iphone_profile_without_exchange_words_sends_evalua
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -2358,7 +2382,7 @@ async def test_detailed_owned_iphone_with_replaced_screen_and_battery_after_cata
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
     assert decision.image_urls == []
@@ -2423,7 +2447,7 @@ async def test_store_purchased_iphone_12_with_trade_intent_and_battery_sends_eva
         image_description="O cliente enviou fotos do iPhone 12 que comprou na loja.",
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -2463,7 +2487,7 @@ async def test_iphone_12_trade_budget_followup_after_photo_handoff_sends_evaluat
         history=history,
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -2610,7 +2634,7 @@ async def test_owned_iphone_price_question_sends_evaluation_form(tmp_path):
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "assistência técnica" not in decision.reply.lower()
 
@@ -2645,7 +2669,7 @@ async def test_fragmented_iphone_trade_profile_with_purchase_origin_sends_evalua
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_context_request(text, history) is True
@@ -2681,7 +2705,7 @@ async def test_conditional_buyback_price_question_sends_evaluation_form(tmp_path
     decision = await service.respond(text)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_request(text) is True
@@ -2703,7 +2727,7 @@ async def test_device_offer_with_no_parts_or_damage_returns_evaluation_form(tmp_
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "assistência técnica" not in decision.reply.lower()
 
@@ -2727,7 +2751,7 @@ async def test_upgrade_request_with_battery_and_camera_details_returns_evaluatio
         "a diferença a pagar no upgrade. Obrigada! 😊"
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -2747,7 +2771,7 @@ async def test_two_iphone_buyback_listing_is_not_classified_as_parts(tmp_path):
         "14 128gb azul - unico detalhe é um pequeno trinco parte inferior esquerda traseira, bateria 79% - não possui caixinha"
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "Não compramos peças avulsas" not in decision.reply
 
@@ -2774,7 +2798,7 @@ async def test_complete_device_offer_with_photo_returns_evaluation_form(tmp_path
         image_description="Foto de um iPhone 17 completo dentro da caixa.",
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "Não compramos peças avulsas" not in decision.reply
 
@@ -2813,7 +2837,7 @@ async def test_part_payment_offer_with_replaced_battery_returns_evaluation_form(
 
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -2856,7 +2880,7 @@ async def test_contextual_device_offer_after_catalog_reply_sends_evaluation_form
     assert is_trade_in_context_request(
         f"{current_message} {image_description}", history
     ) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "assistência técnica" not in decision.reply.lower()
 
@@ -2899,7 +2923,7 @@ async def test_bare_iphone_as_part_of_value_after_catalog_reply_sends_evaluation
     assert is_trade_in_request(text) is False
     assert is_trade_in_context_request(text, history) is True
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -2946,7 +2970,7 @@ async def test_grouped_tem_interesse_offer_returns_evaluation_form(tmp_path):
         image_description="Descrição visual da imagem recebida: fotos de um iPhone 16.",
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -2989,7 +3013,7 @@ def test_trade_in_context_detector_matches_abbreviated_model_followup():
 
 
 @pytest.mark.asyncio
-async def test_trade_in_context_followup_returns_form_before_handoff(tmp_path):
+async def test_trade_in_context_followup_sends_form_without_handoff(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
         InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
@@ -3009,12 +3033,12 @@ async def test_trade_in_context_followup_returns_form_before_handoff(tmp_path):
         ],
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
 @pytest.mark.asyncio
-async def test_trade_in_confirmation_returns_form_before_handoff(tmp_path):
+async def test_trade_in_confirmation_sends_form_without_handoff(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
         InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
@@ -3036,7 +3060,7 @@ async def test_trade_in_confirmation_returns_form_before_handoff(tmp_path):
         ],
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -3052,7 +3076,7 @@ async def test_owned_iphone_for_sale_returns_evaluation_form(tmp_path):
 
     decision = await service.respond("Tenho um iPhone 11 Pro Max para vender.")
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "Qual modelo de iPhone?" in decision.reply
 
@@ -3114,7 +3138,7 @@ async def test_bare_iphone_model_used_as_entry_after_catalog_reply_sends_evaluat
     assert is_trade_in_context_request(text, history) is True
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -3159,7 +3183,7 @@ async def test_repassar_complete_iphone_with_battery_photo_sends_evaluation_form
 
     decision = await service.respond(text, image_description=image_description)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert "assistência técnica" not in decision.reply.lower()
 
@@ -3198,7 +3222,7 @@ async def test_owned_iphone_trade_down_to_smaller_model_sends_evaluation_form(
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -3225,7 +3249,7 @@ async def test_owned_iphone_exchange_for_newer_model_returns_evaluation_form(tmp
     decision = await service.respond(text)
 
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -3252,7 +3276,7 @@ async def test_owned_iphone_12_orcamento_for_16_pro_returns_evaluation_form(tmp_
 
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
     assert decision.product_references == []
 
@@ -3275,7 +3299,7 @@ async def test_owned_iphone_15_pro_upgrade_to_17_pro_max_sends_evaluation_form(t
     decision = await service.respond(text)
 
     assert is_trade_in_request(text) is True
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -3310,7 +3334,7 @@ async def test_iphone_15_pro_max_upgrade_research_sends_evaluation_form(tmp_path
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
@@ -3343,7 +3367,7 @@ async def test_discount_for_delivering_old_phone_sends_evaluation_form(tmp_path)
 
     decision = await service.respond(text, history=history)
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -3365,7 +3389,7 @@ async def test_trade_in_offer_with_screen_condition_returns_evaluation_form(tmp_
         "Obs: tela com pequenos riscos, e parte de trás com um leve trincado."
     )
 
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
 
 
@@ -3420,7 +3444,7 @@ async def test_two_iphone_upgrade_value_question_sends_evaluation_form(tmp_path)
     decision = await service.respond(text)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_request(text) is True
@@ -3461,7 +3485,7 @@ async def test_warranty_followup_after_two_iphone_exchange_sends_evaluation_form
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_context_request(text, history) is True
@@ -3500,7 +3524,7 @@ async def test_batched_iphone_13_exchange_with_replaced_battery_and_screen_sends
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_request(text) is True
@@ -3538,7 +3562,7 @@ async def test_abbreviated_iphone_13_buyback_offer_after_catalog_sends_evaluatio
 
     assert is_trade_in_context_request(text, history) is True
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -3600,7 +3624,7 @@ async def test_confirmation_after_abbreviated_iphone_13_offer_sends_evaluation_f
     )
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -3640,7 +3664,7 @@ async def test_detailed_owned_iphone_upgrade_in_whatsapp_message_sends_evaluatio
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_request(text) is True
@@ -3727,7 +3751,7 @@ async def test_trade_in_upgrade_followup_uses_recent_owned_iphone_profile(tmp_pa
     assert is_trade_in_context_request(text, history) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -3777,7 +3801,7 @@ async def test_upgrade_history_with_bare_owned_iphone_profile_sends_evaluation_f
     assert is_trade_in_context_request(text, history) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -3829,7 +3853,7 @@ async def test_complete_bare_iphone_profile_sends_evaluation_form(tmp_path):
     assert is_trade_in_request(text) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -3919,7 +3943,7 @@ async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp
     assert model_trade_in_candidate.image_urls == []
     assert is_trade_in_request(explicit_buyback_text) is True
     assert explicit_buyback_decision.reply == TRADE_IN_FORM
-    assert explicit_buyback_decision.handoff is True
+    assert explicit_buyback_decision.handoff is False
 
 
 @pytest.mark.asyncio
@@ -3947,11 +3971,11 @@ async def test_owned_iphone_quote_followed_by_base_de_troca_sends_evaluation_for
 
     assert is_trade_in_request(quote) is True
     assert quote_decision.reply == TRADE_IN_FORM
-    assert quote_decision.handoff is True
+    assert quote_decision.handoff is False
     assert is_trade_in_context_request("A base de troca", history) is True
     assert is_parts_buyback_request("A base de troca") is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -4078,7 +4102,7 @@ async def test_17e_exchange_lists_requested_seminovos_and_sends_full_evaluation_
 
     assert is_trade_in_context_request(followup, history) is True
     assert evaluation_decision.reply == TRADE_IN_FORM
-    assert evaluation_decision.handoff is True
+    assert evaluation_decision.handoff is False
     assert evaluation_decision.product_references == []
     assert evaluation_decision.image_urls == []
     assert "Qual modelo de iPhone?" in evaluation_decision.reply
@@ -4152,7 +4176,7 @@ async def test_complete_owned_iphone_buyback_after_selecting_catalog_phone_sends
     decision = await service.respond(text, history=history)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_parts_buyback_request(text) is False
@@ -4189,7 +4213,7 @@ async def test_owned_iphone_with_broken_camera_and_upgrade_offer_sends_evaluatio
     assert is_trade_in_request(text) is True
     assert is_trade_in_context_request(text, history) is True
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -4264,7 +4288,7 @@ async def test_owned_iphone_description_then_trade_in_followup_sends_evaluation_
     assert is_trade_in_context_request(followup, history) is True
     assert is_parts_buyback_request(followup) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -4334,7 +4358,7 @@ async def test_owned_iphones_offered_after_catalog_budget_question_send_evaluati
     assert is_trade_in_context_request(text, history) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -4396,7 +4420,7 @@ async def test_owned_iphone_details_after_catalog_trade_question_send_evaluation
     assert is_trade_in_context_request(text, history) is True
     assert is_parts_buyback_request(text) is False
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -4466,4 +4490,4 @@ async def test_owned_iphone_details_after_catalog_trade_question_send_evaluation
     )
     assert is_trade_in_context_request(replacement_profile, replacement_history) is True
     assert replacement_decision.reply == TRADE_IN_FORM
-    assert replacement_decision.handoff is True
+    assert replacement_decision.handoff is False

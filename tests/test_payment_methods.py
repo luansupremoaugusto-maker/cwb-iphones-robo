@@ -662,7 +662,7 @@ async def test_real_iphone_trade_in_remains_evaluation_when_purchase_mentions_bo
     decision = await agent.respond(text)
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
@@ -676,7 +676,7 @@ async def test_store_buyback_question_with_compra_de_still_gets_evaluation_form(
 
     assert is_trade_in_request(text) is True
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
     assert decision.product_references == []
     assert decision.image_urls == []
 
