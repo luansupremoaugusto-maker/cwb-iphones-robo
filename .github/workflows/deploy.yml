@@ -887,7 +887,7 @@ jobs:
           print("IPHONE_14_BATTERY_ORIGINALITY_AFTER_OFFER_OK")
           PY
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; settings = Settings(openai_api_key=None, google_sheets_enabled=False); faq = FAQStore(settings.faq_file); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-boleto-payment-policy.json"), faq, settings, offline=True); history = [{"role": "user", "content": "Olá"}, {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"}]; decision = asyncio.run(service.respond("Você vende iPhone no boleto?", history=history)); assert decision.reply == faq.get("pagamento"), decision; assert not decision.handoff and decision.product_references == [] and decision.image_urls == []; assert "Lista completa" not in decision.reply and "iphone 13 pro max" not in decision.reply.lower(); print("IPHONE_BOLETO_PAYMENT_POLICY_OK")'
-          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-replaced-components.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "oi"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "user", "content": "tudo bem?"}, {"role": "assistant", "content": "Oi! Tudo bem? 😊 Como posso te ajudar?"}]; text = "queria ver\nse vocês pegam troca\no meu é o 13\nmas tem a bateria e a tela trocada..."; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 replaced battery/screen evaluation routing: ok")'
+          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-replaced-components.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "oi"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "user", "content": "tudo bem?"}, {"role": "assistant", "content": "Oi! Tudo bem? 😊 Como posso te ajudar?"}]; text = "queria ver\nse vocês pegam troca\no meu é o 13\nmas tem a bateria e a tela trocada..."; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and not decision.handoff and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 replaced battery/screen evaluation routing: ok")'
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
           from app.adapters.mercado_phone import InventoryCache
@@ -925,7 +925,7 @@ jobs:
           assert is_trade_in_request(text), decision
           assert not is_parts_buyback_request(text), decision
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff, decision
+          assert not decision.handoff, decision
           assert not decision.product_references and not decision.image_urls, decision
           print("IPHONE_16_SCREEN_REPAIR_SALE_EVALUATION_OK")
           PY
@@ -1119,13 +1119,13 @@ jobs:
           PY
           docker compose --env-file .env.local exec -T app python -c 'from app.adapters.catalog_cache import _requested_iphone_model_keys; from app.agent import _multi_model_installment_queries; query = "O 16 pro semi-novo 100% e o 17 pro Max lacrado de 256"; expected_models = ((16, "pro"), (17, "pro max")); expected_queries = ("o 16 pro semi-novo 100%", "o 17 pro max lacrado de 256"); models = _requested_iphone_model_keys(query); queries = _multi_model_installment_queries(query, []); assert models == expected_models, models; assert queries == expected_queries, queries; print("Two-model installment scopes: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_parts_buyback_request, is_trade_in_request; query = "Por quanto vocês pegam 14 pro Max roxo, 83% a bateria e 128gb? Quero trocar pelo 16 pro Max"; assert is_trade_in_request(query); assert not is_parts_buyback_request(query); print("iPhone 14 Pro Max trade-up evaluation routing: ok")'
-          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-17-to-18-upgrade-evaluation.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}]; text = "bom dia!! vcs fazem upgrade de celular? meu atual é um iPhone 17 Pro Max 256 GB em ótimo estado, sem avarias, com 84% de saúde da bateria e sem restrição de operadora (comprei fora) e garantia da apple até 25/12. e eu to querendo trocar pelo 18 pro max de 256gb!"; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == []; print("Detailed iPhone 17 Pro Max to 18 Pro Max evaluation routing: ok")'
-          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/ipad-11-evaluation-guard.json"), FAQStore(settings.faq_file), settings, offline=True); query = "Tenho um iPad 11 A16 com 3/4 meses de uso. Gostaria de vendê-lo, ainda está na garantia. Mas usei muito pouco e não me fez útil. Sem detalhes."; history = [{"role": "user", "content": "Boa tarde"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "assistant", "content": "Boa tarde! 😊 Como posso te ajudar?"}]; decision = asyncio.run(service.respond(query, history=history)); assert is_trade_in_request(query); assert not is_parts_buyback_request(query); assert decision.reply == TRADE_IN_FORM; assert decision.handoff; assert decision.product_references == []; assert decision.image_urls == []; refusal = "Tenho um iPad, mas não gostaria de vendê-lo."; refusal_decision = asyncio.run(service.respond(refusal)); assert not is_trade_in_request(refusal); assert refusal_decision.reply != TRADE_IN_FORM; assert not refusal_decision.handoff; print("iPad 11 sale and negated-sale evaluation routing: ok")'
+          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-17-to-18-upgrade-evaluation.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}]; text = "bom dia!! vcs fazem upgrade de celular? meu atual é um iPhone 17 Pro Max 256 GB em ótimo estado, sem avarias, com 84% de saúde da bateria e sem restrição de operadora (comprei fora) e garantia da apple até 25/12. e eu to querendo trocar pelo 18 pro max de 256gb!"; decision = asyncio.run(service.respond(text, history=history)); assert is_trade_in_request(text); assert not is_parts_buyback_request(text); assert decision.reply == TRADE_IN_FORM and not decision.handoff and decision.product_references == [] and decision.image_urls == []; print("Detailed iPhone 17 Pro Max to 18 Pro Max evaluation routing: ok")'
+          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_parts_buyback_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/ipad-11-evaluation-guard.json"), FAQStore(settings.faq_file), settings, offline=True); query = "Tenho um iPad 11 A16 com 3/4 meses de uso. Gostaria de vendê-lo, ainda está na garantia. Mas usei muito pouco e não me fez útil. Sem detalhes."; history = [{"role": "user", "content": "Boa tarde"}, {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"}, {"role": "assistant", "content": "Boa tarde! 😊 Como posso te ajudar?"}]; decision = asyncio.run(service.respond(query, history=history)); assert is_trade_in_request(query); assert not is_parts_buyback_request(query); assert decision.reply == TRADE_IN_FORM; assert not decision.handoff; assert decision.product_references == []; assert decision.image_urls == []; refusal = "Tenho um iPad, mas não gostaria de vendê-lo."; refusal_decision = asyncio.run(service.respond(refusal)); assert not is_trade_in_request(refusal); assert refusal_decision.reply != TRADE_IN_FORM; assert not refusal_decision.handoff; print("iPad 11 sale and negated-sale evaluation routing: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_parts_buyback_request, is_trade_in_request; query = "To querendo mes que vem troca de celular e to fazendo uma pesquisa. Voces pegam celular e se sim eu tenho um 15 pro Max. Saude da bateria 82%. Eu estou querendo 17 pro ou 17 pro Max, menos o laranja, quanto sairia a diferenca. Se fosse no pix qual e a diferenca e se fosse no credito como funciona a parcela"; assert is_trade_in_request(query); assert not is_parts_buyback_request(query); repair = "Tenho um iPhone 15 Pro e estou querendo um 17 Pro; quanto custa trocar a bateria do 15?"; assert not is_trade_in_request(repair); print("iPhone 15 Pro Max upgrade and battery-repair routing: ok")'
           docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-battery-condition-guard.json"), FAQStore(settings.faq_file), settings, offline=True); decision = asyncio.run(service.respond("Boa tarde! Esse iPhone 16 pro, a bateria dele é trocada?")); assert decision.handoff and "dúvida" in decision.reply.lower() and "assistência técnica" not in decision.reply.lower() and decision.product_references == [] and decision.image_urls == [], decision; repair = asyncio.run(service.respond("Quanto custa trocar a bateria desse iPhone?")); assert repair.handoff and "assistência técnica" in repair.reply.lower(), repair; print("IPHONE_BATTERY_CONDITION_ROUTING_OK")'
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_parts_buyback_request, is_trade_in_context_request, is_trade_in_request; offer = "bom dia, estou fazendo uma pesquisa de valores, qual o melhor valor que voce consegue fazer para troca de 2 17 pro max 256 (prata e azul) garantia novembro por 2 18 pro max 256 (prata e preto)"; history = [{"role": "user", "content": offer}, {"role": "assistant", "content": "Produtos novos lacrados têm garantia de 1 ano pela Apple."}]; followup = "sim, o meu 17 ta com garantia novembro"; assert is_trade_in_request(offer); assert not is_parts_buyback_request(offer); assert is_trade_in_context_request(followup, history); print("Two-iPhone upgrade evaluation routing: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_trade_in_context_request; history = [{"role": "assistant", "content": "Encontrei iPhone 15 disponível no catálogo por R$ 2.890."}, {"role": "user", "content": "Eu tenho um 13 aceita na troca"}]; text = "Como parte de apagamento"; assert is_trade_in_context_request(text, history); print("Bare iPhone exchange evaluation routing: ok")'
-          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_trade_in_context_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone13-part-value-evaluation.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "vc tem o iphone 16e"}, {"role": "assistant", "content": "Encontrei estas opções de iPhone 16e disponíveis: seminovo por R$ 2.610,00."}]; text = "aceita o 13 como parte do valor?"; decision = asyncio.run(service.respond(text, history=history)); assert not is_trade_in_request(text); assert is_trade_in_context_request(text, history); assert decision.reply == TRADE_IN_FORM and decision.handoff and decision.product_references == [] and decision.image_urls == [], decision; assert not is_trade_in_context_request("Aceita R$ 13 como parte do valor?", history); assert not is_trade_in_context_request("Tem o iPhone 13?", history); print("IPHONE_13_PART_VALUE_EVALUATION_OK")'
+          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; from app.trade_in import TRADE_IN_FORM, is_trade_in_context_request, is_trade_in_request; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone13-part-value-evaluation.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "user", "content": "vc tem o iphone 16e"}, {"role": "assistant", "content": "Encontrei estas opções de iPhone 16e disponíveis: seminovo por R$ 2.610,00."}]; text = "aceita o 13 como parte do valor?"; decision = asyncio.run(service.respond(text, history=history)); assert not is_trade_in_request(text); assert is_trade_in_context_request(text, history); assert decision.reply == TRADE_IN_FORM and not decision.handoff and decision.product_references == [] and decision.image_urls == [], decision; assert not is_trade_in_context_request("Aceita R$ 13 como parte do valor?", history); assert not is_trade_in_context_request("Tem o iPhone 13?", history); print("IPHONE_13_PART_VALUE_EVALUATION_OK")'
           docker compose --env-file .env.local exec -T app python -c 'from app.trade_in import is_trade_in_context_request; history = [{"role": "user", "content": "Qual valor do 18 pro Max"}, {"role": "assistant", "content": "Encontrei estas opções de iPhone 18 Pro Max disponíveis por R$ 11.100,00."}]; offer = "Pega 17 pro Max por quantos"; assert is_trade_in_context_request(offer, history); assert not is_trade_in_context_request("Qual o valor do iPhone 17 Pro Max de 256 GB?", history); print("iPhone 17 buyback price follow-up: ok")'
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
@@ -1151,7 +1151,7 @@ jobs:
           text = "Queria dar meus iPhones 12 de 128gb e um 14 pro de 256gb"
           decision = asyncio.run(service.respond(text, history=history))
           assert is_trade_in_context_request(text, history), decision
-          assert decision.reply == TRADE_IN_FORM and decision.handoff, decision
+          assert decision.reply == TRADE_IN_FORM and not decision.handoff, decision
           assert decision.product_references == [] and decision.image_urls == [], decision
           print("Multiple owned iPhones after a catalog budget question: evaluation form sent")
           PY
@@ -1222,7 +1222,7 @@ jobs:
           assert "juros da máquina" not in _normalize(decision.reply), decision.reply
           print("iPhone 17 Pro Max PIX price first reply: ok")
           PY
-          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-evaluation-guard.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "assistant", "content": "Encontrei estas opções de IPHONE 16 PRO disponíveis: 128GB, SEMINOVO, R$ 4.320,00, bateria 100%."}]; text = "Tenho um 13 branco, sem marca de uso, 128g com 88% de bateria, por quanto vocês compram?"; decision = asyncio.run(service.respond(text, history=history)); assert decision.handoff and "favor preencher lista de avaliação" in decision.reply.lower() and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 complete-device buyback evaluation: ok")'
+          docker compose --env-file .env.local exec -T app python -c 'import asyncio; from app.adapters.mercado_phone import InventoryCache; from app.agent import AgentService; from app.config import Settings; from app.faq import FAQStore; settings = Settings(openai_api_key=None, google_sheets_enabled=False); service = AgentService(InventoryCache(object(), settings, cache_path="/tmp/iphone-13-evaluation-guard.json"), FAQStore(settings.faq_file), settings, offline=True); history = [{"role": "assistant", "content": "Encontrei estas opções de IPHONE 16 PRO disponíveis: 128GB, SEMINOVO, R$ 4.320,00, bateria 100%."}]; text = "Tenho um 13 branco, sem marca de uso, 128g com 88% de bateria, por quanto vocês compram?"; decision = asyncio.run(service.respond(text, history=history)); assert not decision.handoff and "favor preencher lista de avaliação" in decision.reply.lower() and decision.product_references == [] and decision.image_urls == []; print("iPhone 13 complete-device buyback evaluation: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _customer_product_condition_context_query, _customer_product_request_context_query, _is_pronta_entrega_only_request; history = [{"role": "user", "content": "Estou procurando um iPhone novo ou semi para compra. Quais modelos você tem a pronta entrega? 15/16/17. Novo ou semi."}]; current = "E novo?"; condition = _customer_product_condition_context_query(current, history); context = _customer_product_request_context_query(current, history); assert condition == current, condition; assert _is_pronta_entrega_only_request(context), context; print("New-condition pronta-entrega follow-up: ok")'
           docker compose --env-file .env.local exec -T app python -c 'from app.agent import _is_contextual_pronta_entrega_followup, _is_delivery_or_pickup_request; history = [{"role": "assistant", "content": "Ouro-rosa está cadastrado para o Apple Watch Series 11 nos dois tamanhos: 42 mm por R$ 2.500 ou 46 mm por R$ 2.700. Trabalhamos por encomenda, com prazo de 1 semana. Qual tamanho você prefere?"}]; text = "Nenhum a pronta entrega?"; assert _is_contextual_pronta_entrega_followup(text, history); assert not _is_delivery_or_pickup_request(text, history); print("APPLE_WATCH_READY_STOCK_CONTEXT_GUARD_OK")'
           docker compose --env-file .env.local exec -T app python -c 'from types import SimpleNamespace; from app.adapters.catalog_cache import _matches_requested_apple_watch_model, _requested_apple_watch_model_keys; from app.agent import _requested_capacity_keys; requested = _requested_apple_watch_model_keys("SE 3 40mm", allow_bare=True); se3_40 = SimpleNamespace(name="Apple Watch SE 3", capacity="40MM"); se3_44 = SimpleNamespace(name="Apple Watch SE 3", capacity="44MM"); ultra = SimpleNamespace(name="Apple Watch Ultra 2", capacity="49MM"); assert _matches_requested_apple_watch_model(requested, se3_40); assert not _matches_requested_apple_watch_model(requested, se3_44); assert not _matches_requested_apple_watch_model(requested, ultra); assert _requested_capacity_keys("Apple Watch Ultra 2 49MM 4G") == (); print("APPLE_WATCH_SE3_40MM_MODEL_GUARD_OK")'
@@ -2151,7 +2151,7 @@ jobs:
           ):
               profile_decision = asyncio.run(service.respond(profile, history=history))
               assert profile_decision.reply == TRADE_IN_FORM, profile_decision
-              assert profile_decision.handoff, profile_decision
+              assert not profile_decision.handoff, profile_decision
               assert not profile_decision.product_references and not profile_decision.image_urls
           print("CATALOG_BOX_INCLUSION_ROUTING_OK")
           PY
@@ -2203,7 +2203,7 @@ jobs:
           ]
           decision = asyncio.run(service.respond(text, history=history))
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff, decision
+          assert not decision.handoff, decision
           assert decision.product_references == [] and decision.image_urls == [], decision
           assert is_trade_in_request(text), text
           assert is_trade_in_context_request(text, history), text
@@ -2541,7 +2541,7 @@ jobs:
           profile = "eu tenho um 16 plus rosa, bateria 93%, funciona tudo, tem caixa"
           profile_decision = asyncio.run(service.respond(profile))
           assert profile_decision.reply == TRADE_IN_FORM, profile_decision
-          assert profile_decision.handoff, profile_decision
+          assert not profile_decision.handoff, profile_decision
           assert not profile_decision.product_references and not profile_decision.image_urls
 
           history = [
@@ -2558,7 +2558,7 @@ jobs:
               )
           )
           assert exchange.reply == TRADE_IN_FORM, exchange
-          assert exchange.handoff, exchange
+          assert not exchange.handoff, exchange
           assert not exchange.product_references and not exchange.image_urls
 
           catalog = asyncio.run(
@@ -2603,7 +2603,7 @@ jobs:
           text = "Pega um 15 pro max e um 14 pro?"
           decision = asyncio.run(service.respond(text, history=history))
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff, decision
+          assert not decision.handoff, decision
           assert not decision.product_references and not decision.image_urls, decision
 
           purchase = asyncio.run(
@@ -2633,7 +2633,7 @@ jobs:
               assert is_trade_in_request(text), text
               assert not is_parts_buyback_request(text), text
               assert decision.reply == TRADE_IN_FORM, decision
-              assert decision.handoff, decision
+              assert not decision.handoff, decision
               assert not decision.product_references and not decision.image_urls, decision
           print("PLURAL_IPHONE_BUYBACK_EVALUATION_FORM_OK")
           print("BARE_IPHONE_MODEL_BUYBACK_EVALUATION_OK")
@@ -2689,7 +2689,7 @@ jobs:
           assert is_trade_in_request(text), text
           assert not is_parts_buyback_request(text), text
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff, decision
+          assert not decision.handoff, decision
           assert not decision.product_references and not decision.image_urls, decision
 
           non_apple = asyncio.run(
@@ -2726,7 +2726,7 @@ jobs:
               )
           )
           assert apple_offer.reply == TRADE_IN_FORM, apple_offer
-          assert apple_offer.handoff, apple_offer
+          assert not apple_offer.handoff, apple_offer
           assert not apple_offer.product_references and not apple_offer.image_urls
 
           loose_part = asyncio.run(
@@ -2884,7 +2884,7 @@ jobs:
           assert is_trade_in_request(text), text
           assert not is_parts_buyback_request(text), text
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff, decision
+          assert not decision.handoff, decision
           assert not decision.product_references and not decision.image_urls, decision
           print("IPHONE_16_CONDITIONAL_BUYBACK_EVALUATION_OK")
           PY
@@ -3017,7 +3017,7 @@ jobs:
           assert is_trade_in_request(text), text
           assert not is_parts_buyback_request(text), text
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff and decision.product_references == [] and decision.image_urls == [], decision
+          assert not decision.handoff and decision.product_references == [] and decision.image_urls == [], decision
           print("IPHONE_14_PRO_MAX_17_PRO_MAX_TRADE_EVALUATION_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
@@ -3070,7 +3070,7 @@ jobs:
           assert is_trade_in_request(text), text
           assert not is_parts_buyback_request(text), text
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff and decision.product_references == [] and decision.image_urls == [], decision
+          assert not decision.handoff and decision.product_references == [] and decision.image_urls == [], decision
           print("IPHONE_14_PRO_MAX_OWNED_DEVICE_AFTER_CATALOG_EVALUATION_OK")
           PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
@@ -3111,12 +3111,12 @@ jobs:
           )
           assert is_trade_in_request(quote), quote
           assert direct.reply == TRADE_IN_FORM, direct
-          assert direct.handoff, direct
+          assert not direct.handoff, direct
           assert not direct.product_references and not direct.image_urls, direct
           assert is_trade_in_context_request("A base de troca", history)
           assert not is_parts_buyback_request("A base de troca")
           assert followup.reply == TRADE_IN_FORM, followup
-          assert followup.handoff, followup
+          assert not followup.handoff, followup
           assert not followup.product_references and not followup.image_urls, followup
 
           catalog_quote = "Queria cotar o iPhone 16."
@@ -3186,7 +3186,7 @@ jobs:
               text = "meu aparelho atual é um 14 pro com 76% de bateria e 128GB"
               decision = await service.respond(text, history=history)
               assert decision.reply == TRADE_IN_FORM, decision
-              assert decision.handoff and decision.product_references == []
+              assert not decision.handoff and decision.product_references == []
               assert decision.image_urls == []
 
               catalog = await service.respond(
@@ -3254,7 +3254,7 @@ jobs:
           decision = asyncio.run(service.respond(followup, history=history))
           assert is_trade_in_context_request(followup, history), followup
           assert decision.reply == TRADE_IN_FORM, decision
-          assert decision.handoff and decision.product_references == [], decision
+          assert not decision.handoff and decision.product_references == [], decision
           assert decision.image_urls == [], decision
 
           parts_question = "Vocês compram só a bateria do iPhone 14 Pro Max?"
@@ -3305,7 +3305,7 @@ jobs:
           )
           assert is_trade_in_context_request(owned_profile, exchange_history)
           assert evaluation.reply == TRADE_IN_FORM, evaluation
-          assert evaluation.handoff and evaluation.product_references == [], evaluation
+          assert not evaluation.handoff and evaluation.product_references == [], evaluation
           assert evaluation.image_urls == [], evaluation
 
           profile_buyer = asyncio.run(
@@ -3372,7 +3372,7 @@ jobs:
               replacement_history,
           )
           assert replacement.reply == TRADE_IN_FORM, replacement
-          assert replacement.handoff and replacement.product_references == [], replacement
+          assert not replacement.handoff and replacement.product_references == [], replacement
           assert replacement.image_urls == [], replacement
           print("OWNED_IPHONE_TRADE_QUESTION_THEN_PROFILE_EVALUATION_OK")
           print("OWNED_IPHONE_DESCRIPTION_TRADE_IN_FOLLOWUP_OK")
@@ -4232,7 +4232,7 @@ jobs:
           entry_offer = "Quero dar meu iPhone 14 de entrada"
           entry_decision = asyncio.run(service.respond(entry_offer))
           assert is_trade_in_request(entry_offer), entry_decision
-          assert entry_decision.reply == TRADE_IN_FORM and entry_decision.handoff, entry_decision
+          assert entry_decision.reply == TRADE_IN_FORM and not entry_decision.handoff, entry_decision
           assert entry_decision.product_references == [] and entry_decision.image_urls == [], entry_decision
           print("IPHONE_14_LOOKAROUND_CATALOG_ROUTING_OK")
           PY
