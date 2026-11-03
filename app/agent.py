@@ -309,9 +309,9 @@ def _is_iphone_17_catalog_list_request(text: str) -> bool:
     )
 
 
-def _has_unanswered_iphone_17_catalog_request(
+def _unanswered_iphone_17_catalog_request(
     history: list[dict[str, str]] | None,
-) -> bool:
+) -> str | None:
     entries = (history or [])[-8:]
     candidate_index = next(
         (
@@ -323,7 +323,7 @@ def _has_unanswered_iphone_17_catalog_request(
         None,
     )
     if candidate_index is None:
-        return False
+        return None
 
     for entry in entries[candidate_index + 1 :]:
         if entry.get("role") != "assistant":
@@ -336,28 +336,53 @@ def _has_unanswered_iphone_17_catalog_request(
                 answer,
             )
         ):
-            return False
-    return True
+            return None
+    return entries[candidate_index].get("content") or None
 
 
-def _is_combined_iphone_17_catalog_and_trade_in_request(
+def _is_broad_iphone_17_catalog_request(text: str) -> bool:
+    normalized = _normalize(text or "")
+    has_line_request = bool(
+        re.search(
+            r"\b(?:para\s+cada|linha\s+(?:completa|17)|todos?\s+(?:os\s+)?modelos)\b",
+            normalized,
+        )
+        or re.search(r"\bquais\s+modelos\s+(?:de\s+)?(?:iphone\s*)?17\b", normalized)
+    )
+    has_specific_filter = bool(
+        _requested_capacity_keys(text)
+        or _requested_catalog_colors(text, [])
+        or re.search(r"\b(?:lacrad\w*|seminov\w*|usad\w*|novo|nova)\b", normalized)
+    )
+    return has_line_request and not has_specific_filter
+
+
+def _has_iphone_17_pro_comparison_request(text: str) -> bool:
+    normalized = _normalize(text or "")
+    return bool(
+        re.search(
+            r"\bpro\b.{0,35}\bpro\s+max\b|\bpro\s+max\b.{0,35}\bpro\b",
+            normalized,
+        )
+    )
+
+
+def _combined_iphone_17_catalog_request(
     text: str,
     history: list[dict[str, str]] | None = None,
-) -> bool:
-    """Recognize a generation-17 catalog request batched with a buyback quote."""
+) -> str | None:
+    """Recover the catalog part when an iPhone 17 request and buyback are combined."""
     buyback_match = _IMPLICIT_DEVICE_BUYBACK_PRICE_RE.search(text or "")
     if not buyback_match:
-        return False
+        return None
 
     catalog_request = (text or "")[: buyback_match.start()]
     buyback_request = (text or "")[buyback_match.start() :]
-    return bool(
-        (
-            _is_iphone_17_catalog_list_request(catalog_request)
-            or _has_unanswered_iphone_17_catalog_request(history)
-        )
-        and is_trade_in_request(buyback_request)
-    )
+    if not is_trade_in_request(buyback_request):
+        return None
+    if _is_iphone_17_catalog_list_request(catalog_request):
+        return catalog_request
+    return _unanswered_iphone_17_catalog_request(history)
 
 
 def _without_installment_count_list(normalized: str) -> str:
@@ -2473,24 +2498,51 @@ class AgentService:
 
     async def _try_combined_iphone_17_catalog_and_trade_in(
         self,
+        catalog_request: str,
     ) -> AgentDecision:
-        catalog_request = (
-            "Quais modelos da linha completa do iPhone 17 estão disponíveis?"
-        )
-        catalog_decision = await self._try_available_products(catalog_request)
+        is_full_line_request = _is_broad_iphone_17_catalog_request(catalog_request)
+        if is_full_line_request:
+            query = "Quais modelos da linha completa do iPhone 17 estão disponíveis?"
+            catalog_decision = await self._try_available_products(query)
+            fallback = (
+                "No momento, não localizei opções da linha iPhone 17 disponíveis no catálogo."
+            )
+        else:
+            query = catalog_request.strip()
+            if not re.search(r"\biphones?\s+17\b", _normalize(query)):
+                model = re.search(r"\b17\b", query)
+                if model:
+                    query = f"{query[:model.start()]}iPhone {query[model.start():]}"
+            catalog_decision = await self._try_product_availability(query)
+            fallback = (
+                "Não consegui confirmar agora a disponibilidade do modelo pedido."
+            )
         catalog_reply = (
             catalog_decision.reply.strip()
             if catalog_decision is not None
-            else "No momento, não localizei opções da linha iPhone 17 disponíveis no catálogo."
+            else fallback
         )
+        comparison_reply = (
+            "Entre o iPhone 17 Pro e o Pro Max, a diferença mais prática é o tamanho: "
+            "a tela do Pro tem 6,3 polegadas e a do Pro Max, 6,9 polegadas."
+            if _has_iphone_17_pro_comparison_request(catalog_request)
+            else ""
+        )
+        reply_parts = [catalog_reply]
+        if comparison_reply:
+            reply_parts.append(comparison_reply)
+        reply_parts.append(TRADE_IN_FORM)
         return AgentDecision(
-            reply=(
-                f"{catalog_reply}\n\n"
-                "Entre o iPhone 17 Pro e o Pro Max, a diferença mais prática é o tamanho: "
-                "a tela do Pro tem 6,3 polegadas e a do Pro Max, 6,9 polegadas.\n\n"
-                f"{TRADE_IN_FORM}"
-            ),
+            reply="\n\n".join(reply_parts),
             confidence="high",
+            product_references=(
+                catalog_decision.product_references
+                if catalog_decision is not None
+                else []
+            ),
+            image_urls=(
+                catalog_decision.image_urls if catalog_decision is not None else []
+            ),
         )
 
     async def respond(
@@ -2510,13 +2562,16 @@ class AgentService:
             )
         if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
-        if (
-            not trade_in_em_andamento(history)
-            and not _is_photo_request(text)
-            and _is_combined_iphone_17_catalog_and_trade_in_request(text, history)
-        ):
+        combined_catalog_request = (
+            _combined_iphone_17_catalog_request(text, history)
+            if not trade_in_em_andamento(history) and not _is_photo_request(text)
+            else None
+        )
+        if combined_catalog_request is not None:
             return protect_customer_decision(
-                await self._try_combined_iphone_17_catalog_and_trade_in()
+                await self._try_combined_iphone_17_catalog_and_trade_in(
+                    combined_catalog_request
+                )
             )
         image_availability_models = _explicit_image_availability_query(
             text,
