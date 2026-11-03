@@ -471,7 +471,7 @@ _BARE_MODEL_ENTRY_FOLLOWUP_RE = re.compile(
     re.IGNORECASE,
 )
 _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
-    r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro)|na\s+troca|"
+    r"\b(?:troca(?:r)?\s+(?:por|para|pra|pro|num|no)|na\s+troca|"
     r"base\s+(?:de|para|pra)\s+troca|"
     r"parte\s+do\s+(?:pagamento|valor)|como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
@@ -1828,7 +1828,9 @@ def is_trade_in_context_request(
         and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
         and not (
             _PAYMENT_METHOD_RE.search(normalized)
-            and not re.search(r"\btroca(?:r)?\s+(?:por|para|pra|pro)\b", normalized)
+            and not re.search(
+                r"\btroca(?:r)?\s+(?:por|para|pra|pro|num|no)\b", normalized
+            )
             and not _has_device_offer(normalized)
         )
         and is_trade_in_request(recent_user_context)
