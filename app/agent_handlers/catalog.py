@@ -54,6 +54,7 @@ from app.agent import (
     _is_cheapest_catalog_request,
     _is_contextual_pronta_entrega_followup,
     _is_device_item,
+    _is_all_iphone_17_line_request,
     _is_generic_iphone_list_request,
     _is_image_history_entry,
     _is_installment_budget_options_request,
@@ -195,6 +196,34 @@ async def _try_available_products(self, text: str) -> AgentDecision | None:
                     entry for entry in result.get("lacrados", []) if is_iphone_entry(entry)
                 ],
             }
+
+    if _is_all_iphone_17_line_request(text):
+        def is_iphone_17_line_entry(entry: dict[str, Any]) -> bool:
+            entry_text = " ".join(
+                str(entry.get(field) or "")
+                for field in ("nome", "capacidade", "cor", "condicao")
+            )
+            return any(
+                generation == 17
+                for generation, _variant in _requested_iphone_model_keys(entry_text)
+                if isinstance(generation, int)
+            )
+
+        result = {
+            **result,
+            "seminovos": [
+                entry for entry in result.get("seminovos", [])
+                if is_iphone_17_line_entry(entry)
+            ],
+            "lacrados_pronta_entrega": [
+                entry for entry in result.get("lacrados_pronta_entrega", [])
+                if is_iphone_17_line_entry(entry)
+            ],
+            "lacrados": [
+                entry for entry in result.get("lacrados", [])
+                if is_iphone_17_line_entry(entry)
+            ],
+        }
     requested_capacity_keys = _requested_capacity_keys(text)
     requested_capacities = set(requested_capacity_keys)
     if requested_capacities:

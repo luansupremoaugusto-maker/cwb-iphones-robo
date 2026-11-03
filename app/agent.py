@@ -291,6 +291,75 @@ def _normalize(value: str) -> str:
     return re.sub(r"\bpromax\b", "pro max", normalized)
 
 
+_IMPLICIT_DEVICE_BUYBACK_PRICE_RE = re.compile(
+    r"\bquanto\s+(?:dari\w*|pagari\w*|pegari\w*)\s+"
+    r"(?:em|no|na|num|numa|por|pelo|pela)\s+"
+    r"(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?1[0-8]\b",
+    re.IGNORECASE,
+)
+
+
+def _is_iphone_17_catalog_list_request(text: str) -> bool:
+    normalized = _normalize(text or "")
+    return bool(
+        re.search(r"\b17\b", normalized)
+        and re.search(r"\bpro\s+max\b", normalized)
+        and re.search(r"\b(?:disponivel|disponibilidade|estoque)\b", normalized)
+        and re.search(r"\b(?:compr\w*|quer\w*)\b", normalized)
+    )
+
+
+def _has_unanswered_iphone_17_catalog_request(
+    history: list[dict[str, str]] | None,
+) -> bool:
+    entries = (history or [])[-8:]
+    candidate_index = next(
+        (
+            index
+            for index in range(len(entries) - 1, -1, -1)
+            if entries[index].get("role") == "user"
+            and _is_iphone_17_catalog_list_request(entries[index].get("content", ""))
+        ),
+        None,
+    )
+    if candidate_index is None:
+        return False
+
+    for entry in entries[candidate_index + 1 :]:
+        if entry.get("role") != "assistant":
+            continue
+        answer = _normalize(entry.get("content", ""))
+        if (
+            re.search(r"\biphone\s+17\b", answer)
+            and re.search(
+                r"\b(?:disponivel|disponibilidade|opcoes?|estoque|lacrado)\b|\br\$",
+                answer,
+            )
+        ):
+            return False
+    return True
+
+
+def _is_combined_iphone_17_catalog_and_trade_in_request(
+    text: str,
+    history: list[dict[str, str]] | None = None,
+) -> bool:
+    """Recognize a generation-17 catalog request batched with a buyback quote."""
+    buyback_match = _IMPLICIT_DEVICE_BUYBACK_PRICE_RE.search(text or "")
+    if not buyback_match:
+        return False
+
+    catalog_request = (text or "")[: buyback_match.start()]
+    buyback_request = (text or "")[buyback_match.start() :]
+    return bool(
+        (
+            _is_iphone_17_catalog_list_request(catalog_request)
+            or _has_unanswered_iphone_17_catalog_request(history)
+        )
+        and is_trade_in_request(buyback_request)
+    )
+
+
 def _without_installment_count_list(normalized: str) -> str:
     if not re.search(
         r"\b(?:simul\w*|sublim\w*|calcul\w*|parcel\w*|"
@@ -2402,6 +2471,28 @@ class AgentService:
             return set()
         return set(getter())
 
+    async def _try_combined_iphone_17_catalog_and_trade_in(
+        self,
+    ) -> AgentDecision:
+        catalog_request = (
+            "Quais modelos da linha completa do iPhone 17 estão disponíveis?"
+        )
+        catalog_decision = await self._try_available_products(catalog_request)
+        catalog_reply = (
+            catalog_decision.reply.strip()
+            if catalog_decision is not None
+            else "No momento, não localizei opções da linha iPhone 17 disponíveis no catálogo."
+        )
+        return AgentDecision(
+            reply=(
+                f"{catalog_reply}\n\n"
+                "Entre o iPhone 17 Pro e o Pro Max, a diferença mais prática é o tamanho: "
+                "a tela do Pro tem 6,3 polegadas e a do Pro Max, 6,9 polegadas.\n\n"
+                f"{TRADE_IN_FORM}"
+            ),
+            confidence="high",
+        )
+
     async def respond(
         self,
         text: str,
@@ -2419,6 +2510,14 @@ class AgentService:
             )
         if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
+        if (
+            not trade_in_em_andamento(history)
+            and not _is_photo_request(text)
+            and _is_combined_iphone_17_catalog_and_trade_in_request(text, history)
+        ):
+            return protect_customer_decision(
+                await self._try_combined_iphone_17_catalog_and_trade_in()
+            )
         image_availability_models = _explicit_image_availability_query(
             text,
             image_description,
