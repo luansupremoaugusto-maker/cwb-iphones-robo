@@ -6672,6 +6672,38 @@ class AgentService:
                 confidence="high",
             )
 
+        # WhatsApp can batch several quick messages into one turn. If that
+        # batch includes both a payment question and an explicit photo request,
+        # resolve the requested photos before the payment FAQ can consume the
+        # whole turn, then keep both answers in the same reply.
+        if _is_photo_request(text) and (
+            _is_payment_methods_question(text) or _is_installment_rate_question(text)
+        ):
+            photo_decision = await self._try_product_photos(
+                text,
+                history,
+                image_description=image_description,
+            )
+            if photo_decision is not None:
+                payment_decision = self._try_payment_methods(text)
+                if payment_decision is None:
+                    payment_decision = await self._try_installment_rate_question(
+                        text,
+                        history=history,
+                    )
+                if payment_decision is not None:
+                    photo_decision = photo_decision.model_copy(
+                        update={
+                            "reply": (
+                                f"{payment_decision.reply.rstrip()}\n\n"
+                                f"{photo_decision.reply.lstrip()}"
+                            )
+                        }
+                    )
+                return protect_customer_decision(
+                    self._sanitize_image_urls(photo_decision)
+                )
+
         if _is_installment_budget_options_request(text, history):
             installment_budget_decision = await self._try_product_availability(
                 text,
