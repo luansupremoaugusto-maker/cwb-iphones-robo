@@ -2559,7 +2559,7 @@ class AgentService:
         if (
             _is_device_condition_question(combined_request)
             and not trade_in_em_andamento(history)
-            and not _has_explicit_trade_in_context(text, history)
+            and not _has_explicit_trade_in_context(combined_request, history)
         ):
             return protect_customer_decision(
                 AgentDecision(
@@ -3298,6 +3298,7 @@ def _is_device_condition_question(text: str | None) -> bool:
         return False
     if re.search(
         r"\b(?:marcas?\s+de\s+uso|amassad\w*|riscos?\w*|"
+        r"problema\w*.{0,30}funcionamento|funcionamento.{0,30}problema\w*|"
         r"arranh\w*|defeit\w*|quebrad\w*)\b",
         normalized,
     ):
@@ -3344,6 +3345,10 @@ def _has_explicit_trade_in_context(
         and not has_exchange_phrase
     ):
         current_trade_in_cue = False
+    else:
+        current_trade_in_cue = current_trade_in_cue or is_trade_in_context_request(
+            text, history
+        )
     if current_trade_in_cue:
         return True
     return any(
@@ -3453,7 +3458,7 @@ def _ensure_trade_in_form_before_handoff(
         return decision
 
     if _is_device_condition_question(request_context) and not _has_explicit_trade_in_context(
-        text, history
+        request_context, history
     ):
         return decision.model_copy(
             update={
