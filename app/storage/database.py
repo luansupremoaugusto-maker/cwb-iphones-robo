@@ -598,6 +598,16 @@ class Repository:
                         old_phone = normalize_phone(phone_mapping.canonical_phone)
                         if old_phone != canonical:
                             old_canonicals.add(old_phone)
+                    else:
+                        # Link messages recorded before this alias table existed.
+                        # In those rows, the LID was stored directly as the chat phone.
+                        legacy_conversation = session.scalar(
+                            select(ConversationRecord).where(
+                                ConversationRecord.phone == alias_value
+                            )
+                        )
+                        if legacy_conversation is not None:
+                            old_canonicals.add(normalize_phone(legacy_conversation.phone))
 
                 for old_phone in old_canonicals:
                     self._rekey_idle_conversation(session, old_phone, canonical)
