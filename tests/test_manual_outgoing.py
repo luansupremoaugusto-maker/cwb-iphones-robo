@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -97,6 +100,49 @@ async def test_manual_message_becomes_context_and_holds_pending_bot_reply():
         assert len(calls) == 1
         assert calls[0][0] == "E o preço?"
         assert {"role": "assistant", "content": "Oi, sou o Luan. Vou verificar para você."} in calls[0][1]
+    finally:
+        await runtime.aclose()
+
+
+async def test_manual_outgoing_audio_is_skipped_but_customer_audio_is_transcribed():
+    runtime = build_runtime(_settings(), offline=True)
+    phone = "5511777777777"
+    transcribe = AsyncMock(return_value="Quero saber o preço do aparelho.")
+    download_media = AsyncMock(return_value=(b"audio-bytes", "audio/ogg"))
+    runtime.processor.media = SimpleNamespace(transcribe=transcribe)
+    runtime.processor.zapi.download_media = download_media
+
+    try:
+        await runtime.processor.process_payload(
+            {
+                "messageId": "manual-audio-1",
+                "phone": phone,
+                "fromMe": True,
+                "fromApi": False,
+                "audio": {"audioUrl": "https://example.test/manual.ogg", "mimeType": "audio/ogg"},
+            }
+        )
+
+        transcribe.assert_not_awaited()
+        download_media.assert_not_awaited()
+
+        await runtime.processor.process_payload(
+            {
+                "messageId": "customer-audio-1",
+                "phone": phone,
+                "fromMe": False,
+                "audio": {"audioUrl": "https://example.test/customer.ogg", "mimeType": "audio/ogg"},
+            }
+        )
+
+        transcribe.assert_awaited_once_with(b"audio-bytes", "audio/ogg")
+        download_media.assert_awaited_once_with("https://example.test/customer.ogg")
+        detail = runtime.repository.conversation_detail(phone)
+        assert detail is not None
+        assert detail["messages"][0]["text"] == (
+            "[Áudio enviado manualmente pelo atendimento; conteúdo não transcrito.]"
+        )
+        assert detail["messages"][1]["text"] == "Quero saber o preço do aparelho."
     finally:
         await runtime.aclose()
 

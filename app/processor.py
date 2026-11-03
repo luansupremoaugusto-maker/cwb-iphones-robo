@@ -263,21 +263,26 @@ class MessageProcessor:
     async def _record_manual_outgoing(self, incoming: IncomingMessage) -> None:
         self.repository.get_or_create_conversation(incoming.phone, incoming.chat_name)
         media_error: Exception | None = None
-        try:
-            working_text, image_description = await self._prepare_input(
-                incoming,
-                caption_author="atendimento",
-            )
-        except (OpenAIMediaError, ZapiError) as exc:
-            media_error = exc
+        if incoming.kind == "audio":
+            # Keep manual voice notes in history without paying to transcribe them.
             working_text = (incoming.text or incoming.caption or "").strip()
             image_description = None
+        else:
+            try:
+                working_text, image_description = await self._prepare_input(
+                    incoming,
+                    caption_author="atendimento",
+                )
+            except (OpenAIMediaError, ZapiError) as exc:
+                media_error = exc
+                working_text = (incoming.text or incoming.caption or "").strip()
+                image_description = None
 
         if incoming.kind == "image":
             stored_text = _manual_image_history_text(incoming.caption, image_description)
         elif incoming.kind == "audio":
             stored_text = (
-                f"Transcrição do áudio enviado pelo atendimento: {working_text}"
+                f"Texto associado ao áudio enviado pelo atendimento: {working_text}"
                 if working_text
                 else "[Áudio enviado manualmente pelo atendimento; conteúdo não transcrito.]"
             )
