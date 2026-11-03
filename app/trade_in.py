@@ -522,12 +522,18 @@ def _has_explicit_device_exchange_context(text: str) -> bool:
 
 
 def trade_in_catalog_target(text: str | None) -> str | None:
-    """Extract the requested iPhone when a customer explicitly offers theirs to trade."""
+    """Extract the target iPhone when a customer explicitly offers theirs to trade."""
+    if _NEGATION_RE.search(_normalize(text)):
+        return None
     match = _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text or "")
     if not match:
         return None
     model = re.sub(r"\s+", " ", match.group("target_model")).strip()
-    return f"iPhone {model}"
+    target_line_end = (text or "").find("\n", match.end("target_model"))
+    if target_line_end < 0:
+        target_line_end = len(text or "")
+    details = (text or "")[match.end("target_model") : target_line_end].strip()
+    return " ".join(part for part in (f"iPhone {model}", details) if part)
 
 
 def _has_compact_owned_iphone_exchange_offer(text: str) -> bool:
