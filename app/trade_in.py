@@ -174,6 +174,11 @@ _PARTS_BUYBACK_OBJECT_RE = re.compile(
     + _PARTS_RE.pattern,
     re.IGNORECASE,
 )
+_EXPLICIT_PART_ONLY_OFFER_RE = re.compile(
+    r"\b(?:so|somente|apenas)\s+(?:(?:a|o|uma|um|da|do|de)\s+)?"
+    + _PARTS_RE.pattern,
+    re.IGNORECASE,
+)
 _PRICE_BUYBACK_RE = re.compile(
     r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voce|voces|vcs|a\s+loja)\s+"
     r"(?:estao\s+)?(?:pagando|paga|pagam|pagaria|pagariam)\s+"
@@ -1098,6 +1103,18 @@ def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
     if _has_abbreviated_iphone_buyback_profile(text):
         return True
+    # Customers often list iPhone models and battery health without saying
+    # "tenho". In that context, battery health describes the whole phone.
+    if (
+        _BARE_IPHONE_MODEL_RE.search(text)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+        and _BUYBACK_VERB_RE.search(text)
+        and not _PARTS_BUYBACK_OBJECT_RE.search(text)
+        and not _EXPLICIT_PART_ONLY_OFFER_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(text)
+    ):
+        return True
     if (
         _OWNED_BARE_IPHONE_VARIANT_RE.search(text)
         and _COMPLETE_DEVICE_DETAIL_RE.search(text)
@@ -1545,6 +1562,9 @@ def is_trade_in_context_request(
     if is_photo_offer_confirmation(text, history):
         return False
 
+    if _is_complete_device_clarification_after_parts_reply(normalized, history):
+        return True
+
     # In a catalog conversation, "dar o 11 de entrada" means the numbered
     # iPhone model, while a bare amount such as "dar 11 de entrada" is money.
     # Require the definite article and recent Apple-product context so cash
@@ -1904,6 +1924,59 @@ def is_trade_in_context_request(
         if entry.get("content")
     )
     return bool(_APPLE_PRODUCT_RE.search(recent_context))
+
+
+_COMPLETE_DEVICE_CLARIFICATION_RE = re.compile(
+    r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho)\b"
+    r".{0,35}\b(?:complet[oa]s?|inteir[oa]s?)\b"
+    r"|\b(?:complet[oa]s?|inteir[oa]s?)\b.{0,35}"
+    r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho)\b",
+    re.IGNORECASE,
+)
+_NEGATED_COMPLETE_DEVICE_CLARIFICATION_RE = re.compile(
+    r"\b(?:nao|nunca|jamais)\b[,;]?\s+(?:e|esta|ta|veio|tem)\b.{0,20}"
+    r"\b(?:complet[oa]s?|inteir[oa]s?)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_complete_device_clarification_after_parts_reply(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Resume evaluation when a customer clarifies a device is complete."""
+    if (
+        not history
+        or trade_in_em_andamento(history)
+        or not _COMPLETE_DEVICE_CLARIFICATION_RE.search(text)
+        or _NEGATED_COMPLETE_DEVICE_CLARIFICATION_RE.search(text)
+    ):
+        return False
+
+    latest_assistant_message = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history[-8:])
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    if "nao compramos pecas avulsas" not in latest_assistant_message:
+        return False
+
+    prior_user_context = " ".join(
+        _normalize(entry.get("content", ""))
+        for entry in history[-8:]
+        if entry.get("role") == "user" and entry.get("content")
+    )
+    return bool(
+        _BARE_IPHONE_MODEL_RE.search(prior_user_context)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(prior_user_context)
+        and _BUYBACK_VERB_RE.search(prior_user_context)
+        and not _PARTS_BUYBACK_OBJECT_RE.search(prior_user_context)
+        and not _EXPLICIT_PART_ONLY_OFFER_RE.search(prior_user_context)
+        and not _NON_APPLE_RE.search(prior_user_context)
+    )
 
 
 CONDITION_HANDOFF_REPLY = (
