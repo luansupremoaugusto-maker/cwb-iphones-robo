@@ -2242,6 +2242,7 @@ def _has_photo_request_in_history(
     }
 
     retrying_photos = _is_photo_retry_request(current_text or "")
+    current_models = _requested_iphone_model_keys(current_text or "")
     for entry in reversed(history or []):
         role = entry.get("role")
         content = entry.get("content", "").strip()
@@ -2251,6 +2252,7 @@ def _has_photo_request_in_history(
         if role == "assistant":
             if (
                 not retrying_photos
+                and not current_models
                 and re.search(
                     r"\b(?:segue|seguem|enviei|mandei)\s+(?:as?\s+)?fotos?\b",
                     _normalize(content),

@@ -17,6 +17,7 @@ from app.agent import (
     _has_recent_catalog_product_context,
     _has_seminovo_reference,
     _is_explicit_catalog_price_request,
+    _is_image_history_entry,
     _is_photo_context_followup,
     _is_product_availability_request,
     _normalize,
@@ -689,8 +690,23 @@ def _is_capacity_availability_followup(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> bool:
-    """Recognize a stock question that follows a previous photo exchange."""
-    if not _is_photo_context_followup(text, history):
+    """Recognize a capacity stock question tied to the current photo or image context."""
+    latest_user_content = next(
+        (
+            entry.get("content", "").strip()
+            for entry in reversed(history or [])
+            if entry.get("role") == "user" and entry.get("content", "").strip()
+        ),
+        "",
+    )
+    follows_product_image = (
+        _is_image_history_entry(latest_user_content)
+        and _has_product_reference(_normalize(latest_user_content))
+    )
+    if not (
+        _is_photo_context_followup(text, history)
+        or follows_product_image
+    ):
         return False
     normalized = _normalize(text)
     if not _requested_capacity_keys(text) or any(
