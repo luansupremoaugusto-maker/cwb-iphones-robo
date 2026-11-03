@@ -99,3 +99,81 @@ async def test_manual_message_becomes_context_and_holds_pending_bot_reply():
         assert {"role": "assistant", "content": "Oi, sou o Luan. Vou verificar para você."} in calls[0][1]
     finally:
         await runtime.aclose()
+
+
+async def test_manual_message_context_is_reused_when_zapi_switches_from_lid_to_phone():
+    runtime = build_runtime(_settings(), offline=True)
+    app = create_app(runtime)
+    customer_phone = "5511000000001"
+    peer_lid = "999999999999999@lid"
+    calls: list[tuple[str, list[dict[str, str]]]] = []
+
+    class CapturingAgent:
+        async def respond(self, text, history=None, image_description=None):
+            calls.append((text, list(history or [])))
+            return AgentDecision(reply="Você mencionou a cor azul.")
+
+    runtime.processor.agent = CapturingAgent()
+    manual_payload = {
+        "instanceId": "instance-test",
+        "type": "ReceivedCallback",
+        "messageId": "manual-lid-1",
+        "phone": peer_lid.removesuffix("@lid"),
+        "fromMe": True,
+        "fromApi": False,
+        "text": {"message": "Para teste, prefiro a cor azul."},
+    }
+    customer_payload = {
+        "instanceId": "instance-test",
+        "type": "ReceivedCallback",
+        "messageId": "customer-lid-2",
+        "phone": customer_phone,
+        "senderLid": peer_lid,
+        "chatLid": peer_lid,
+        "fromMe": False,
+        "text": {"message": "Qual cor você mencionou?"},
+    }
+
+    try:
+        with TestClient(app) as client:
+            manual = client.post("/webhooks/zapi/secret-test", json=manual_payload)
+            assert manual.status_code == 200
+            assert manual.json()["direction"] == "outbound"
+
+            claimed = runtime.repository.claim_next_job(include_attempt=True)
+            assert claimed is not None
+            job_id, payload, attempt = claimed
+            batch_payloads = payload.get("_batch_payloads")
+            await runtime.processor.process_batch(
+                batch_payloads if isinstance(batch_payloads, list) else [payload]
+            )
+            runtime.repository.finish_job(job_id, expected_attempts=attempt)
+
+            customer = client.post("/webhooks/zapi/secret-test", json=customer_payload)
+            assert customer.status_code == 200
+
+            claimed = runtime.repository.claim_next_job(include_attempt=True)
+            assert claimed is not None
+            job_id, payload, attempt = claimed
+            batch_payloads = payload.get("_batch_payloads")
+            await runtime.processor.process_batch(
+                batch_payloads if isinstance(batch_payloads, list) else [payload]
+            )
+            runtime.repository.finish_job(job_id, expected_attempts=attempt)
+
+        assert len(calls) == 1
+        assert calls[0][0] == "Qual cor você mencionou?"
+        assert {
+            "role": "assistant",
+            "content": "Para teste, prefiro a cor azul.",
+        } in calls[0][1]
+
+        detail = runtime.repository.conversation_detail(customer_phone)
+        assert detail is not None
+        assert any(
+            item["origin"] == "manual_whatsapp"
+            and item["text"] == "Para teste, prefiro a cor azul."
+            for item in detail["messages"]
+        )
+    finally:
+        await runtime.aclose()

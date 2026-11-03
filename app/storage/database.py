@@ -68,6 +68,15 @@ class ConversationRecord(Base):
     messages = relationship("MessageRecord", back_populates="conversation", cascade="all, delete-orphan")
 
 
+class ConversationPhoneAliasRecord(Base):
+    __tablename__ = "conversation_phone_aliases"
+
+    alias_type = Column(String(16), primary_key=True)
+    alias_value = Column(String(255), primary_key=True)
+    canonical_phone = Column(String(32), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+
 class RecoverySkipRecord(Base):
     __tablename__ = "recovery_skips"
 
@@ -405,6 +414,22 @@ class Repository:
         variants = phone_variants(phone)
         if not variants:
             return None
+        aliases = session.scalars(
+            select(ConversationPhoneAliasRecord.canonical_phone)
+            .where(
+                ConversationPhoneAliasRecord.alias_type == "phone",
+                ConversationPhoneAliasRecord.alias_value.in_(variants),
+            )
+            .order_by(ConversationPhoneAliasRecord.canonical_phone)
+        ).all()
+        for canonical_phone in aliases:
+            if canonical_phone in variants:
+                continue
+            record = session.scalar(
+                select(ConversationRecord).where(ConversationRecord.phone == canonical_phone)
+            )
+            if record is not None:
+                return record
         record = session.scalar(
             select(ConversationRecord).where(ConversationRecord.phone == variants[0])
         )
@@ -413,6 +438,184 @@ class Repository:
         return session.scalar(
             select(ConversationRecord).where(ConversationRecord.phone == variants[1])
         )
+
+    @staticmethod
+    def _set_phone_alias(
+        session: Session,
+        alias_type: str,
+        alias_value: str,
+        canonical_phone: str,
+    ) -> None:
+        normalized_type = str(alias_type or "").strip().lower()[:16]
+        normalized_value = normalize_phone(alias_value) if normalized_type in {"phone", "lid"} else ""
+        if not normalized_type or not normalized_value:
+            return
+        record = session.get(
+            ConversationPhoneAliasRecord,
+            (normalized_type, normalized_value),
+        )
+        if record is None:
+            session.add(
+                ConversationPhoneAliasRecord(
+                    alias_type=normalized_type,
+                    alias_value=normalized_value,
+                    canonical_phone=normalize_phone(canonical_phone),
+                )
+            )
+        else:
+            record.canonical_phone = normalize_phone(canonical_phone)
+            record.updated_at = utc_now()
+
+    @staticmethod
+    def _phone_values_for_conversation(session: Session, phone: str) -> tuple[str, ...]:
+        variants = set(phone_variants(phone))
+        aliases = session.scalars(
+            select(ConversationPhoneAliasRecord.alias_value).where(
+                ConversationPhoneAliasRecord.alias_type == "phone",
+                ConversationPhoneAliasRecord.canonical_phone.in_(variants),
+            )
+        ).all()
+        for alias in aliases:
+            variants.update(phone_variants(alias))
+        return tuple(sorted(variants))
+
+    @staticmethod
+    def _rekey_idle_conversation(session: Session, old_phone: str, new_phone: str) -> None:
+        old_value = normalize_phone(old_phone)
+        new_value = normalize_phone(new_phone)
+        if not old_value or not new_value or old_value == new_value:
+            return
+        source = session.scalar(
+            select(ConversationRecord).where(ConversationRecord.phone == old_value)
+        )
+        target = session.scalar(
+            select(ConversationRecord).where(ConversationRecord.phone == new_value)
+        )
+        if source is None or target is not None:
+            return
+        active_batch = session.scalar(
+            select(MessageBatchRecord.id)
+            .where(
+                MessageBatchRecord.phone == old_value,
+                MessageBatchRecord.status.in_(("pending", "processing")),
+            )
+            .limit(1)
+        )
+        active_job = session.scalar(
+            select(JobRecord.id)
+            .join(InboundEventRecord, InboundEventRecord.id == JobRecord.event_id)
+            .where(
+                InboundEventRecord.phone == old_value,
+                JobRecord.status.in_(("pending", "processing")),
+            )
+            .limit(1)
+        )
+        if active_batch is not None or active_job is not None:
+            return
+        source.phone = new_value
+        source.updated_at = utc_now()
+        session.execute(
+            update(InboundEventRecord)
+            .where(InboundEventRecord.phone == old_value)
+            .values(phone=new_value)
+        )
+        session.execute(
+            update(MessageBatchRecord)
+            .where(MessageBatchRecord.phone == old_value)
+            .values(phone=new_value)
+        )
+        session.execute(
+            update(AuditEventRecord)
+            .where(AuditEventRecord.subject == old_value)
+            .values(subject=new_value)
+        )
+
+    def resolve_callback_phone(
+        self,
+        phone: str,
+        identity_aliases: tuple[tuple[str, str], ...] | list[tuple[str, str]],
+        *,
+        from_me: bool,
+    ) -> str:
+        """Resolve Z-API phone/LID variants to one conversation phone.
+
+        Z-API may identify the same direct chat by a phone number in one callback
+        and by its WhatsApp LID in another. Prefer the phone number on customer
+        messages, then connect prior LID-keyed history to it.
+        """
+        candidate = normalize_phone(phone)
+        if not candidate:
+            return ""
+
+        aliases = list(dict.fromkeys(identity_aliases))
+        aliases.extend(
+            alias for alias in (("phone", item) for item in phone_variants(candidate)) if alias not in aliases
+        )
+        aliases = [
+            (str(alias_type).strip().lower()[:16], normalize_phone(alias_value))
+            for alias_type, alias_value in aliases
+            if normalize_phone(alias_value)
+        ]
+
+        with Session(self.engine, expire_on_commit=False) as session:
+            mapped: dict[tuple[str, str], str] = {}
+            for alias_type, alias_value in aliases:
+                record = session.get(
+                    ConversationPhoneAliasRecord,
+                    (alias_type, alias_value),
+                )
+                if record is not None:
+                    mapped[(alias_type, alias_value)] = normalize_phone(record.canonical_phone)
+
+            if from_me:
+                phone_mapping = next(
+                    (
+                        mapped[("phone", variant)]
+                        for variant in phone_variants(candidate)
+                        if ("phone", variant) in mapped
+                    ),
+                    None,
+                )
+                canonical = phone_mapping or next(iter(mapped.values()), candidate)
+            else:
+                canonical = candidate
+                old_canonicals = {
+                    value
+                    for (alias_type, alias_value), value in mapped.items()
+                    if alias_type == "lid" and value != canonical
+                }
+                # Older callbacks can expose a peer's LID as `phone` without
+                # an explicit @lid suffix. Match it only when the same digits
+                # were declared as an LID in this callback.
+                for alias_type, alias_value in aliases:
+                    if alias_type != "lid":
+                        continue
+                    phone_mapping = session.get(
+                        ConversationPhoneAliasRecord,
+                        ("phone", alias_value),
+                    )
+                    if phone_mapping is not None:
+                        old_phone = normalize_phone(phone_mapping.canonical_phone)
+                        if old_phone != canonical:
+                            old_canonicals.add(old_phone)
+
+                for old_phone in old_canonicals:
+                    self._rekey_idle_conversation(session, old_phone, canonical)
+                    session.execute(
+                        update(ConversationPhoneAliasRecord)
+                        .where(ConversationPhoneAliasRecord.canonical_phone == old_phone)
+                        .values(canonical_phone=canonical, updated_at=utc_now())
+                    )
+                    for variant in phone_variants(old_phone):
+                        self._set_phone_alias(session, "phone", variant, canonical)
+
+            self._set_phone_alias(session, "phone", candidate, canonical)
+            for variant in phone_variants(candidate):
+                self._set_phone_alias(session, "phone", variant, canonical)
+            for alias_type, alias_value in aliases:
+                self._set_phone_alias(session, alias_type, alias_value, canonical)
+            session.commit()
+        return canonical
 
     @classmethod
     def _find_conversation_reference(cls, session: Session, reference: str) -> ConversationRecord | None:
@@ -669,9 +872,15 @@ class Repository:
             if conversation is None:
                 return None
             self._ensure_protocol(session, conversation)
+            phone_values = self._phone_values_for_conversation(session, conversation.phone)
+            conversation_ids = session.scalars(
+                select(ConversationRecord.id).where(ConversationRecord.phone.in_(phone_values))
+            ).all()
+            if int(conversation.id) not in conversation_ids:
+                conversation_ids.append(int(conversation.id))
             records = session.scalars(
                 select(MessageRecord)
-                .where(MessageRecord.conversation_id == conversation.id)
+                .where(MessageRecord.conversation_id.in_(conversation_ids))
                 .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
                 .limit(safe_limit)
             ).all()
@@ -689,7 +898,7 @@ class Repository:
             ]
             audit_records = session.scalars(
                 select(AuditEventRecord)
-                .where(AuditEventRecord.subject.in_(phone_variants(conversation.phone)))
+                .where(AuditEventRecord.subject.in_(phone_values))
                 .order_by(AuditEventRecord.created_at.asc(), AuditEventRecord.id.asc())
                 .limit(200)
             ).all()
@@ -1185,9 +1394,15 @@ class Repository:
             conversation = self._find_conversation(session, phone)
             if conversation is None:
                 return []
+            phone_values = self._phone_values_for_conversation(session, conversation.phone)
+            conversation_ids = session.scalars(
+                select(ConversationRecord.id).where(ConversationRecord.phone.in_(phone_values))
+            ).all()
+            if int(conversation.id) not in conversation_ids:
+                conversation_ids.append(int(conversation.id))
             records = session.scalars(
                 select(MessageRecord)
-                .where(MessageRecord.conversation_id == conversation.id)
+                .where(MessageRecord.conversation_id.in_(conversation_ids))
                 .order_by(MessageRecord.created_at.desc(), MessageRecord.id.desc())
                 .limit(limit)
             ).all()

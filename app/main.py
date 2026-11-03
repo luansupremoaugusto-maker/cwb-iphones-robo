@@ -43,7 +43,7 @@ from app.admin import (
     normalize_catalog_sections,
     public_catalog_payload,
 )
-from app.adapters.zapi import ZapiError, normalize_received_callback
+from app.adapters.zapi import ZapiError, callback_phone_aliases, normalize_received_callback
 from app.admin_page import render_admin_login_page, render_admin_page
 from app.config import get_settings, normalize_phone
 from app.http_limits import RequestBodySizeLimitMiddleware
@@ -1189,6 +1189,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="invalid JSON") from exc
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="payload must be an object")
+        payload.pop("_cwb_conversation_phone", None)
 
         expected_instance = current.settings.zapi_expected_instance_id
         if expected_instance and str(payload.get("instanceId") or "") != expected_instance:
@@ -1225,13 +1226,28 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             current.repository.audit("ignored_event", incoming.phone or None, {"reason": "provider_control_event"})
             return {"accepted": True, "ignored": True}
 
-        if incoming.from_me and (
-            incoming.from_api
-            or await asyncio.to_thread(
-                current.repository.has_message_provider_id,
+        if incoming.from_me and incoming.from_api:
+            current.repository.audit(
+                "ignored_event",
                 incoming.phone,
-                incoming.message_id,
+                {"reason": "outbound_api_echo", "message_id": incoming.message_id},
             )
+            return {"accepted": True, "ignored": True}
+
+        canonical_phone = await asyncio.to_thread(
+            current.repository.resolve_callback_phone,
+            incoming.phone,
+            callback_phone_aliases(payload, from_me=incoming.from_me),
+            from_me=incoming.from_me,
+        )
+        if canonical_phone and canonical_phone != incoming.phone:
+            payload["_cwb_conversation_phone"] = canonical_phone
+            incoming = normalize_received_callback(payload)
+
+        if incoming.from_me and await asyncio.to_thread(
+            current.repository.has_message_provider_id,
+            incoming.phone,
+            incoming.message_id,
         ):
             current.repository.audit(
                 "ignored_event",

@@ -13,7 +13,7 @@ from app.adapters.safe_http import (
     UnsafeExternalUrlError,
     fetch_limited_bytes,
 )
-from app.config import Settings, normalize_phone
+from app.config import Settings, normalize_phone, phone_variants
 from app.schemas import IncomingMessage
 
 
@@ -31,8 +31,45 @@ def _payload_id(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def callback_phone_aliases(
+    payload: dict[str, Any],
+    *,
+    from_me: bool,
+) -> tuple[tuple[str, str], ...]:
+    """Return phone and WhatsApp LID identifiers that can refer to one chat."""
+    aliases: list[tuple[str, str]] = []
+    raw_phone = str(payload.get("phone") or payload.get("participantPhone") or "").strip()
+    phone = normalize_phone(raw_phone)
+    if phone:
+        aliases.extend(("phone", variant) for variant in phone_variants(phone))
+        if "@lid" in raw_phone.lower():
+            aliases.append(("lid", phone))
+
+    # For a message sent manually, senderLid may identify the connected account.
+    # chatLid is the peer chat identity and is safe to use in either direction.
+    lid_fields = ["chatLid", "participantLid"]
+    if not from_me:
+        lid_fields.append("senderLid")
+    for field in lid_fields:
+        value = str(payload.get(field) or "").strip()
+        if not value:
+            continue
+        lid = normalize_phone(value)
+        if lid:
+            aliases.append(("lid", lid))
+
+    return tuple(dict.fromkeys(aliases))
+
+
 def normalize_received_callback(payload: dict[str, Any]) -> IncomingMessage:
-    phone = normalize_phone(str(payload.get("phone") or payload.get("participantPhone") or ""))
+    phone = normalize_phone(
+        str(
+            payload.get("_cwb_conversation_phone")
+            or payload.get("phone")
+            or payload.get("participantPhone")
+            or ""
+        )
+    )
     message_id = str(payload.get("messageId") or payload.get("zaapId") or _payload_id(payload))
     event_id = _payload_id(payload)
     common = {
