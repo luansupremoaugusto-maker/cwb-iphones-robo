@@ -106,7 +106,7 @@ def _is_delivery_or_pickup_request(
         or "buscar na loja" in normalized
         or "pegar na loja" in normalized
     )
-    return has_delivery or has_pickup
+    return has_delivery or has_pickup or _is_delivery_followup_request(text, history)
 
 def _is_pickup_schedule_request(text: str) -> bool:
     normalized = _normalize(text)
@@ -155,13 +155,30 @@ def _has_delivery_context(history: list[dict[str, str]] | None) -> bool:
         for entry in (history or [])
     )
 
+
+def _has_delivery_choice_context(history: list[dict[str, str]] | None) -> bool:
+    latest_assistant_reply = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history or [])
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    return bool(
+        re.search(r"\bprefer\w*\b", latest_assistant_reply)
+        and re.search(r"\b(?:retir\w*|busc\w*|peg\w*)\b", latest_assistant_reply)
+        and re.search(r"\b(?:receb\w*|entreg\w*|envio|envi\w*)\b", latest_assistant_reply)
+    )
+
+
 def _is_delivery_followup_request(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> bool:
     """Keep a short shipping confirmation in the delivery flow after the FAQ answer."""
     normalized = _normalize(text)
-    if not normalized or not _has_delivery_context(history):
+    if not normalized:
         return False
     if _is_available_list_request(text):
         return False
@@ -170,6 +187,13 @@ def _is_delivery_followup_request(
         r"informacao|informacoes|detalhes)\b",
         normalized,
     ):
+        return False
+    if _has_delivery_choice_context(history) and re.search(
+        r"\b(?:receb\w*|entreg\w*|envio|envi\w*)\b",
+        normalized,
+    ):
+        return True
+    if not _has_delivery_context(history):
         return False
     return bool(
         re.search(
