@@ -551,6 +551,49 @@ async def test_specific_availability_prefers_exact_base_model_and_capacity(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_iphone_12_capacity_id_finds_stock_without_offering_unrequested_iphone_16e(
+    tmp_path,
+):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    iphone_12 = normalize_inventory_item(
+        {
+            "id": "11948642",
+            "aparelhoDescricao": "IPHONE 12",
+            "descricao": "IPHONE 12",
+            "quantidade": 1,
+            "valorVenda": 880,
+            "tipoProdutoDescricao": "Celular",
+            "produtoDisponibilidadeId": 1,
+            "produtoDisponibilidadeDescricao": "Disponível para venda",
+            "gbId": 17106,
+            "corDescricao": "BRANCO",
+            "saudeBateria": 79,
+        },
+        storage_size_by_id={"17106": "128gb"},
+    )
+    iphone_16e = normalize_inventory_item(
+        _iphone_16e_raw(color="PRETO", battery=92)
+    )
+    cache.items = [iphone_16e, iphone_12]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond("Tem iPhone 12 128 disponível?")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["11948642"]
+    assert "IPHONE 12" in decision.reply.upper()
+    assert "128GB" in decision.reply.upper()
+    assert "NÃO LOCALIZEI" not in decision.reply.upper()
+    assert "IPHONE 16 E" not in decision.reply.upper()
+
+
+@pytest.mark.asyncio
 async def test_specific_availability_without_capacity_lists_exact_model_rows(tmp_path):
     settings = Settings(mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
