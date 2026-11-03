@@ -1788,11 +1788,22 @@ def _product_context_query(
             and not any(marker in answer for marker in ("lista completa", "novos lacrados por encomenda"))
         )
 
-    entries = [
-        (index, item.get("role"), item.get("content", "").strip())
-        for index, item in enumerate(history or [])
-        if item.get("content", "").strip()
-    ]
+    entries: list[tuple[int, str | None, str]] = []
+    for index, item in enumerate(history or []):
+        content = item.get("content", "").strip()
+        if not content:
+            continue
+        role = item.get("role")
+        if role == "user" and is_trade_in_context_request(
+            content,
+            (history or [])[:index],
+        ):
+            # The customer's trade-in phone is not the catalog product they
+            # are considering. Keep an explicit upgrade target when present.
+            content = trade_in_catalog_target(content) or ""
+            if not content:
+                continue
+        entries.append((index, role, content))
     alternative_models_context = _photo_alternative_models_context(text, entries)
     if alternative_models_context:
         return f"{alternative_models_context}\n{current}".strip()
