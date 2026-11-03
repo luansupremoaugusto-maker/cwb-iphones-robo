@@ -106,10 +106,26 @@ class MercadoPhoneClient:
         page_limit = min(limit or self.settings.mercado_page_limit, 300)
         return await self._get("/api/v1/inventory", params={"page": page, "limit": page_limit})
 
+    async def fetch_storage_size_map(self) -> dict[str, str]:
+        payload = await self._get(
+            "/api/v1/catalog/storage-sizes",
+            params={"page": 1, "limit": 300},
+        )
+        raw_sizes = payload.get("items", [])
+        if not isinstance(raw_sizes, list):
+            raise MercadoPhoneError("Resposta de capacidades sem lista items")
+        return {
+            str(item["id"]): str(item["size"])
+            for item in raw_sizes
+            if isinstance(item, dict)
+            and item.get("id") not in (None, "")
+            and item.get("size") not in (None, "")
+        }
+
     async def fetch_all_inventory(self) -> list[InventoryItem]:
         limit = min(self.settings.mercado_page_limit, 300)
         page = 1
-        collected: list[InventoryItem] = []
+        raw_items_collected: list[dict[str, Any]] = []
         total: int | None = None
 
         while True:
@@ -122,12 +138,36 @@ class MercadoPhoneClient:
                     total = int(payload.get("total", len(raw_items)))
                 except (TypeError, ValueError):
                     total = len(raw_items)
-            collected.extend(normalize_inventory_item(item) for item in raw_items if isinstance(item, dict))
+            raw_items_collected.extend(item for item in raw_items if isinstance(item, dict))
             returned_limit = int(payload.get("limit", limit) or limit)
-            if not raw_items or len(collected) >= total or len(raw_items) < returned_limit:
+            if not raw_items or len(raw_items_collected) >= total or len(raw_items) < returned_limit:
                 break
             page += 1
 
+        needs_storage_size_lookup = any(
+            _first_raw_value(raw, "gbId", "storageSizeId", "storage_size_id") not in (None, "")
+            and _extract_capacity(
+                raw,
+                str(raw.get("aparelhoDescricao") or raw.get("descricao") or ""),
+                str(raw.get("descricao") or raw.get("aparelhoDescricao") or ""),
+            )
+            is None
+            for raw in raw_items_collected
+        )
+        storage_size_by_id: dict[str, str] = {}
+        if needs_storage_size_lookup:
+            try:
+                storage_size_by_id = await self.fetch_storage_size_map()
+            except MercadoPhoneError as exc:
+                logger.warning(
+                    "Mercado Phone storage-size lookup failed; some capacities may be unavailable (%s)",
+                    type(exc).__name__,
+                )
+
+        collected = [
+            normalize_inventory_item(raw, storage_size_by_id=storage_size_by_id)
+            for raw in raw_items_collected
+        ]
         return [item for item in collected if item.external_id and item.name]
 
 
@@ -190,12 +230,22 @@ def _clean_field(value: Any) -> str | None:
     return text if text and text != "-" else None
 
 
-def _extract_capacity(raw: dict[str, Any], name: str, description: str) -> str | None:
+def _extract_capacity(
+    raw: dict[str, Any],
+    name: str,
+    description: str,
+    *,
+    storage_size_by_id: dict[str, str] | None = None,
+) -> str | None:
     direct = _clean_field(_first_raw_value(raw, "capacidade", "memoria", "memória", "armazenamento"))
     text = direct or ""
     if not text:
         match = re.search(r"\b(\d+(?:[.,]\d+)?\s*(?:GB|TB))\b", f"{name} {description}", flags=re.IGNORECASE)
         text = match.group(1) if match else ""
+    if not text and storage_size_by_id:
+        storage_size_id = _first_raw_value(raw, "gbId", "storageSizeId", "storage_size_id")
+        if storage_size_id not in (None, ""):
+            text = _clean_field(storage_size_by_id.get(str(storage_size_id))) or ""
     return re.sub(r"\s+", " ", text).strip().upper() if text else None
 
 
@@ -298,12 +348,21 @@ def _availability_id(raw: dict[str, Any]) -> str | None:
     return str(value) if value not in (None, "") else None
 
 
-def normalize_inventory_item(raw: dict[str, Any]) -> InventoryItem:
+def normalize_inventory_item(
+    raw: dict[str, Any],
+    *,
+    storage_size_by_id: dict[str, str] | None = None,
+) -> InventoryItem:
     name = str(raw.get("aparelhoDescricao") or raw.get("descricao") or "").strip()
     description = str(raw.get("descricao") or name).strip()
     category = raw.get("tipoProdutoDescricao") or raw.get("tipoProdutoNome")
     color = _extract_color(raw, name, description)
-    capacity = _extract_capacity(raw, name, description)
+    capacity = _extract_capacity(
+        raw,
+        name,
+        description,
+        storage_size_by_id=storage_size_by_id,
+    )
     condition = _extract_condition(raw, description)
     battery_health = _extract_battery_health(raw, description)
     availability = _availability_text(raw)

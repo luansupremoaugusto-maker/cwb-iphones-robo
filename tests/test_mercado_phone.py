@@ -56,6 +56,59 @@ async def test_inventory_is_paginated_and_only_get_is_used():
 
 
 @pytest.mark.asyncio
+async def test_inventory_capacity_is_resolved_from_storage_size_id():
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        assert request.method == "GET"
+        if request.url.path == "/api/v1/inventory":
+            return httpx.Response(
+                200,
+                json={
+                    "total": 1,
+                    "items": [
+                        {
+                            **_item("11948642", "IPHONE 12"),
+                            "descricao": "IPHONE 12",
+                            "gbId": 17106,
+                        }
+                    ],
+                    "page": 1,
+                    "limit": 300,
+                },
+            )
+        if request.url.path == "/api/v1/catalog/storage-sizes":
+            assert request.url.params["page"] == "1"
+            assert request.url.params["limit"] == "300"
+            return httpx.Response(
+                200,
+                json={"total": 1, "items": [{"id": 17106, "size": "128gb"}]},
+            )
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    settings = Settings(
+        mercado_phone_api_key="mpk-test",
+        mercado_system_unit_id=2620,
+        mercado_phone_base_url="https://mercado.test",
+    )
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url=settings.mercado_phone_base_url,
+    )
+    mercado = MercadoPhoneClient(settings, client=client)
+    try:
+        items = await mercado.fetch_all_inventory()
+    finally:
+        await client.aclose()
+
+    assert [item.external_id for item in items] == ["11948642"]
+    assert items[0].capacity == "128GB"
+    assert "128 gb" in items[0].search_text
+    assert calls == ["/api/v1/inventory", "/api/v1/catalog/storage-sizes"]
+
+
+@pytest.mark.asyncio
 async def test_mercado_phone_surfaces_auth_error_without_mutation():
     methods: list[str] = []
 
