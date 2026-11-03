@@ -3870,6 +3870,7 @@ def _extract_entry_amount(text: str) -> float | None:
         # entry, e.g. "pagando 2mil à vista e parcelando o restante".
         patterns = (
             rf"\b(?:r\$\s*)?({amount})\s*(?:a|à)\s+vista\b",
+            rf"\b(?:r\$\s*)?({amount})\s+(?:em|no)\s+dinheiro\b",
         )
     else:
         return None
@@ -4059,6 +4060,48 @@ def _has_installment_model_prompt(history: list[dict[str, str]] | None) -> bool:
         if any(marker in normalized for marker in ("simul", "parcel", "vezes")):
             return True
     return False
+
+
+def _is_installment_offer_confirmation(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if not re.fullmatch(
+        r"(?:sim|claro|claro que sim|pode|pode sim|pode ser|quero|quero sim|"
+        r"sim por favor|pode por favor|claro pode)[?!.\s]*",
+        normalized,
+    ):
+        return False
+    if not history or history[-1].get("role") != "assistant":
+        return False
+    offer = _normalize(history[-1].get("content", ""))
+    return bool(
+        re.search(r"\b(?:simul\w*|parcel\w*)\b", offer)
+        and re.search(r"\b(?:posso|quer|se quiser|se voce quiser|gostaria)\b", offer)
+    )
+
+
+def _recent_installment_entry_amount(
+    history: list[dict[str, str]] | None,
+) -> float | None:
+    """Recover a confirmed cash entry for a just-accepted installment offer."""
+    for item in reversed((history or [])[-12:]):
+        content = item.get("content", "")
+        if item.get("role") == "assistant":
+            amount = _extract_entry_amount(content)
+            if amount is not None:
+                return amount
+            normalized = _normalize(content)
+            if _has_product_reference(normalized) and re.search(r"\br\s*\$", normalized):
+                return None
+        elif item.get("role") == "user":
+            if _requested_installment_product_keys(content):
+                return None
+            amount = _extract_entry_amount(content)
+            if amount is not None:
+                return amount
+    return None
 
 
 def _history_installment_condition(
@@ -6727,6 +6770,13 @@ class AgentService:
         if entry_installment_decision is not None:
             return protect_customer_decision(entry_installment_decision)
 
+        installment_offer_confirmation = await self._try_installment_offer_confirmation(
+            text,
+            history,
+        )
+        if installment_offer_confirmation is not None:
+            return protect_customer_decision(installment_offer_confirmation)
+
         installment_count_decision = await self._try_generic_installment_count_question(
             text,
             history,
@@ -7037,6 +7087,23 @@ class AgentService:
         if not _is_installment_model_followup(text, history):
             return None
         return await self._try_full_installment_table(text, history)
+
+    async def _try_installment_offer_confirmation(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        if not _is_installment_offer_confirmation(text, history):
+            return None
+
+        entry_amount = _recent_installment_entry_amount(history)
+        if entry_amount is not None:
+            synthetic_request = (
+                f"Simular as parcelas com entrada de {format_brl(entry_amount)}"
+            )
+            return await self._try_entry_installment(synthetic_request, history)
+
+        return await self._try_full_installment_table("simular parcelamento", history)
 
     async def _try_installment_unit_selection(
         self,
