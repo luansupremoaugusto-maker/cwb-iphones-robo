@@ -81,6 +81,20 @@ jobs:
             printf '\nOPENAI_REASONING_EFFORT=medium\n' >> .env.local
           fi
 
+          webhook_secret_line="$(grep -E '^ZAPI_WEBHOOK_SECRET=' .env.local | tail -n 1 || true)"
+          webhook_secret="${webhook_secret_line#*=}"
+          webhook_secret="${webhook_secret%$'\r'}"
+          webhook_secret="${webhook_secret#\"}"
+          webhook_secret="${webhook_secret%\"}"
+          webhook_secret="${webhook_secret#\'}"
+          webhook_secret="${webhook_secret%\'}"
+          if [[ ${#webhook_secret} -lt 32 || "${webhook_secret,,}" == "change-this-webhook-secret" ]]; then
+            echo "ERROR: configure a unique ZAPI_WEBHOOK_SECRET of at least 32 characters in /opt/cwb-iphones/.env.local before deployment. Services were not restarted."
+            exit 1
+          fi
+          unset webhook_secret webhook_secret_line
+          echo "Z-API webhook secret preflight passed (value redacted)."
+
           docker compose --env-file .env.local config --quiet
           git fetch origin main
           latest_main_sha="$(git rev-parse origin/main)"
