@@ -618,7 +618,7 @@ _CATALOG_PRICE_DEVICE_ENTRY_CUE_RE = re.compile(
 )
 _CATALOG_PRICE_RECALL_CONTEXT_RE = re.compile(
     r"\b(?:estava|tava)\s+vendo\b.{0,50}\b(?:celular|aparelho|iphone)\b"
-    r".{0,50}\b(?:contigo|com\s+(?:voces|vcs)|na\s+loja)\b",
+    r".{0,50}\b(?:contigo|(?:com|de)\s+(?:voces|vcs)|na\s+loja)\b",
     re.IGNORECASE,
 )
 _CATALOG_PRICE_RECALL_AMOUNT_RE = re.compile(
