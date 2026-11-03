@@ -685,7 +685,11 @@ _PAGE_TEMPLATE = """<!doctype html>
             const bubble = document.createElement("div");
             bubble.className = `recovery-message ${item.direction === "inbound" ? "inbound" : "outbound"}`;
             const author = document.createElement("strong");
-            author.textContent = item.direction === "inbound" ? "Cliente" : "Atendimento";
+            author.textContent = item.direction === "inbound"
+              ? "Cliente"
+              : item.origin === "manual_whatsapp"
+                ? "Atendimento (manual)"
+                : "Atendimento";
             const content = document.createElement("span");
             content.textContent = item.text || `[${item.kind || "mídia"} sem texto]`;
             const date = document.createElement("small");

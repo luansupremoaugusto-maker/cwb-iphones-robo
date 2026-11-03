@@ -1221,8 +1221,23 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 )
             return {"accepted": True, "ignored": True}
 
-        if not incoming.phone or incoming.from_me or incoming.is_newsletter or incoming.is_status_reply:
+        if not incoming.phone or incoming.is_newsletter or incoming.is_status_reply:
             current.repository.audit("ignored_event", incoming.phone or None, {"reason": "provider_control_event"})
+            return {"accepted": True, "ignored": True}
+
+        if incoming.from_me and (
+            incoming.from_api
+            or await asyncio.to_thread(
+                current.repository.has_message_provider_id,
+                incoming.phone,
+                incoming.message_id,
+            )
+        ):
+            current.repository.audit(
+                "ignored_event",
+                incoming.phone,
+                {"reason": "outbound_api_echo", "message_id": incoming.message_id},
+            )
             return {"accepted": True, "ignored": True}
 
         external_id = incoming.event_id or hashlib.sha256(await request.body()).hexdigest()
@@ -1250,11 +1265,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 _queued_event_id, _queue_created, job_id = await register_event_and_queue()
         if not created:
             return {"accepted": True, "duplicate": True}
-        return {
+
+        response = {
             "accepted": True,
             "job_id": job_id,
             "debounce_seconds": current.settings.message_batch_wait_seconds,
         }
+        if incoming.from_me:
+            response["direction"] = "outbound"
+        return response
 
     return app
 

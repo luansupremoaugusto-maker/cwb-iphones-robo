@@ -41,6 +41,7 @@ def normalize_received_callback(payload: dict[str, Any]) -> IncomingMessage:
         "phone": phone,
         "chat_name": payload.get("chatName") or payload.get("senderName"),
         "from_me": bool(payload.get("fromMe", False)),
+        "from_api": bool(payload.get("fromApi", False)),
         "is_group": bool(payload.get("isGroup", False)),
         "is_newsletter": bool(payload.get("isNewsletter", False)),
         "is_status_reply": bool(payload.get("isStatusReply", False)),

@@ -54,6 +54,19 @@ def _image_history_text(caption: str | None, description: str | None) -> str:
     return "\n".join(parts)
 
 
+def _manual_image_history_text(caption: str | None, description: str | None) -> str:
+    parts: list[str] = []
+    safe_caption = _clean_summary_text(caption, limit=500)
+    safe_description = _clean_summary_text(description, limit=1200)
+    if safe_caption:
+        parts.append(f"Legenda enviada pelo atendimento: {safe_caption}")
+    if safe_description:
+        parts.append(f"Descrição da imagem enviada pelo atendimento: {safe_description}")
+    else:
+        parts.append("[Conteúdo visual da imagem não identificado.]")
+    return "\n".join(parts)
+
+
 def _remove_sent_image_urls(text: str, image_urls: list[str] | None) -> str:
     """Avoid repeating image attachments as clickable links in the text."""
     cleaned = text or ""
@@ -163,8 +176,24 @@ class MessageProcessor:
             if not incoming.phone:
                 self.repository.audit("ignored_event", None, {"reason": "missing_phone"})
                 continue
-            if incoming.from_me or incoming.is_group or incoming.is_newsletter or incoming.is_status_reply:
+            if incoming.is_group or incoming.is_newsletter or incoming.is_status_reply:
                 self.repository.audit("ignored_event", incoming.phone, {"reason": "provider_control_event"})
+                continue
+            if incoming.from_me:
+                if incoming.from_api or self.repository.has_message_provider_id(
+                    incoming.phone,
+                    incoming.message_id,
+                ):
+                    self.repository.audit(
+                        "ignored_event",
+                        incoming.phone,
+                        {"reason": "outbound_api_echo", "message_id": incoming.message_id},
+                    )
+                    continue
+                pending_customer_messages = grouped.pop(incoming.phone, [])
+                if pending_customer_messages:
+                    await self._store_inbound_without_response(pending_customer_messages)
+                await self._record_manual_outgoing(incoming)
                 continue
 
             command = self._parse_admin_command(incoming)
@@ -175,6 +204,111 @@ class MessageProcessor:
 
         for phone, incoming_messages in grouped.items():
             await self._process_phone_batch(phone, incoming_messages)
+
+    async def _store_inbound_without_response(self, incoming_messages: list[IncomingMessage]) -> None:
+        """Save customer messages already answered manually during this debounce window."""
+        phone = incoming_messages[0].phone
+        stored_message_ids: list[int] = []
+        for incoming in incoming_messages:
+            if self.repository.has_message_provider_id(phone, incoming.message_id):
+                continue
+            working_text = (incoming.text or incoming.caption or "").strip()
+            image_description: str | None = None
+            try:
+                working_text, image_description = await self._prepare_input(incoming)
+            except (OpenAIMediaError, ZapiError) as exc:
+                self.repository.audit(
+                    "media_error",
+                    phone,
+                    {
+                        "message_id": incoming.message_id,
+                        "kind": incoming.kind,
+                        "error_type": type(exc).__name__,
+                        "manual_reply_in_same_batch": True,
+                    },
+                )
+
+            if incoming.kind == "image":
+                message_text = _image_history_text(incoming.caption, image_description)
+                if not message_text:
+                    message_text = "[Imagem recebida; conteúdo não identificado.]"
+            elif incoming.kind == "audio":
+                message_text = working_text or "[Áudio recebido; conteúdo não transcrito.]"
+            else:
+                message_text = working_text or (incoming.text or incoming.caption or "").strip()
+                if not message_text:
+                    message_text = f"[Mídia recebida: {incoming.kind}]"
+
+            stored_message_ids.append(
+                self.repository.add_message(
+                    phone,
+                    direction="inbound",
+                    kind=incoming.kind,
+                    text=message_text,
+                    provider_message_id=incoming.message_id,
+                    raw=self._safe_raw(incoming),
+                )
+            )
+
+        self.repository.audit(
+            "message_held",
+            phone,
+            {
+                "message_ids": stored_message_ids,
+                "reason": "manual_reply_in_same_batch",
+                "batch_size": len(incoming_messages),
+            },
+        )
+
+    async def _record_manual_outgoing(self, incoming: IncomingMessage) -> None:
+        self.repository.get_or_create_conversation(incoming.phone, incoming.chat_name)
+        media_error: Exception | None = None
+        try:
+            working_text, image_description = await self._prepare_input(
+                incoming,
+                caption_author="atendimento",
+            )
+        except (OpenAIMediaError, ZapiError) as exc:
+            media_error = exc
+            working_text = (incoming.text or incoming.caption or "").strip()
+            image_description = None
+
+        if incoming.kind == "image":
+            stored_text = _manual_image_history_text(incoming.caption, image_description)
+        elif incoming.kind == "audio":
+            stored_text = (
+                f"Transcrição do áudio enviado pelo atendimento: {working_text}"
+                if working_text
+                else "[Áudio enviado manualmente pelo atendimento; conteúdo não transcrito.]"
+            )
+        else:
+            stored_text = working_text or (incoming.text or incoming.caption or "").strip()
+            if not stored_text:
+                stored_text = f"[Mídia enviada manualmente pelo atendimento: {incoming.kind}]"
+
+        self.repository.add_message(
+            incoming.phone,
+            direction="outbound",
+            kind=incoming.kind,
+            text=stored_text,
+            provider_message_id=incoming.message_id,
+            raw={**self._safe_raw(incoming), "origin": "manual_whatsapp"},
+        )
+        if media_error is not None:
+            self.repository.audit(
+                "manual_outbound_media_error",
+                incoming.phone,
+                {
+                    "message_id": incoming.message_id,
+                    "kind": incoming.kind,
+                    "error_type": type(media_error).__name__,
+                },
+            )
+        self.repository.audit(
+            "manual_outbound_recorded",
+            incoming.phone,
+            {"message_id": incoming.message_id, "kind": incoming.kind},
+        )
 
     async def _process_phone_batch(self, phone: str, incoming_messages: list[IncomingMessage]) -> None:
         first = incoming_messages[0]
@@ -391,7 +525,12 @@ class MessageProcessor:
         )
         await self._send_phone(sender_phone, result["message"], kind="admin")
 
-    async def _prepare_input(self, incoming: IncomingMessage) -> tuple[str, str | None]:
+    async def _prepare_input(
+        self,
+        incoming: IncomingMessage,
+        *,
+        caption_author: str = "cliente",
+    ) -> tuple[str, str | None]:
         if incoming.kind in {"text", "button", "list"}:
             return (incoming.text or "").strip(), None
         if incoming.kind == "audio":
@@ -403,7 +542,15 @@ class MessageProcessor:
             if self.media is None:
                 raise OpenAIMediaError("Serviço de visão não configurado")
             content, mime_type = await self.zapi.download_media(incoming.media_url)
-            description = await self.media.describe_image(content, mime_type, incoming.caption)
+            if caption_author == "cliente":
+                description = await self.media.describe_image(content, mime_type, incoming.caption)
+            else:
+                description = await self.media.describe_image(
+                    content,
+                    mime_type,
+                    incoming.caption,
+                    caption_author=caption_author,
+                )
             return (incoming.caption or "").strip(), description
         return "", None
 

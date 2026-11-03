@@ -640,6 +640,7 @@ def admin_conversation_detail_payload(detail: dict[str, Any], generated_at: str)
                 "direction": item.get("direction"),
                 "kind": item.get("kind"),
                 "text": item.get("text") or "",
+                "origin": item.get("origin") or "",
                 "provider_message_id": item.get("provider_message_id"),
                 "created_at": _iso_datetime(item.get("created_at")),
             }
