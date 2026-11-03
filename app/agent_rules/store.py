@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import app.agent as _agent
+
 from app.agent import (
     FAQStore,
     PAYMENT_METHODS_REPLY,
@@ -23,6 +25,14 @@ from app.agent import (
 )
 
 def _store_now() -> datetime:
+    """Honor the app.agent compatibility hook before using the real clock."""
+    provider = getattr(_agent, "_store_now", None)
+    if provider is not None and provider is not _store_now:
+        return provider()
+    return _default_store_now()
+
+
+def _default_store_now() -> datetime:
     """Return the current time in the store's timezone."""
     try:
         store_timezone = ZoneInfo(STORE_TIMEZONE)

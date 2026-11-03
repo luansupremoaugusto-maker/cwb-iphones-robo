@@ -11,6 +11,7 @@ from app.agent import (
     _CATALOG_BUYER_INTEREST_RE,
     _CATALOG_BUYER_TRADE_IN_SIGNAL_RE,
     _catalog_families,
+    _customer_product_request_context_query,
     _has_explicit_sealed_condition,
     _has_product_reference,
     _has_recent_catalog_product_context,
