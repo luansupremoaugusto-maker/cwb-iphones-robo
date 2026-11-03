@@ -804,6 +804,40 @@ def test_catalog_price_recall_is_not_a_device_sale_offer():
     assert is_trade_in_request(text) is False
 
 
+@pytest.mark.asyncio
+async def test_catalog_price_recall_from_vcs_followed_by_interest_stays_in_catalog_flow(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Fala Mãe, é o Caio, estou com o número da minha mãe aqui",
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    text = (
+        "Eu tava vendo o iPhone 13 de vcs lá q tá por 1210\n"
+        "Eu estou bem interessado nele"
+    )
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff is False
+
+
 def test_new_phone_payment_split_is_not_trade_in():
     text = (
         "Tenho interesse no iPhone 17 Pro Max. Fazer uma parte do pagamento "
