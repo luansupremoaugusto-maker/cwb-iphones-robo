@@ -183,6 +183,8 @@ _PRICE_BUYBACK_RE = re.compile(
     r"\b(?:quanto|qual\s+(?:o\s+)?valor)\s+(?:voce|voces|vcs|a\s+loja)\s+"
     r"(?:estao\s+)?(?:pagando|paga|pagam|pagaria|pagariam)\s+"
     r"(?:em|no|na|num|numa|pelo|pela|por)\b"
+    r"|\bquanto\s+(?:dari\w*|pagari\w*|pegari\w*)\s+"
+    r"(?:em|no|na|num|numa|pelo|pela|por)\b"
     r"|\b(?:preco|valor)\s+(?:que\s+)?(?:voces|vcs|a\s+loja)\s+"
     r"(?:estao\s+)?(?:pagando|paga|pagam|pagaria|pagariam)\s+"
     r"(?:em|no|na|num|numa|pelo|pela|por)\b",
