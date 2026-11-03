@@ -177,3 +177,34 @@ async def test_manual_message_context_is_reused_when_zapi_switches_from_lid_to_p
         )
     finally:
         await runtime.aclose()
+
+
+async def test_existing_lid_conversation_is_adopted_without_a_saved_alias():
+    runtime = build_runtime(_settings(), offline=True)
+    legacy_lid = "888888888888888"
+    customer_phone = "5511000000002"
+    try:
+        runtime.repository.add_message(
+            legacy_lid,
+            direction="outbound",
+            kind="text",
+            text="Mensagem manual registrada antes da associação de LID.",
+            raw={"origin": "manual_whatsapp"},
+        )
+
+        canonical_phone = runtime.repository.resolve_callback_phone(
+            customer_phone,
+            (("lid", legacy_lid),),
+            from_me=False,
+        )
+
+        assert canonical_phone == customer_phone
+        assert {
+            "role": "assistant",
+            "content": "Mensagem manual registrada antes da associação de LID.",
+        } in runtime.repository.recent_messages(customer_phone)
+        detail = runtime.repository.conversation_detail(customer_phone)
+        assert detail is not None
+        assert detail["messages"][0]["origin"] == "manual_whatsapp"
+    finally:
+        await runtime.aclose()
