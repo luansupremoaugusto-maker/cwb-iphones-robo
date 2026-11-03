@@ -249,15 +249,27 @@ _TRADE_IN_WARRANTY_STATUS_RE = re.compile(
     r"|nao\s+(?:esta|ta)\s+(?:mais\s+)?(?:na\s+)?garantia\b"
     r")"
 )
+_STORE_WARRANTY_REFERENCE_RE = re.compile(
+    r"\b(?:voces|loja|seminov\w*|semis|lacrad\w*)\b"
+)
+_CUSTOMER_DEVICE_OWNERSHIP_RE = re.compile(
+    r"\b(?:meu|minha|meus|minhas|peguei|comprei|adquiri|ganhei)\b"
+)
 
 
 def _is_trade_in_warranty_status(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> bool:
-    if not trade_in_em_andamento(history):
+    if not trade_in_em_andamento(history) or "?" in text:
         return False
-    return bool(_TRADE_IN_WARRANTY_STATUS_RE.search(_normalize(text)))
+    normalized = _normalize(text)
+    if (
+        _STORE_WARRANTY_REFERENCE_RE.search(normalized)
+        and not _CUSTOMER_DEVICE_OWNERSHIP_RE.search(normalized)
+    ):
+        return False
+    return bool(_TRADE_IN_WARRANTY_STATUS_RE.search(normalized))
 
 
 async def _try_warranty(
