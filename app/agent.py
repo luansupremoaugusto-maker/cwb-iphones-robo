@@ -2559,7 +2559,7 @@ class AgentService:
         if (
             _is_device_condition_question(combined_request)
             and not trade_in_em_andamento(history)
-            and not _has_explicit_trade_in_context(combined_request, history)
+            and not _has_explicit_trade_in_context(text, history)
         ):
             return protect_customer_decision(
                 AgentDecision(
@@ -3330,10 +3330,23 @@ def _has_explicit_trade_in_context(
     text: str | None,
     history: list[dict[str, str]] | None,
 ) -> bool:
-    if is_trade_in_request(text):
+    normalized = _normalize(text)
+    current_trade_in_cue = has_explicit_trade_in_cue(text) or is_trade_in_request(text)
+    if _is_device_condition_question(text) and current_trade_in_cue:
+        current_trade_in_cue = bool(
+            re.search(
+                r"\b(?:na troca|para troca|parte do pagamento|como entrada|de entrada|retoma\w*)\b",
+                normalized,
+            )
+        )
+    if current_trade_in_cue:
         return True
     return any(
-        entry.get("role") == "user" and is_trade_in_request(entry.get("content"))
+        entry.get("role") == "user"
+        and (
+            has_explicit_trade_in_cue(entry.get("content"))
+            or is_trade_in_request(entry.get("content"))
+        )
         for entry in (history or [])[-8:]
     )
 
@@ -3435,7 +3448,7 @@ def _ensure_trade_in_form_before_handoff(
         return decision
 
     if _is_device_condition_question(request_context) and not _has_explicit_trade_in_context(
-        request_context, history
+        text, history
     ):
         return decision.model_copy(
             update={
