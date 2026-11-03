@@ -43,7 +43,22 @@ mesmo segredo aleatório configurado em `ZAPI_WEBHOOK_SECRET`; não reutilize es
 segredo em outras integrações. Corpos HTTP acima de `MAX_REQUEST_BODY_BYTES`
 (1 MB por padrão) são rejeitados tanto pelo Caddy quanto pela aplicação, antes
 do parse do JSON. A diretiva do Caddy requer a versão 2.10 ou superior.
-Eventos de grupos, mensagens próprias, newsletters, status e duplicatas são ignorados.
+
+Na configuração de webhook da instância, habilite também o envio de mensagens
+**enviadas por mim** (a Z-API chama essa opção de notificar mensagens enviadas
+pelo próprio número). Mantenha o mesmo endereço acima. No painel, essa opção fica
+na configuração do webhook `Ao receber`; pela API, use o endpoint
+`PUT /instances/{INSTANCE_ID}/token/{TOKEN}/update-webhook-received-delivery`,
+com o header `Client-Token` e o corpo `{"value":"URL_DO_WEBHOOK"}`. Consulte a
+[documentação da Z-API](https://z-api-docs.vercel.app/webhooks/on-message-received).
+
+Mensagens manuais serão registradas no histórico como `Atendimento (manual)` e
+usadas como contexto nas respostas seguintes; elas não iniciam uma resposta do
+robô. Se uma mensagem do cliente ainda estiver aguardando na janela de
+agrupamento quando você responder manualmente, o robô registra a mensagem do
+cliente e segura a resposta automática daquela rodada. Ecos de mensagens
+enviadas pela API do robô são ignorados para evitar duplicatas. Grupos,
+newsletters e respostas a status continuam ignorados.
 
 ## Painel administrativo
 

@@ -33,7 +33,14 @@ class OpenAIMediaService:
             raise OpenAIMediaError("Transcrição sem texto")
         return str(text).strip()
 
-    async def describe_image(self, content: bytes, mime_type: str | None = None, caption: str = "") -> str:
+    async def describe_image(
+        self,
+        content: bytes,
+        mime_type: str | None = None,
+        caption: str = "",
+        *,
+        caption_author: str = "cliente",
+    ) -> str:
         media_type = mime_type or "image/jpeg"
         encoded = base64.b64encode(content).decode("ascii")
         prompt = (
@@ -41,7 +48,7 @@ class OpenAIMediaService:
             "Não invente detalhes e informe incertezas. Não dê preço nem diga que há estoque."
         )
         if caption:
-            prompt += f" Legenda enviada pelo cliente: {caption}"
+            prompt += f" Legenda enviada pelo {caption_author}: {caption}"
         try:
             response = await self.client.responses.create(
                 model=self.settings.openai_model,

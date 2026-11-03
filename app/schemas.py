@@ -41,6 +41,7 @@ class IncomingMessage(BaseModel):
     phone: str
     chat_name: str | None = None
     from_me: bool = False
+    from_api: bool = False
     is_group: bool = False
     is_newsletter: bool = False
     is_status_reply: bool = False

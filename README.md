@@ -18,10 +18,17 @@ não cria, edita ou altera registros no Mercado Phone nem na planilha.
 
 ## Mensagens agrupadas
 
-O webhook grava cada mensagem imediatamente e o worker espera dez segundos após
-a última mensagem do cliente. Mensagens recebidas nesse intervalo são juntadas
-em um único contexto, geram uma única chamada ao agente e uma única resposta.
+O webhook grava cada evento imediatamente e o worker espera dez segundos após a
+última mensagem daquele contato. Mensagens recebidas nesse intervalo são
+juntadas em um único contexto, geram uma única chamada ao agente e uma única
+resposta.
 O prazo pode ser ajustado por `MESSAGE_BATCH_WAIT_SECONDS`.
+
+Quando a Z-API estiver configurada para notificar mensagens enviadas pelo
+próprio número, as mensagens manuais do atendimento também entram no histórico
+como saídas e no contexto das respostas seguintes. Elas não acionam uma resposta
+do robô; se responderem uma mensagem do cliente ainda pendente na mesma janela,
+a resposta automática daquela rodada é retida.
 
 ## Desenvolvimento local
 

@@ -681,6 +681,7 @@ class Repository:
                     "direction": item.direction,
                     "kind": item.kind,
                     "text": item.text or "",
+                    "origin": str((item.raw or {}).get("origin") or ""),
                     "provider_message_id": item.provider_message_id,
                     "created_at": item.created_at,
                 }
@@ -1136,6 +1137,24 @@ class Repository:
             if next_inbound_id is not None:
                 legacy_send = legacy_send.where(MessageRecord.id < int(next_inbound_id))
             return session.scalar(legacy_send.limit(1)) is not None
+
+    def has_message_provider_id(self, phone: str, provider_message_id: str | None) -> bool:
+        if not provider_message_id:
+            return False
+        normalized_phone = normalize_phone(phone)
+        with Session(self.engine) as session:
+            conversation = self._find_conversation(session, normalized_phone)
+            if conversation is None:
+                return False
+            message_id = session.scalar(
+                select(MessageRecord.id)
+                .where(
+                    MessageRecord.conversation_id == conversation.id,
+                    MessageRecord.provider_message_id == str(provider_message_id),
+                )
+                .limit(1)
+            )
+            return message_id is not None
 
     def update_message_text(self, message_id: int, text: str) -> None:
         """Update derived text for an already stored media message.
