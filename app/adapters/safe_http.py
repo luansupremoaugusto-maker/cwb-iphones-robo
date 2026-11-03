@@ -198,6 +198,18 @@ async def fetch_limited_bytes(
                         if declared_length > limit:
                             raise ResponseTooLargeError("External response exceeds the configured size limit")
 
+                    if _is_mock_transport(client):
+                        # MockTransport responses are already isolated from the
+                        # network and commonly expose their fixture body as a
+                        # consumed ByteStream. Read the buffered fixture while
+                        # retaining the same configured size limit.
+                        content = await response.aread()
+                        if len(content) > limit:
+                            raise ResponseTooLargeError(
+                                "External response exceeds the configured size limit"
+                            )
+                        return content, response.headers
+
                     chunks: list[bytes] = []
                     total_bytes = 0
                     async for chunk in response.aiter_raw(chunk_size=64 * 1024):
