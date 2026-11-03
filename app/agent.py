@@ -3342,7 +3342,9 @@ def _is_payment_methods_question(text: str) -> bool:
     has_short_payment_question = bool(
         re.fullmatch(
             r"(?:e\s+)?(?:pagamento|pagamento\s+como\s+funciona|"
-            r"como\s+funciona(?:\s+o)?\s+pagamento)[?!.]*",
+            r"como\s+funciona(?:\s+o)?\s+pagamento"
+            r"(?:\s+(?:dele|dela|desse|dessa|deste|desta)"
+            r"(?:\s+(?:aparelho|celular|iphone|modelo|produto))?)?)[?!.]*",
             normalized,
         )
     )
