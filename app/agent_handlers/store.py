@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.agent import (
     AgentDecision,
     DELIVERY_FEE_HANDOFF_REASON,
@@ -49,6 +51,8 @@ from app.agent import (
     _visit_day_reply,
     _visit_time_for_request,
 )
+from app.trade_in import trade_in_em_andamento
+
 
 def _append_delivery_or_pickup_info(self, reply: str, text: str) -> str:
     if not _is_delivery_or_pickup_request(text):
@@ -235,12 +239,35 @@ def _try_physical_store(self, text: str) -> AgentDecision | None:
     reply = _today_store_reply(self.faq)
     return AgentDecision(reply=reply, confidence="high")
 
+
+_TRADE_IN_WARRANTY_STATUS_RE = re.compile(
+    r"\b(?:"
+    r"(?:ja\s+)?(?:acabou|terminou|venceu|expirou)\b.{0,40}\bgarantia\b"
+    r"|\bgarantia\b.{0,40}\b(?:ja\s+)?(?:acabou|terminou|venceu|expirou)\b"
+    r"|sem\s+(?:a\s+)?garantia\b"
+    r"|(?:ja\s+)?nao\s+(?:tem|tenho|possui|possuo)\s+(?:mais\s+)?(?:a\s+)?garantia\b"
+    r"|nao\s+(?:esta|ta)\s+(?:mais\s+)?(?:na\s+)?garantia\b"
+    r")"
+)
+
+
+def _is_trade_in_warranty_status(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if not trade_in_em_andamento(history):
+        return False
+    return bool(_TRADE_IN_WARRANTY_STATUS_RE.search(_normalize(text)))
+
+
 async def _try_warranty(
     self,
     text: str,
     history: list[dict[str, str]] | None,
 ) -> AgentDecision | None:
     if not _is_warranty_request(text):
+        return None
+    if _is_trade_in_warranty_status(text, history):
         return None
 
     normalized = _normalize(text)
