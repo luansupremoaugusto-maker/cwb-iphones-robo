@@ -136,6 +136,40 @@ def _build_agent_with_items(tmp_path, items: list[InventoryItem]) -> AgentServic
     return agent
 
 
+@pytest.mark.asyncio
+async def test_photo_request_in_batched_messages_is_not_lost_to_payment_question(tmp_path):
+    photo_url = "https://photos.example/iphone-13-pro-max-128.jpg"
+    agent = _build_agent_with_items(
+        tmp_path,
+        [
+            InventoryItem(
+                external_id="iphone-13-pro-max-128",
+                name="IPHONE 13 PRO MAX",
+                category="Celular",
+                capacity="128GB",
+                color="GRAFITE",
+                condition="SEMINOVO",
+                availability="Disponível para venda",
+                quantity=1,
+                price_brl=2830.0,
+                search_text="iphone 13 pro max grafite 128gb celular seminovo",
+                photo_urls=[photo_url],
+            )
+        ],
+    )
+
+    decision = await agent.respond(
+        "Vc passa cartão ?\n"
+        "Tem taxa ?\n"
+        "Vc pode me enviar fotos do 13 pro Max\n"
+        "128"
+    )
+
+    assert decision.image_urls == [photo_url]
+    assert decision.product_references == ["iphone-13-pro-max-128"]
+    assert "cartão de crédito" in decision.reply.lower()
+
+
 def _model_history() -> list[dict[str, str]]:
     return [
         {"role": "user", "content": "To vendo se vou pro 15 pro max"},
