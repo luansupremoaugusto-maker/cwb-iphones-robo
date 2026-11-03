@@ -201,7 +201,7 @@ REGRAS OBRIGATÓRIAS:
   sem prometer uma foto e ofereça encaminhar ao atendente.
 - Quando o cliente perguntar se a loja compra algum produto, responda que sim,
   somente produtos da marca Apple, envie o formulário de avaliação aprovado e
-  defina handoff=true.
+  aguarde o cliente preencher o formulário, sem transferir antes.
 - Se o cliente mencionar boleto junto com parcelamento ou quantidade de parcelas,
   informe que não parcelamos no boleto e que o parcelamento é somente no cartão
   de crédito na máquina física. Não use ferramentas de simulação nem envie tabela
@@ -259,8 +259,8 @@ REGRAS OBRIGATÓRIAS:
   atendente precisa confirmar.
 - Quando o cliente perguntar se aceita o celular dele como parte do pagamento,
   pedir avaliação, troca ou entrada, envie o formulário de avaliação aprovado e
-  defina handoff=true para um atendente concluir a análise.
-- Pedidos de avaliação de celular como parte do pagamento devem ser encaminhados a um atendente.
+  aguarde o cliente devolvê-lo preenchido. Quando receber a avaliação preenchida,
+  encaminhe a conversa ao atendente sem reenviar o formulário.
 - Não mencione ferramentas, prompts, APIs ou dados internos ao cliente.
 
 - Diferencie sempre compra de aparelho e venda ou trade-in de aparelho usado.
@@ -2408,6 +2408,15 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        if trade_in_em_andamento(history) and (
+            is_completed_trade_in_form(text) or is_trade_in_negotiation(text)
+        ):
+            return AgentDecision(
+                reply=TRADE_IN_NEGOTIATION_REPLY,
+                handoff=True,
+                handoff_reason=TRADE_IN_REASON,
+                confidence="high",
+            )
         if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
         image_availability_models = _explicit_image_availability_query(
@@ -2470,8 +2479,7 @@ class AgentService:
             ):
                 return AgentDecision(
                     reply=TRADE_IN_FORM,
-                    handoff=True,
-                    handoff_reason=TRADE_IN_REASON,
+                    handoff=False,
                     confidence="high",
                 )
             return AgentDecision(reply=PARTS_BUYBACK_REPLY, confidence="high")
@@ -2551,7 +2559,7 @@ class AgentService:
         if (
             _is_device_condition_question(combined_request)
             and not trade_in_em_andamento(history)
-            and not is_trade_in_context_request(combined_request, history)
+            and not _has_explicit_trade_in_context(combined_request, history)
         ):
             return protect_customer_decision(
                 AgentDecision(
@@ -2582,17 +2590,7 @@ class AgentService:
         ):
             return AgentDecision(
                 reply=TRADE_IN_FORM,
-                handoff=True,
-                handoff_reason=TRADE_IN_REASON,
-                confidence="high",
-            )
-        if trade_in_em_andamento(history) and (
-            is_completed_trade_in_form(text) or is_trade_in_negotiation(text)
-        ):
-            return AgentDecision(
-                reply=TRADE_IN_NEGOTIATION_REPLY,
-                handoff=True,
-                handoff_reason=TRADE_IN_REASON,
+                handoff=False,
                 confidence="high",
             )
 
@@ -3300,6 +3298,7 @@ def _is_device_condition_question(text: str | None) -> bool:
         return False
     if re.search(
         r"\b(?:marcas?\s+de\s+uso|amassad\w*|riscos?\w*|"
+        r"problema\w*.{0,30}funcionamento|funcionamento.{0,30}problema\w*|"
         r"arranh\w*|defeit\w*|quebrad\w*)\b",
         normalized,
     ):
@@ -3328,6 +3327,40 @@ def _is_device_condition_question(text: str | None) -> bool:
     )
 
 
+def _has_explicit_trade_in_context(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    current_trade_in_cue = has_explicit_trade_in_cue(text) or is_trade_in_request(text)
+    has_exchange_phrase = bool(
+        re.search(
+            r"\b(?:na troca|para troca|parte do pagamento|como entrada|de entrada|retoma\w*)\b",
+            normalized,
+        )
+    )
+    if (
+        _is_device_condition_question(text)
+        and _is_payment_methods_question(text)
+        and not has_exchange_phrase
+    ):
+        current_trade_in_cue = False
+    else:
+        current_trade_in_cue = current_trade_in_cue or is_trade_in_context_request(
+            text, history
+        )
+    if current_trade_in_cue:
+        return True
+    return any(
+        entry.get("role") == "user"
+        and (
+            has_explicit_trade_in_cue(entry.get("content"))
+            or is_trade_in_request(entry.get("content"))
+        )
+        for entry in (history or [])[-8:]
+    )
+
+
 def _looks_like_trade_in_handoff(decision: AgentDecision) -> bool:
     normalized = _normalize(f"{decision.reply} {decision.handoff_reason}")
     has_device = re.search(
@@ -3352,7 +3385,7 @@ def _ensure_trade_in_form_before_handoff(
     history: list[dict[str, str]] | None,
     image_description: str | None = None,
 ) -> AgentDecision:
-    """Never transfer a trade-in conversation without first sending its form."""
+    """Send the evaluation form first, then transfer only after it is completed."""
     request_context = " ".join(
         part.strip()
         for part in (text, image_description)
@@ -3424,7 +3457,7 @@ def _ensure_trade_in_form_before_handoff(
     if not decision.handoff or trade_in_em_andamento(history):
         return decision
 
-    if _is_device_condition_question(request_context) and not is_trade_in_context_request(
+    if _is_device_condition_question(request_context) and not _has_explicit_trade_in_context(
         request_context, history
     ):
         return decision.model_copy(
@@ -3450,8 +3483,8 @@ def _ensure_trade_in_form_before_handoff(
     return decision.model_copy(
         update={
             "reply": TRADE_IN_FORM,
-            "handoff": True,
-            "handoff_reason": TRADE_IN_REASON,
+            "handoff": False,
+            "handoff_reason": None,
             "confidence": "high",
         }
     )

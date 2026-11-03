@@ -1098,7 +1098,7 @@ async def test_catalog_box_question_avoids_trade_evaluation(tmp_path, box_word):
     assert is_trade_in_request(accompanied_box_profile) is True
     profile_decision = await agent.respond(accompanied_box_profile, history=history)
     assert profile_decision.reply == TRADE_IN_FORM
-    assert profile_decision.handoff is True
+    assert profile_decision.handoff is False
     assert profile_decision.product_references == []
     assert profile_decision.image_urls == []
     assert is_trade_in_request(

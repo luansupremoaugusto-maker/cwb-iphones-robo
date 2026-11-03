@@ -6882,7 +6882,7 @@ async def test_explicit_device_sale_with_catalog_photo_still_sends_trade_in_form
     )
 
     assert decision.reply == TRADE_IN_FORM
-    assert decision.handoff is True
+    assert decision.handoff is False
 
 
 @pytest.mark.asyncio
