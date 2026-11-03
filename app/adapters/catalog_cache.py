@@ -109,6 +109,24 @@ def _is_price_fragment(text: str, match: re.Match[str]) -> bool:
     return bool(_PRICE_THOUSANDS_SUFFIX_RE.match(text[match.end() :]))
 
 
+def _is_battery_health_number(value: str, match: re.Match[str]) -> bool:
+    """Keep a battery percentage from being parsed as another iPhone model."""
+    before = value[max(0, match.start() - 48) : match.start()]
+    after = value[match.end() : match.end() + 48]
+    return bool(
+        re.search(
+            r"\b(?:baterias?|bat|battery(?:\s+health)?)"
+            r"\s*(?:(?:de|em|com)\s*)?(?::|-)?\s*$",
+            before,
+        )
+        or re.match(
+            r"\s*(?:(?:de|da|com)\s+)?(?:baterias?|bat|battery(?:\s+health)?)\b",
+            after,
+        )
+        or re.match(r"\s*(?:de\s+)?saude(?:\s+da)?\s+bateria\b", after)
+    )
+
+
 def _model_key(value: Any) -> tuple[int | str, str] | None:
     """Return the last explicit iPhone model/variant mentioned in a text."""
     normalized = _normalize(value)
@@ -132,7 +150,9 @@ def _model_key(value: Any) -> tuple[int | str, str] | None:
             and normalized[match.start() - 2].isdigit()
         ):
             return False
-        if _is_price_fragment(normalized, match):
+        if _is_battery_health_number(normalized, match) or _is_price_fragment(
+            normalized, match
+        ):
             return False
         suffix = normalized[match.end() :]
         model_number = match.group("number")
@@ -331,7 +351,8 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
     def is_usable(match: re.Match[str]) -> bool:
         suffix = line_aware_normalized[match.end() :]
         return not (
-            _is_price_fragment(line_aware_normalized, match)
+            _is_battery_health_number(line_aware_normalized, match)
+            or _is_price_fragment(line_aware_normalized, match)
             or re.match(r"\s*(?:%|gb|tb|g|x|vezes?|parcel\w*)(?!\w)", suffix)
         )
 

@@ -689,6 +689,74 @@ async def test_current_battery_selection_overrides_previous_photo_price(tmp_path
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "request_text",
+    ["Teria foto 15 pro com bateria 97", "Teria foto 15 pro bat 97"],
+)
+async def test_bare_iphone_photo_request_does_not_treat_battery_as_model(
+    tmp_path, request_text
+):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-15-pro-battery-photo.json",
+    )
+    photo_urls = {
+        "iphone-15-pro-blue-128": "https://photos.example/15-pro-blue-128.jpg",
+        "iphone-15-pro-black-128": "https://photos.example/15-pro-black-128.jpg",
+        "iphone-15-pro-black-256": "https://photos.example/15-pro-black-256.jpg",
+    }
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name="IPHONE 15 PRO",
+            category="Celular",
+            capacity=capacity,
+            color=color,
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            source="mercado_phone",
+            search_text=(
+                f"IPHONE 15 PRO {color} {capacity} celular seminovo bateria {battery}"
+            ),
+            photo_urls=[photo_urls[external_id]],
+        )
+        for external_id, color, capacity, price, battery in (
+            ("iphone-15-pro-blue-128", "TITÂNIO AZUL", "128GB", 3250, 80),
+            ("iphone-15-pro-black-128", "TITÂNIO PRETO", "128GB", 3470, 97),
+            ("iphone-15-pro-black-256", "TITÂNIO PRETO", "256GB", 3410, 81),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Qual o valor do iphone 15 pro ?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 15 PRO disponíveis:\n"
+                "• IPHONE 15 PRO — TITÂNIO AZUL — 128GB — SEMINOVO — "
+                "R$ 3.250,00 | Bat: 80%\n"
+                "• IPHONE 15 PRO — TITÂNIO PRETO — 128GB — SEMINOVO — "
+                "R$ 3.470,00 | Bat: 97%\n"
+                "• IPHONE 15 PRO — TITÂNIO PRETO — 256GB — SEMINOVO — "
+                "R$ 3.410,00 | Bat: 81%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(request_text, history=history)
+
+    assert decision.handoff is False
+    assert decision.image_urls == [photo_urls["iphone-15-pro-black-128"]], decision
+    assert decision.product_references == ["iphone-15-pro-black-128"], decision
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("request_text", "history_suffix", "photos_available"),
     [
         (
