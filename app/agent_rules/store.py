@@ -100,13 +100,28 @@ def _is_delivery_or_pickup_request(
     ):
         return False
     has_delivery = bool(re.search(r"\b(?:entrega|entregam|entregas)\b", normalized))
-    has_pickup = bool(
-        re.search(r"\bretirad\w*\b", normalized)
-        or "retirar na loja" in normalized
-        or "buscar na loja" in normalized
-        or "pegar na loja" in normalized
-    )
+    has_pickup = _has_pickup_reference(normalized)
     return has_delivery or has_pickup or _is_delivery_followup_request(text, history)
+
+
+def _has_pickup_reference(normalized: str) -> bool:
+    return bool(
+        re.search(r"\bretirad\w*\b", normalized)
+        or any(
+            phrase in normalized
+            for phrase in (
+                "retirar na loja",
+                "buscar na loja",
+                "pegar na loja",
+            )
+        )
+        or re.search(
+            r"\b(?:ir|para|pra|vou|quero|posso|consigo|consegue|conseguem|gostaria)\s+"
+            r"(?:ir\s+)?(?:buscar|pegar)\b",
+            normalized,
+        )
+    )
+
 
 def _is_pickup_schedule_request(text: str) -> bool:
     normalized = _normalize(text)
@@ -320,9 +335,7 @@ def _delivery_or_pickup_reply(
             faq.get("entrega")
             or "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
         )
-    if re.search(r"\bretirad\w*\b", normalized) or any(
-        phrase in normalized for phrase in ("buscar na loja", "pegar na loja")
-    ):
+    if _has_pickup_reference(normalized):
         replies.append(
             faq.get("retirada")
             or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da retirada."
