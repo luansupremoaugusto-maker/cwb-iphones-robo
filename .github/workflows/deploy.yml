@@ -95,6 +95,8 @@ jobs:
           unset webhook_secret webhook_secret_line
           echo "Z-API webhook secret preflight passed (value redacted)."
 
+          bash scripts/ensure-admin-csrf-secret.sh .env.local
+
           docker compose --env-file .env.local config --quiet
           git fetch origin main
           latest_main_sha="$(git rev-parse origin/main)"
