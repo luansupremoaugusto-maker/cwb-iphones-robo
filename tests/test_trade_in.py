@@ -3038,6 +3038,40 @@ def test_trade_in_context_detector_matches_abbreviated_model_followup():
 
 
 @pytest.mark.asyncio
+async def test_device_details_after_trade_in_question_send_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Gostaria de saber se vocês pegam um iPhone 11 Pro 256G cinza "
+                "na compra de outro iPhone de vocês"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    details = (
+        "Câmeras ok\nFace id ok\n72% de bateria\nAproximação ok\n"
+        "Telas com marcas de uso"
+    )
+
+    decision = await service.respond(details, history=history)
+
+    assert is_trade_in_context_request(details, history)
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_trade_in_context_followup_sends_form_without_handoff(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
