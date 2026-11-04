@@ -142,6 +142,31 @@ async def test_delivery_and_pickup_question_after_product_context_uses_faq(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_asking_how_to_go_pick_up_selected_iphone_uses_pickup_faq(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Quais opções de iPhone 15?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 15 disponíveis:\n"
+                "• IPHONE 15 — AZUL — 128GB — SEMINOVO — R$ 2.640,00 | Bat: 88%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "esse mesmo, como funciona para ir buscar? talvez amanhã eu pegue ele",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert "Fazemos retirada na loja com horário marcado" in decision.reply
+    assert "O pagamento é feito na hora da retirada" in decision.reply
+    assert decision.handoff_reason is None
+
+
+@pytest.mark.asyncio
 async def test_pickup_day_and_time_question_after_product_history_uses_store_hours(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
