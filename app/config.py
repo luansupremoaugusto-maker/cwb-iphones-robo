@@ -56,6 +56,18 @@ class Settings(BaseSettings):
     openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
     openai_transcription_model: str = "gpt-transcribe"
 
+    instagram_app_id: str | None = "1144032148131476"
+    instagram_app_secret: str | None = None
+    instagram_config_id: str | None = "1105347822326363"
+    instagram_redirect_uri: str = "https://bot.cwbiphones.cloud/instagram/oauth/callback"
+    instagram_graph_api_version: str = "v27.0"
+    instagram_expected_username: str = "cwb.iphones"
+    instagram_user_id: str | None = None
+    instagram_public_base_url: str = "https://bot.cwbiphones.cloud"
+    instagram_media_dir: str = "data/instagram"
+    instagram_post_time: str = "12:00"
+    instagram_autopublish_enabled: bool = False
+
     mercado_phone_base_url: str = "https://platform.mercadophone.tech"
     mercado_phone_files_url: str = "https://app.mercadophone.tech/api.php?class=ArquivoApiController&method=index"
     mercado_phone_api_key: str | None = None
