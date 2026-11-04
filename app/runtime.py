@@ -13,6 +13,7 @@ from app.adapters.zapi import ZapiClient
 from app.agent import AgentService
 from app.config import Settings
 from app.faq import FAQStore
+from app.instagram import InstagramService
 from app.processor import MessageProcessor
 from app.storage.database import Repository, build_engine
 
@@ -29,6 +30,7 @@ class Runtime:
     agent: AgentService
     media: OpenAIMediaService | None
     photo_normalizer: ProductPhotoNormalizer | None
+    instagram: InstagramService
     processor: MessageProcessor
 
     async def aclose(self) -> None:
@@ -36,6 +38,7 @@ class Runtime:
         await self.google_sheets.aclose()
         if self.photo_normalizer is not None:
             await self.photo_normalizer.aclose()
+        await self.instagram.aclose()
         await self.zapi.aclose()
 
 
@@ -58,6 +61,7 @@ def build_runtime(settings: Settings, offline: bool = False) -> Runtime:
     agent = AgentService(cache, faq, settings, offline=offline)
     media = None if offline or not settings.openai_api_key else OpenAIMediaService(settings)
     photo_normalizer = None if offline else ProductPhotoNormalizer(settings)
+    instagram = InstagramService(settings, repository)
     processor = MessageProcessor(settings, repository, zapi, agent, media, photo_normalizer)
     return Runtime(
         settings,
@@ -70,5 +74,6 @@ def build_runtime(settings: Settings, offline: bool = False) -> Runtime:
         agent,
         media,
         photo_normalizer,
+        instagram,
         processor,
     )

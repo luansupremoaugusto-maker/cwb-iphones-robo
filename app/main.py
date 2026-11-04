@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import logging
 import os
 import secrets
@@ -12,12 +13,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import parse_qs
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.admin import (
     AdminCommandRequest,
@@ -47,6 +50,8 @@ from app.adapters.zapi import ZapiError, callback_phone_aliases, normalize_recei
 from app.admin_page import render_admin_login_page, render_admin_page
 from app.config import get_settings, normalize_phone
 from app.http_limits import RequestBodySizeLimitMiddleware
+from app.instagram import InstagramControlRequest, InstagramError
+from app.instagram_page import render_instagram_page
 from app.runtime import Runtime, build_runtime
 from app.recovery import (
     build_recovery_draft,
@@ -577,6 +582,151 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         }
         payload = {"ready": all(checks.values()), "checks": checks}
         return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
+
+    @app.get("/instagram/media/{filename}")
+    async def instagram_media(filename: str, request: Request, sig: str = "") -> Response:
+        current: Runtime = request.app.state.runtime
+        if not re.fullmatch(r"[a-f0-9]{64}\.jpg", filename):
+            raise HTTPException(status_code=404, detail="Not found")
+        expected = current.instagram.media_signature(filename)
+        if not sig or not secrets.compare_digest(sig, expected):
+            raise HTTPException(status_code=404, detail="Not found")
+        media_path = Path(current.settings.instagram_media_dir) / filename
+        if not media_path.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(
+            media_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"},
+        )
+
+    @app.get("/admin/instagram", response_class=HTMLResponse)
+    async def admin_instagram(request: Request) -> HTMLResponse:
+        _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        return HTMLResponse(
+            render_instagram_page(build_admin_csrf_token(current.settings), current.instagram.status()),
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/admin/instagram/connect")
+    async def admin_instagram_connect(request: Request) -> Response:
+        _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        try:
+            state = secrets.token_urlsafe(32)
+            url = current.instagram.oauth_url(state)
+        except InstagramError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        response = RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store"})
+        response.set_cookie(
+            key="instagram_oauth_state",
+            value=state,
+            max_age=600,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            path="/instagram/oauth/callback",
+        )
+        return response
+
+    @app.get("/instagram/oauth/callback", response_class=HTMLResponse)
+    async def instagram_oauth_callback(
+        request: Request,
+        code: str | None = None,
+        state: str | None = None,
+        error: str | None = None,
+    ) -> HTMLResponse:
+        current: Runtime = request.app.state.runtime
+        cookie_state = request.cookies.get("instagram_oauth_state", "")
+        if not state or not cookie_state or not secrets.compare_digest(state, cookie_state):
+            response = HTMLResponse("A sessão de conexão expirou. Volte ao painel e tente novamente.", status_code=400)
+        elif error or not code:
+            response = HTMLResponse("A autorização da Meta não foi concluída. Você pode tentar novamente pelo painel.", status_code=400)
+        else:
+            try:
+                token, _expires_in = await current.instagram.exchange_code(code)
+                try:
+                    account = await current.instagram.discover_account(token)
+                    body = (
+                        "Conta conectada com sucesso. "
+                        f"Perfil identificado: @{html.escape(account['username'])}. "
+                        "Ative as publicações no painel do Instagram quando quiser começar."
+                    )
+                    status_code = 200
+                except InstagramError as exc:
+                    body = (
+                        "A autorização foi salva no servidor, mas não foi possível identificar o perfil. "
+                        f"{html.escape(str(exc))} Confira a conexão com a Página comercial e abra /admin/instagram."
+                    )
+                    status_code = 200
+                response = HTMLResponse(
+                    f'<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Instagram conectado</title>'
+                    f'<body><p>{body}</p><p><a href="/admin/instagram">Voltar ao painel</a></p></body></html>',
+                    status_code=status_code,
+                    headers={"Cache-Control": "no-store"},
+                )
+            except InstagramError as exc:
+                response = HTMLResponse(
+                    f'<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Falha ao conectar</title>'
+                    f'<body><p>{html.escape(str(exc))}</p><p><a href="/admin/instagram">Voltar ao painel</a></p></body></html>',
+                    status_code=400,
+                    headers={"Cache-Control": "no-store"},
+                )
+        response.delete_cookie("instagram_oauth_state", path="/instagram/oauth/callback")
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/admin/api/instagram/status")
+    async def admin_instagram_status(request: Request) -> dict[str, Any]:
+        _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        return current.instagram.status()
+
+    @app.post("/admin/api/instagram/app-secret")
+    async def admin_instagram_app_secret(request: Request) -> dict[str, Any]:
+        operator = _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Dados de configuração inválidos") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("app_secret"), str):
+            raise HTTPException(status_code=400, detail="Informe o segredo do app da Meta")
+        try:
+            current.instagram.store_app_secret(payload["app_secret"])
+        except InstagramError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        current.repository.audit(
+            "instagram_app_secret_configured",
+            "cwb.iphones",
+            {"operator": operator, "storage": "encrypted_database"},
+        )
+        return {"status": current.instagram.status(), "message": "Segredo salvo criptografado no servidor."}
+
+    @app.post("/admin/api/instagram/control")
+    async def admin_instagram_control(
+        request: Request,
+        command: InstagramControlRequest,
+    ) -> dict[str, Any]:
+        operator = _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        justification = _require_justification(command.justification)
+        enabled = command.action == "enable"
+        try:
+            if enabled:
+                await current.instagram.verify_account()
+            status = current.instagram.set_enabled(enabled)
+        except InstagramError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        current.repository.audit(
+            "instagram_autopublish_control",
+            "cwb.iphones",
+            {"enabled": enabled, "operator": operator, "justification": justification},
+        )
+        return {"status": status, "message": "Publicação automática atualizada."}
 
     @app.post("/admin/login", response_class=HTMLResponse)
     async def admin_login(request: Request) -> Response:
