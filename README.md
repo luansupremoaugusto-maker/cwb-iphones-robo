@@ -92,44 +92,6 @@ Não existe cadastro manual de fotos no projeto. Para não fazer uma chamada por
 cada item, os anexos são buscados sob demanda, somente quando o cliente solicita
 um modelo.
 
-## Publicações diárias no Instagram
-
-O painel privado em `/admin/instagram` conecta a conta profissional pelo Login
-Unificado da Meta, mostra o estado da integração e permite ativar ou pausar as
-publicações. O worker prepara no máximo um post informativo por dia, às 12h no
-fuso `America/Sao_Paulo`. A IA considera as legendas recentes para evitar
-repetição; as imagens são criadas no servidor. O conteúdo não inclui preço,
-estoque, promoção nem garantia.
-
-Estas variáveis podem ser configuradas no `.env.local` da VPS. O segredo do app
-da Meta também pode ser salvo no painel privado depois do deploy:
-
-~~~env
-INSTAGRAM_APP_ID=1144032148131476
-# Opcional: se vazio, informe o segredo na página privada /admin/instagram.
-INSTAGRAM_APP_SECRET=
-INSTAGRAM_CONFIG_ID=1105347822326363
-INSTAGRAM_REDIRECT_URI=https://bot.cwbiphones.cloud/instagram/oauth/callback
-INSTAGRAM_GRAPH_API_VERSION=v27.0
-INSTAGRAM_EXPECTED_USERNAME=cwb.iphones
-INSTAGRAM_PUBLIC_BASE_URL=https://bot.cwbiphones.cloud
-INSTAGRAM_MEDIA_DIR=/app/data/instagram
-INSTAGRAM_POST_TIME=12:00
-INSTAGRAM_AUTOPUBLISH_ENABLED=false
-~~~
-
-Não envie `INSTAGRAM_APP_SECRET` nem tokens em mensagens ou arquivos versionados.
-Se informado no painel privado, o segredo do app e o token do Sistema de Negócios
-são criptografados antes de serem guardados no PostgreSQL, usando uma chave
-derivada de `ADMIN_CSRF_SECRET`. O Login
-Unificado usa a configuração Meta com `config_id`; o perfil é descoberto por
-`/me/assigned_instagram_accounts`, sem exigir uma Página do Facebook. Registre
-nas configurações OAuth do app exatamente o callback configurado acima. Depois do deploy, abra
-`https://bot.cwbiphones.cloud/admin/instagram`, configure o segredo se ele não
-estiver no servidor, conecte a conta, confirme o perfil e ative as publicações. A integração usa apenas
-`instagram_basic` e `instagram_content_publish`; não lê mensagens, comentários,
-anúncios ou métricas de alcance.
-
 ## Painel administrativo
 
 O painel privado fica em `/admin` no mesmo domínio HTTPS do robô. Configure

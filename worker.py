@@ -96,7 +96,6 @@ async def run_worker() -> None:
     last_orphan_recovery = utc_now() - timedelta(seconds=10)
     last_inventory_refresh = utc_now() - timedelta(seconds=settings.mercado_refresh_interval_seconds)
     last_sheets_refresh = utc_now() - timedelta(seconds=settings.google_sheets_refresh_interval_seconds)
-    last_instagram_check = utc_now() - timedelta(minutes=1)
     try:
         while True:
             if utc_now() - last_inventory_refresh >= timedelta(seconds=settings.mercado_refresh_interval_seconds):
@@ -128,14 +127,6 @@ async def run_worker() -> None:
                     )
                 finally:
                     last_sheets_refresh = utc_now()
-
-            if utc_now() - last_instagram_check >= timedelta(minutes=1):
-                try:
-                    await runtime.instagram.publish_due()
-                except Exception as exc:
-                    logger.warning("instagram scheduler failed: %s", type(exc).__name__)
-                finally:
-                    last_instagram_check = utc_now()
 
             if utc_now() - last_orphan_recovery >= timedelta(seconds=10):
                 try:
