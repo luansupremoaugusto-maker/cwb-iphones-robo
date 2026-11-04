@@ -16,6 +16,8 @@ from app.faq import FAQStore
 from app.runtime import build_runtime
 from app.schemas import AgentDecision, InventoryItem
 from app.trade_in import (
+    DOWNGRADE_EVALUATION_REPLY,
+    DOWNGRADE_MODEL_QUESTION,
     NON_APPLE_TRADE_IN_REPLY,
     PARTS_BUYBACK_REPLY,
     PURCHASE_WITHOUT_TRADE_IN_REPLY,
@@ -23,6 +25,7 @@ from app.trade_in import (
     TRADE_IN_NEGOTIATION_REPLY,
     TRADE_IN_REASON,
     is_completed_trade_in_form,
+    is_downgrade_request,
     is_trade_in_negotiation,
     is_trade_in_context_request,
     is_trade_in_request,
@@ -31,6 +34,76 @@ from app.trade_in import (
     trade_in_em_andamento,
 )
 from app.adapters.mercado_phone import InventoryCache
+
+
+@pytest.mark.asyncio
+async def test_downgrade_question_confirms_service_and_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Boa tarde"},
+        {"role": "assistant", "content": "CWB.IPHONES agradece seu contato. Como podemos ajudar?"},
+    ]
+
+    decision = await service.respond("Vocês fazem downgrade?", history=history)
+
+    assert is_downgrade_request("Vocês fazem downgrade?") is True
+    assert decision.reply == DOWNGRADE_EVALUATION_REPLY
+    assert "Fazemos downgrade sim!" in decision.reply
+    assert "Qual modelo de iPhone você teria interesse em pegar?" in decision.reply
+    assert "Qual modelo de iPhone você tem atualmente?" in decision.reply
+    assert trade_in_em_andamento([{"role": "assistant", "content": decision.reply}])
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_downgrade_question_after_form_does_not_resend_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Vocês fazem downgrade?",
+        history=[{"role": "assistant", "content": DOWNGRADE_EVALUATION_REPLY}],
+    )
+
+    assert decision.reply == DOWNGRADE_MODEL_QUESTION
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_trade_in_negotiation_after_downgrade_form_is_handed_to_attendant(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "Vamos fechar por R$ 2.000, aceito.",
+        history=[{"role": "assistant", "content": DOWNGRADE_EVALUATION_REPLY}],
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+
+
+def test_downgrade_detector_ignores_software_and_non_apple_phone_requests():
+    assert is_downgrade_request("Fazem downgrade do iOS?") is False
+    assert is_downgrade_request("Fazem downgrade do Galaxy?") is False
+    assert is_downgrade_request("Fazem downgrade do Galaxy para iPhone 13?") is False
 
 
 @pytest.mark.asyncio

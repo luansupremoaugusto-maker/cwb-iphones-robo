@@ -49,6 +49,8 @@ from app.schemas import AgentDecision, InventoryItem
 from app.trade_in import (
     CONDITION_HANDOFF_REASON,
     CONDITION_HANDOFF_REPLY,
+    DOWNGRADE_EVALUATION_REPLY,
+    DOWNGRADE_MODEL_QUESTION,
     NON_APPLE_TRADE_IN_REPLY,
     PARTS_BUYBACK_REPLY,
     PURCHASE_WITHOUT_TRADE_IN_REPLY,
@@ -57,6 +59,7 @@ from app.trade_in import (
     TRADE_IN_REASON,
     is_trade_in_negotiation,
     is_completed_trade_in_form,
+    is_downgrade_request,
     is_box_inclusion_question,
     is_trade_in_context_request,
     is_trade_in_request,
@@ -203,6 +206,9 @@ REGRAS OBRIGATÓRIAS:
 - Quando o cliente perguntar se a loja compra algum produto, responda que sim,
   somente produtos da marca Apple, envie o formulário de avaliação aprovado e
   aguarde o cliente preencher o formulário, sem transferir antes.
+- Quando o cliente perguntar se fazemos downgrade de iPhone, confirme que sim,
+  pergunte qual modelo de iPhone deseja pegar e envie o formulário de avaliação
+  do aparelho atual. Aguarde o preenchimento antes de encaminhar ao atendente.
 - Se o cliente mencionar boleto junto com parcelamento ou quantidade de parcelas,
   informe que não parcelamos no boleto e que o parcelamento é somente no cartão
   de crédito na máquina física. Não use ferramentas de simulação nem envie tabela
@@ -2649,6 +2655,15 @@ class AgentService:
             )
         if is_non_apple_trade_in_request(text) and not is_parts_buyback_request(text):
             return AgentDecision(reply=NON_APPLE_TRADE_IN_REPLY, confidence="high")
+        if is_downgrade_request(text):
+            return AgentDecision(
+                reply=(
+                    DOWNGRADE_MODEL_QUESTION
+                    if trade_in_em_andamento(history)
+                    else DOWNGRADE_EVALUATION_REPLY
+                ),
+                confidence="high",
+            )
         combined_catalog_request = (
             _combined_iphone_17_catalog_request(text, history)
             if not trade_in_em_andamento(history) and not _is_photo_request(text)

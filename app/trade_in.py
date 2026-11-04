@@ -56,6 +56,18 @@ Com essas informações já podemos fazer uma avaliação prévia!!
 
 Só avaliamos produtos da marca Apple. Após preencher, vou encaminhar o atendimento para um atendente concluir a avaliação."""
 
+DOWNGRADE_MODEL_QUESTION = (
+    "Fazemos downgrade sim! 😊 Qual modelo de iPhone você teria interesse em pegar?"
+)
+_TRADE_IN_FORM_FIELDS = TRADE_IN_FORM.partition("\n\n")[2]
+DOWNGRADE_EVALUATION_REPLY = (
+    f"{DOWNGRADE_MODEL_QUESTION} Para avaliarmos seu iPhone atual na troca, "
+    "favor preencher lista de avaliação (copie e cole com as respostas):\n\n"
+    + _TRADE_IN_FORM_FIELDS.replace(
+        "Qual modelo de iPhone?", "Qual modelo de iPhone você tem atualmente?"
+    )
+)
+
 
 PURCHASE_WITHOUT_TRADE_IN_REPLY = (
     "Entendi! Ent\u00e3o voc\u00ea quer comprar um aparelho novo. "
@@ -490,6 +502,7 @@ _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
     r"sistema(?:\s+operacional)?)\b",
     re.IGNORECASE,
 )
+_DOWNGRADE_REQUEST_RE = re.compile(r"\bdown[\s-]?grade\w*\b", re.IGNORECASE)
 _CONTEXTUAL_DEVICE_UPGRADE_REQUEST_RE = re.compile(
     r"\bupgrade\b.{0,45}\b(?:aparelho|celular|iphone|smartphone|telefone)\b"
     r"|\b(?:aparelho|celular|iphone|smartphone|telefone)\b.{0,45}\bupgrade\b",
@@ -1348,6 +1361,17 @@ def is_trade_in_request(text: str | None) -> bool:
         re.search(r"\b(?:avaliacao|avaliar)\s+(?:de\s+)?(?:celular|iphone|"
                   r"aparelho|produto)\b", normalized)
         or re.search(r"\b(?:aceitam|compram|pegam)\s+(?:usado|seminovo)\b", normalized)
+    )
+
+
+def is_downgrade_request(text: str | None) -> bool:
+    """Recognize a phone-model downgrade request, excluding software and other brands."""
+    normalized = _normalize(text)
+    return bool(
+        normalized
+        and _DOWNGRADE_REQUEST_RE.search(normalized)
+        and not _SOFTWARE_UPGRADE_CONTEXT_RE.search(normalized)
+        and not _NON_APPLE_RE.search(normalized)
     )
 
 
