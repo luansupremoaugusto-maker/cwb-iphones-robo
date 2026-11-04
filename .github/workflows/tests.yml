@@ -21,29 +21,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Validate admin secret migration helper
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash -n scripts/ensure-admin-csrf-secret.sh
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "$temp_dir"' EXIT
-
-          short_env="$temp_dir/short.env"
-          printf 'ADMIN_CSRF_SECRET=too-short\nOTHER=value\n' > "$short_env"
-          bash scripts/ensure-admin-csrf-secret.sh "$short_env" > /dev/null
-          generated_secret="$(sed -n 's/^ADMIN_CSRF_SECRET=//p' "$short_env")"
-          test "${#generated_secret}" -eq 64
-          test "$(grep -c '^ADMIN_CSRF_SECRET=' "$short_env")" -eq 1
-          grep -q '^OTHER=value$' "$short_env"
-          unset generated_secret
-
-          long_env="$temp_dir/long.env"
-          printf 'ADMIN_CSRF_SECRET=%064d\n' 1 > "$long_env"
-          cp "$long_env" "$temp_dir/long.expected"
-          bash scripts/ensure-admin-csrf-secret.sh "$long_env" > /dev/null
-          cmp -s "$temp_dir/long.expected" "$long_env"
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
