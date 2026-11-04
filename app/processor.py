@@ -29,6 +29,20 @@ def _fold_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", plain).strip().lower()
 
 
+def _is_whatsapp_business_greeting(incoming: IncomingMessage) -> bool:
+    """Recognize the store's WhatsApp Business greeting, not a staff reply."""
+    if not incoming.from_me or incoming.kind != "text":
+        return False
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", _fold_text(incoming.text))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return (
+        "cwb iphones" in normalized
+        and "agradece seu contato" in normalized
+        and "como podemos ajudar" in normalized
+    )
+
+
 def _clean_summary_text(value: str | None, limit: int = 900) -> str:
     text = re.sub(r"\s+", " ", (value or "")).strip()
     text = re.sub(r"(?i)\bimei(?:\s*2)?\s*[:=-]?\s*[0-9A-Za-z-]{6,}", "IMEI [oculto]", text)
@@ -180,6 +194,13 @@ class MessageProcessor:
                 self.repository.audit("ignored_event", incoming.phone, {"reason": "provider_control_event"})
                 continue
             if incoming.from_me:
+                if _is_whatsapp_business_greeting(incoming):
+                    self.repository.audit(
+                        "ignored_event",
+                        incoming.phone,
+                        {"reason": "whatsapp_business_greeting", "message_id": incoming.message_id},
+                    )
+                    continue
                 if incoming.from_api or self.repository.has_message_provider_id(
                     incoming.phone,
                     incoming.message_id,
