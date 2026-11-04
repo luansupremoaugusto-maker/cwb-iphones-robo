@@ -1649,6 +1649,25 @@ def is_trade_in_context_request(
         if entry.get("role") == "user" and entry.get("content")
     )
     user_context = f"{recent_user_context} {normalized}".strip()
+    # Customers may answer an explicit buyback question by sending the phone's
+    # condition in a second message. The device and trade-in intent can both
+    # be split across those turns, even when the bot has only sent its greeting.
+    followup_after_trade_in_question = bool(
+        is_trade_in_request(recent_user_context)
+        and _APPLE_PRODUCT_RE.search(recent_user_context)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
+    )
+    if (
+        followup_after_trade_in_question
+        and not _NEGATION_RE.search(user_context)
+        and not _is_component_repair_request(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        and not is_parts_buyback_request(user_context)
+        and not _NON_APPLE_RE.search(user_context)
+    ):
+        return True
+
     # A buyback price question and the phone profile can arrive as separate
     # WhatsApp messages. Treat a later purchase-origin answer as part of that
     # offer only when the recent history also identifies a model, capacity,
