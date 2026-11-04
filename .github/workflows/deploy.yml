@@ -95,7 +95,9 @@ jobs:
           unset webhook_secret webhook_secret_line
           echo "Z-API webhook secret preflight passed (value redacted)."
 
-          bash scripts/ensure-admin-csrf-secret.sh .env.local
+          # Remove the Instagram credentials and IDs saved for the cancelled integration.
+          sed -i '/^INSTAGRAM_[A-Z0-9_]*=/d' .env.local
+          chmod 600 .env.local
 
           docker compose --env-file .env.local config --quiet
           git fetch origin main
@@ -106,6 +108,50 @@ jobs:
           fi
           docker compose --env-file .env.local up -d --build
           docker compose --env-file .env.local ps
+          docker compose --env-file .env.local exec -T app python - <<'PY'
+          import shutil
+          from pathlib import Path
+
+          from sqlalchemy import delete
+          from sqlalchemy.orm import Session
+
+          from app.config import Settings
+          from app.storage.database import AuditEventRecord, SystemSettingRecord, build_engine
+
+          settings = Settings()
+          engine = build_engine(settings.database_url)
+          with Session(engine) as session:
+              settings_result = session.execute(
+                  delete(SystemSettingRecord).where(
+                      SystemSettingRecord.key.startswith("instagram_", autoescape=True)
+                  )
+              )
+              audit_result = session.execute(
+                  delete(AuditEventRecord).where(
+                      AuditEventRecord.event_type.startswith("instagram_", autoescape=True)
+                  )
+              )
+              session.commit()
+
+          data_root = Path("/app/data").resolve()
+          media_dir = data_root / "instagram"
+          media_removed = False
+          if media_dir.is_symlink():
+              media_dir.unlink()
+              media_removed = True
+          elif media_dir.exists():
+              if media_dir.resolve().parent != data_root:
+                  raise RuntimeError("Instagram media directory resolved outside app data")
+              shutil.rmtree(media_dir)
+              media_removed = True
+
+          print(
+              "Instagram cleanup complete: "
+              f"{settings_result.rowcount or 0} settings, "
+              f"{audit_result.rowcount or 0} audit events, "
+              f"media_removed={str(media_removed).lower()}"
+          )
+          PY
           docker compose --env-file .env.local exec -T app python - <<'PY'
           import asyncio
           from app.adapters.mercado_phone import InventoryCache
