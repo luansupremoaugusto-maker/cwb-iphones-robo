@@ -57,6 +57,52 @@ def test_webhook_queues_manual_outgoing_and_ignores_bot_echoes():
     assert claimed[1]["messageId"] == "manual-1"
 
 
+async def test_whatsapp_business_greeting_does_not_hold_initial_customer_message():
+    runtime = build_runtime(_settings(), offline=True)
+    phone = "5511888888887"
+    calls: list[tuple[str, list[dict[str, str]]]] = []
+
+    class CapturingAgent:
+        async def respond(self, text, history=None, image_description=None):
+            calls.append((text, list(history or [])))
+            return AgentDecision(reply="Bom dia! Como posso ajudar?")
+
+    runtime.processor.agent = CapturingAgent()
+    try:
+        await runtime.processor.process_batch(
+            [
+                {
+                    "messageId": "customer-greeting-1",
+                    "phone": phone,
+                    "fromMe": False,
+                    "text": {"message": "Bom dia"},
+                },
+                {
+                    "messageId": "whatsapp-auto-greeting-1",
+                    "phone": phone,
+                    "fromMe": True,
+                    "fromApi": False,
+                    "text": {
+                        "message": "Cwb.iphones agradece seu contato. Como podemos ajudar?"
+                    },
+                },
+            ]
+        )
+
+        assert calls == [("Bom dia", [])]
+        ignored_events = runtime.repository.list_audit_events(
+            event_type="ignored_event",
+            limit=10,
+        )
+        assert ignored_events[0]["subject"] == phone
+        assert ignored_events[0]["detail"] == {
+            "reason": "whatsapp_business_greeting",
+            "message_id": "whatsapp-auto-greeting-1",
+        }
+    finally:
+        await runtime.aclose()
+
+
 async def test_manual_message_becomes_context_and_holds_pending_bot_reply():
     runtime = build_runtime(_settings(), offline=True)
     phone = "5511888888888"
