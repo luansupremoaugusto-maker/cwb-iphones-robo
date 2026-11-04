@@ -36,7 +36,7 @@ Com Python 3.11+ instalado:
 
 ~~~powershell
 uv sync --locked --extra dev
-uv run pytest
+uv run python -m pytest
 ~~~
 
 O console offline não chama OpenAI, Google, Mercado Phone ou Z-API:
