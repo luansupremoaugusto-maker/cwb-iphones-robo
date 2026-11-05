@@ -116,8 +116,7 @@ def _has_pickup_reference(normalized: str) -> bool:
             )
         )
         or re.search(
-            r"\b(?:ir|para|pra|vou|quero|posso|consigo|consegue|conseguem|gostaria)\s+"
-            r"(?:ir\s+)?(?:buscar|pegar)\b",
+            r"\b(?:ir\s+(?:buscar|pegar)|vou\s+buscar)\b",
             normalized,
         )
     )

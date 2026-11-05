@@ -167,6 +167,36 @@ async def test_asking_how_to_go_pick_up_selected_iphone_uses_pickup_faq(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_owned_iphone_upgrade_is_not_misrouted_to_pickup(tmp_path):
+    agent = build_agent(tmp_path)
+    greeting_history = [
+        {"role": "user", "content": "Olá boa tarde"},
+        {"role": "assistant", "content": "Olá, boa tarde! Como posso te ajudar?"},
+    ]
+    upgrade_message = "Tenho um iPhone 15 e quero pegar o 17 ou o 18"
+
+    assert not agent_module._is_delivery_or_pickup_request(
+        upgrade_message,
+        greeting_history,
+    )
+
+    first_decision = await agent.respond(upgrade_message, history=greeting_history)
+    assert "retirada na loja" not in first_decision.reply.lower()
+
+    entry_history = [
+        *greeting_history,
+        {"role": "user", "content": upgrade_message},
+        {"role": "assistant", "content": first_decision.reply},
+    ]
+    entry_decision = await agent.respond(
+        "Vocês aceitam o meu como entrada?",
+        history=entry_history,
+    )
+
+    assert "Favor preencher lista de avaliação" in entry_decision.reply
+
+
+@pytest.mark.asyncio
 async def test_pickup_day_and_time_question_after_product_history_uses_store_hours(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
