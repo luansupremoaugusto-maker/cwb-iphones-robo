@@ -32,6 +32,7 @@ from app.trade_in import (
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
     trade_in_em_andamento,
+    is_unlabeled_trade_in_form_response,
 )
 from app.adapters.mercado_phone import InventoryCache
 
@@ -1468,6 +1469,56 @@ async def test_filled_evaluation_form_after_bot_form_is_forwarded_to_attendant(t
     assert decision.handoff is True
     assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
     assert "assistência técnica" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_unlabeled_evaluation_answers_with_past_repair_are_forwarded_to_attendant(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Vocês compram iPhone?"},
+        {"role": "assistant", "content": TRADE_IN_FORM},
+    ]
+    filled_form = (
+        "15 pro Max\n"
+        "Novo\n"
+        "Somente a caixa\n"
+        "Sem marcas de uso\n"
+        "Sem risco na tela\n"
+        "Nada quebrado\n"
+        "Foi trocado a tela e bateria na autorizada Apple com Nave\n"
+        "Desbloqueado\n"
+        "Bateria 100%\n"
+        "2700\n"
+        "Sem garantia"
+    )
+
+    assert is_completed_trade_in_form(filled_form) is False
+    assert is_unlabeled_trade_in_form_response(filled_form, history) is True
+    decision = await service.respond(
+        filled_form,
+        history=history,
+        image_description="Fotos do iPhone 15 Pro Max recebido junto com as respostas.",
+    )
+
+    assert decision.handoff is True
+    assert decision.handoff_reason == TRADE_IN_REASON
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+    assert "assistência técnica" not in decision.reply.lower()
+
+    explicit_repair = f"{filled_form}\nQuero consertar meu iPhone."
+    assert is_unlabeled_trade_in_form_response(explicit_repair, history) is False
+    repair_decision = await service.respond(explicit_repair, history=history)
+
+    assert repair_decision.handoff is True
+    assert repair_decision.reply == TECHNICAL_ASSISTANCE_REPLY
 
 
 @pytest.mark.asyncio

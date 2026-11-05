@@ -172,6 +172,19 @@ _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE = re.compile(
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_DEVICE_REPAIR_REQUEST_RE = re.compile(
+    r"\b(?:quero|queria|gostaria|precis\w*|necessit\w*|pode|poderia|"
+    r"consegue|conseguem|fazem?|quanto|qual\s+valor|onde|como)\b.{0,55}"
+    r"\b(?:consert\w*|repar\w*|manuten\w*|arrum\w*|assistencia\s+tecnica)\b"
+    r".{0,40}\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|"
+    r"aparelho|smartphone|telefone)\b"
+    r"|\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+    r"smartphone|telefone)\b.{0,40}"
+    r"\b(?:quero|queria|gostaria|precis\w*|necessit\w*|pode|poderia|"
+    r"consegue|conseguem|fazem?|quanto|qual\s+valor|onde|como)\b.{0,30}"
+    r"\b(?:consert\w*|repar\w*|manuten\w*|arrum\w*|assistencia\s+tecnica)\b",
+    re.IGNORECASE,
+)
 _COMPONENT_REPLACEMENT_CONDITION_RE = re.compile(
     r"\bcom\s+(?:a\s+)?(?:troca\w*|substitu\w*)\s+"
     r"(?:(?:de|do|da)\s+)?"
@@ -1540,6 +1553,11 @@ _TRADE_IN_FORM_FIELD_RE = re.compile(
 _TRADE_IN_FORM_ANSWER_RE = re.compile(
     r"(?im)^[ \t]*(?:r|gb|cor)[ \t]*:[ \t]*(\S.*)$"
 )
+_UNLABELED_TRADE_IN_FORM_MODEL_RE = re.compile(
+    r"^(?:iphone\s*)?\d{1,2}"
+    r"(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
+    r"(?:\s+\d{2,4}\s*(?:gb|tb)?)?$"
+)
 
 
 def is_completed_trade_in_form(text: str | None) -> bool:
@@ -1586,6 +1604,57 @@ def is_completed_trade_in_form(text: str | None) -> bool:
         if yes_no_count >= 4 and has_battery_health and has_value:
             return True
     return False
+
+
+def is_unlabeled_trade_in_form_response(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a bare, line-by-line response to the evaluation form."""
+    if not text or not trade_in_em_andamento(history):
+        return False
+
+    normalized = _normalize(text)
+    if (
+        _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        or _EXPLICIT_DEVICE_REPAIR_REQUEST_RE.search(normalized)
+    ):
+        return False
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 8:
+        return False
+
+    if not any(
+        _UNLABELED_TRADE_IN_FORM_MODEL_RE.fullmatch(_normalize(line))
+        for line in lines[:2]
+    ):
+        return False
+
+    has_battery_health = any(
+        re.search(r"\b\d{1,3}\s*%(?!\d)", _normalize(line))
+        for line in lines
+    )
+    has_value = any(
+        re.fullmatch(
+            r"(?:r\$\s*)?(?:\d{1,3}(?:[.,]\d{3})+|\d{2,5})(?:[.,]\d{1,2})?",
+            _normalize(line),
+        )
+        for line in lines[1:]
+    )
+    field_markers = (
+        r"\b(?:novo|semi\s*novo|seminovo|usado)\b",
+        r"\b(?:caixa|capinha|carregador|acessorios?)\b",
+        r"\b(?:marcas?\s+de\s+uso|riscos?\s+na\s+tela|sem\s+marcas?|"
+        r"sem\s+riscos?|quebrad\w*|defeitu\w*)\b",
+        r"\b(?:trocad\w*|repar\w*)\b",
+        r"\bdesbloquead\w*\b",
+        r"\bgarantia\b",
+    )
+    answered_field_count = sum(
+        bool(re.search(pattern, normalized)) for pattern in field_markers
+    )
+    return has_battery_health and has_value and answered_field_count >= 3
 
 
 def _iphone_model_generations(text: str) -> set[int]:
