@@ -194,6 +194,11 @@ REGRAS OBRIGATÓRIAS:
   se houver opção seminova em estoque e opção nova lacrada, envie as duas, separadas
   e identificadas. Só envie uma condição quando o cliente pedir explicitamente
   seminovo/usado ou lacrado/por encomenda.
+- Se o cliente apenas confirmar se um valor citado corresponde à condição que já
+  aparece na oferta recente (por exemplo, “por esse valor é seminovo então”),
+  confirme diretamente com base na oferta. Não encaminhe ao atendente só para
+  repetir uma condição já informada; encaminhe perguntas sobre estado físico,
+  reparos ou marcas de uso que não constem no cadastro.
 - Não ofereça fotos espontaneamente em uma listagem com várias unidades. Para um
   aparelho selecionado, só ofereça fotos depois de get_product_photos confirmar
   URLs daquele registro exato; preserve capacidade, cor, condição, bateria e preço
@@ -1389,6 +1394,55 @@ def _is_catalog_buyer_details_question(
     return sum(bool(group) for group in detail_groups) >= 2 or bool(
         has_catalog_context and state_question and any(detail_groups)
     )
+
+
+_SEMINOVO_PRICE_CONFIRMATION_RE = re.compile(
+    r"^(?:no\s+valor(?:\s+de)?|por)\s+(?:r\$\s*)?\d[\d.,]*\s+"
+    r"(?:__copula__|e)\s+(?:um\s+)?(?:semi[\s-]+nov[oa]|usad[oa])"
+    r"(?:\s+entao)?(?:[,;]?\s+(?:sem\s+problema|ok|tudo\s+bem|"
+    r"certo|correto|perfeito))*$",
+    re.IGNORECASE,
+)
+
+
+def _is_known_seminovo_price_confirmation(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Confirm a price/condition already stated in the latest catalog offer."""
+    normalized = _normalize(text or "").strip(" .!?\t\r\n")
+    if (
+        not normalized
+        or not history
+        or not _SEMINOVO_PRICE_CONFIRMATION_RE.fullmatch(normalized)
+    ):
+        return False
+    if trade_in_em_andamento(history) or is_trade_in_context_request(text, history):
+        return False
+
+    latest_assistant = next(
+        (
+            entry.get("content", "")
+            for entry in reversed(history)
+            if entry.get("role") == "assistant" and entry.get("content", "").strip()
+        ),
+        "",
+    )
+    if not latest_assistant or history[-1].get("role") != "assistant":
+        return False
+
+    for sentence in re.split(r"(?<=[.!?])\s+|\r?\n", latest_assistant):
+        normalized_sentence = _normalize(sentence)
+        if (
+            _has_product_reference(normalized_sentence)
+            and _has_seminovo_reference(normalized_sentence)
+            and re.search(
+                r"\b(?:disponivel|estoque|consta|encontrei|temos|r\$)\b",
+                normalized_sentence,
+            )
+        ):
+            return True
+    return False
 
 
 def _has_sealed_reference(normalized: str) -> bool:
@@ -2775,6 +2829,16 @@ class AgentService:
                     reply=CATALOG_PRICE_NEGOTIATION_REPLY,
                     handoff=True,
                     handoff_reason=CATALOG_PRICE_NEGOTIATION_REASON,
+                    confidence="high",
+                )
+            )
+        if _is_known_seminovo_price_confirmation(text, history):
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=(
+                        "Isso 😊 Esse valor é da opção seminova que te informei. "
+                        "O novo lacrado é por encomenda, com prazo de uma semana."
+                    ),
                     confidence="high",
                 )
             )
