@@ -1585,6 +1585,56 @@ def is_completed_trade_in_form(text: str | None) -> bool:
     return False
 
 
+def is_unlabeled_trade_in_form_response(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a bare, line-by-line response to the evaluation form."""
+    if not text or not trade_in_em_andamento(history):
+        return False
+
+    normalized = _normalize(text)
+    if _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized):
+        return False
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 8:
+        return False
+
+    model_line = re.compile(
+        r"^(?:iphone\s*)?\d{1,2}"
+        r"(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
+        r"(?:\s+\d{2,4}\s*(?:gb|tb)?)?$"
+    )
+    if not any(model_line.fullmatch(_normalize(line)) for line in lines[:2]):
+        return False
+
+    has_battery_health = any(
+        re.search(r"\b\d{1,3}\s*%(?!\d)", _normalize(line))
+        for line in lines
+    )
+    has_value = any(
+        re.fullmatch(
+            r"(?:r\$\s*)?(?:\d{1,3}(?:[.,]\d{3})+|\d{2,5})(?:[.,]\d{1,2})?",
+            _normalize(line),
+        )
+        for line in lines[1:]
+    )
+    field_markers = (
+        r"\b(?:novo|semi\s*novo|seminovo|usado)\b",
+        r"\b(?:caixa|capinha|carregador|acessorios?)\b",
+        r"\b(?:marcas?\s+de\s+uso|riscos?\s+na\s+tela|sem\s+marcas?|"
+        r"sem\s+riscos?|quebrad\w*|defeitu\w*)\b",
+        r"\b(?:trocad\w*|repar\w*)\b",
+        r"\bdesbloquead\w*\b",
+        r"\bgarantia\b",
+    )
+    answered_field_count = sum(
+        bool(re.search(pattern, normalized)) for pattern in field_markers
+    )
+    return has_battery_health and has_value and answered_field_count >= 3
+
+
 def _iphone_model_generations(text: str) -> set[int]:
     return {
         int(re.search(r"\d{1,2}", match.group()).group())

@@ -59,6 +59,7 @@ from app.trade_in import (
     TRADE_IN_REASON,
     is_trade_in_negotiation,
     is_completed_trade_in_form,
+    is_unlabeled_trade_in_form_response,
     is_downgrade_request,
     is_box_inclusion_question,
     is_trade_in_context_request,
@@ -2631,6 +2632,7 @@ class AgentService:
         image_description: str | None = None,
     ) -> AgentDecision:
         form_completed = is_completed_trade_in_form(text)
+        unlabeled_form_response = is_unlabeled_trade_in_form_response(text, history)
         trade_target = trade_in_catalog_target(text)
         if form_completed:
             if trade_target:
@@ -2640,6 +2642,13 @@ class AgentService:
                         form_completed=True,
                     )
                 )
+            return AgentDecision(
+                reply=TRADE_IN_NEGOTIATION_REPLY,
+                handoff=True,
+                handoff_reason=TRADE_IN_REASON,
+                confidence="high",
+            )
+        if unlabeled_form_response:
             return AgentDecision(
                 reply=TRADE_IN_NEGOTIATION_REPLY,
                 handoff=True,
