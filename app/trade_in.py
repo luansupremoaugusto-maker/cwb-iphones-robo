@@ -497,6 +497,14 @@ _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     r"parte\s+do\s+(?:pagamento|valor)|como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
+_GENERIC_TRADE_IN_ENTRY_QUESTION_RE = re.compile(
+    r"\b(?:voce|voces|vcs|loja|a\s+loja|cwb\.iphones)\b.{0,35}"
+    r"\b(?:aceit\w*|peg\w*|receb\w*)\b.{0,35}"
+    r"\b(?:outro|outra)\b.{0,35}"
+    r"\b(?:como\s+entrada|de\s+entrada|(?:na|em)\s+troca|"
+    r"(?:como\s+)?parte\s+do\s+pagamento)\b",
+    re.IGNORECASE,
+)
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
     r"\b(?:ios|ipados|software|firmware|app|aplicativo|"
     r"sistema(?:\s+operacional)?)\b",
@@ -1361,6 +1369,7 @@ def is_trade_in_request(text: str | None) -> bool:
         re.search(r"\b(?:avaliacao|avaliar)\s+(?:de\s+)?(?:celular|iphone|"
                   r"aparelho|produto)\b", normalized)
         or re.search(r"\b(?:aceitam|compram|pegam)\s+(?:usado|seminovo)\b", normalized)
+        or _GENERIC_TRADE_IN_ENTRY_QUESTION_RE.search(normalized)
     )
 
 

@@ -216,6 +216,34 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
 
 
 @pytest.mark.asyncio
+async def test_generic_other_device_entry_question_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Vocês pegam outro como entrada?"
+    history = [
+        {"role": "user", "content": "Gostaria de um 17 pro max"},
+        {
+            "role": "assistant",
+            "content": "Temos estas opções de iPhone 17 Pro Max.",
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert is_trade_in_request("Vocês aceitam R$ 500 como entrada?") is False
+
+
+@pytest.mark.asyncio
 async def test_bare_iphone_models_shop_take_question_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
