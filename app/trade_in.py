@@ -121,7 +121,10 @@ _PAYMENT_METHOD_RE = re.compile(
 _STOCK_QUERY_RE = re.compile(
     r"\b(?:tem|possui|disponivel|estoque|vende)\b.{0,35}\b"
     r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|aparelho|"
-    r"usado|seminovo)\b",
+    r"usado|seminovo)\b"
+    # Buyers often name the model first, then ask whether it is still available.
+    r"|\b(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|aparelho)\b"
+    r".{0,100}\b(?:esta|ta|continua|segue)?\s*disponivel\b",
     re.IGNORECASE,
 )
 _EXPLICIT_STOCK_QUERY_RE = re.compile(
