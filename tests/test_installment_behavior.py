@@ -1027,15 +1027,21 @@ async def test_installment_question_after_delivery_keeps_unique_battery_matched_
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("requested_condition", "expected_price", "other_condition_price"),
+    ("request_text", "expected_price", "other_condition_price"),
     [
-        ("seminovo", "7.040,00", "8.000,00"),
-        ("lacrado", "8.000,00", "7.040,00"),
+        ("quanto fica o parcelamento do seminovo?", "7.040,00", "8.000,00"),
+        (
+            "quanto fica o parcelamento do iPhone 17 Pro Max 256GB seminovo "
+            "com carregador novo?",
+            "7.040,00",
+            "8.000,00",
+        ),
+        ("quanto fica o parcelamento do lacrado?", "8.000,00", "7.040,00"),
     ],
 )
 async def test_installment_followup_uses_current_condition_not_previous_table(
     tmp_path,
-    requested_condition,
+    request_text,
     expected_price,
     other_condition_price,
 ):
@@ -1047,7 +1053,7 @@ async def test_installment_followup_uses_current_condition_not_previous_table(
             category="Celular",
             capacity="256GB",
             color="PRATEADO",
-            condition="SEMINOVO",
+            condition=None,
             availability="Disponivel para venda",
             quantity=1,
             price_brl=7040.0,
@@ -1083,7 +1089,7 @@ async def test_installment_followup_uses_current_condition_not_previous_table(
     agent = AgentService(cache, FAQStore(settings.faq_path), settings, offline=True)
 
     decision = await agent.respond(
-        f"quanto fica o parcelamento do {requested_condition}?",
+        request_text,
         history=[
             {
                 "role": "user",

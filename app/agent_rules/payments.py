@@ -1029,6 +1029,17 @@ def _requested_installment_product_keys(value: str) -> tuple[str, ...]:
 def _installment_condition_override(text: str) -> str | None:
     """Keep an explicit condition in the current installment request authoritative."""
     normalized = _normalize(text)
+    normalized = re.sub(
+        r"\b(?:acompanha\w*|inclui\w*)\b(?:\s+\w+){0,8}\s+nov[oa]s?\b",
+        " ",
+        normalized,
+    )
+    normalized = re.sub(
+        r"\b(?:cabos?|fontes?|carregador(?:es)?|acessorios?)\b"
+        r"(?:\s+\w+){0,3}\s+nov[oa]s?\b",
+        " ",
+        normalized,
+    )
     has_used = _has_seminovo_reference(normalized)
     has_sealed = _has_explicit_sealed_condition(normalized)
     if has_used != has_sealed:

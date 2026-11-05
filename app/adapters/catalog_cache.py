@@ -926,7 +926,7 @@ def _requested_availability_condition(value: Any) -> str | None:
         without_semi_novo,
     )
     without_accessory_new = re.sub(
-        r"\b(?:cabos?|fontes?|carregadores?|acessorios?)\b(?:\s+\w+){0,3}\s+nov[oa]s?\b",
+        r"\b(?:cabos?|fontes?|carregador(?:es)?|acessorios?)\b(?:\s+\w+){0,3}\s+nov[oa]s?\b",
         " ",
         without_accessory_new,
     )
@@ -1299,7 +1299,20 @@ class StoreCatalogCache(InventoryCache):
         condition_override = (
             condition_override_match.group(1) if condition_override_match else None
         )
-        candidate_query = _INSTALLMENT_CONDITION_OVERRIDE_RE.sub(" ", query or "").strip()
+        candidate_query = _INSTALLMENT_CONDITION_OVERRIDE_RE.sub(" ", query or "")
+        candidate_query = re.sub(
+            r"\b(?:acompanha\w*|inclui\w*)\b(?:\s+\w+){0,8}\s+nov[oa]s?\b",
+            " ",
+            candidate_query,
+            flags=re.IGNORECASE,
+        )
+        candidate_query = re.sub(
+            r"\b(?:com\s+)?(?:cabos?|fontes?|carregador(?:es)?|acessorios?)\b"
+            r"(?:\s+\w+){0,3}\s+nov[oa]s?\b",
+            " ",
+            candidate_query,
+            flags=re.IGNORECASE,
+        ).strip()
         candidates = [
             item
             for item in await self.search(candidate_query, limit=10)
@@ -1312,10 +1325,7 @@ class StoreCatalogCache(InventoryCache):
                 if (
                     _is_sealed_catalog_item(item)
                     if condition_override == "sealed"
-                    else (
-                        not _is_sealed_catalog_item(item)
-                        and _requested_photo_condition(getattr(item, "condition", "")) == "used"
-                    )
+                    else not _is_sealed_catalog_item(item)
                 )
             ]
             if not candidates:
