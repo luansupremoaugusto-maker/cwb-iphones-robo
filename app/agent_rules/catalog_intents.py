@@ -418,7 +418,6 @@ def _is_generic_iphone_list_request(text: str) -> bool:
             marker in normalized
             for marker in (
                 "faixa de",
-                "orcamento",
                 "em torno de",
                 "cerca de",
                 "por volta de",
@@ -431,6 +430,7 @@ def _is_generic_iphone_list_request(text: str) -> bool:
                 "necessito de",
             )
         )
+        or re.search(r"\borcamento\b.{0,35}\d", normalized)
         or ("entrega" in normalized and not _has_pronta_entrega_reference(text))
     ):
         return False
