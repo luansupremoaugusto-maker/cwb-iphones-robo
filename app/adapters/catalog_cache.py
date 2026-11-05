@@ -34,6 +34,11 @@ def _score_text(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", _normalize(str(value or ""))).strip()
 
 
+_INSTALLMENT_CONDITION_OVERRIDE_RE = re.compile(
+    r"(?im)^\s*__installment_condition_override__\s*:\s*(used|sealed)\s*$"
+)
+
+
 _MODEL_PATTERN = re.compile(
     r"\b(?:iphone\s*)?(?:(?P<number>\d{1,2})"
     r"(?:\s*(?P<variant>pro\s+max|pro|max|plus|mini|air|"
@@ -1290,8 +1295,38 @@ class StoreCatalogCache(InventoryCache):
         }
 
     async def _select_priced_candidate(self, query: str) -> tuple[Any | None, dict[str, Any] | None]:
-        candidates = [item for item in await self.search(query, limit=10) if item.price_brl is not None]
-        requested_capacity = _explicit_capacity_hint(query)
+        condition_override_match = _INSTALLMENT_CONDITION_OVERRIDE_RE.search(query or "")
+        condition_override = (
+            condition_override_match.group(1) if condition_override_match else None
+        )
+        candidate_query = _INSTALLMENT_CONDITION_OVERRIDE_RE.sub(" ", query or "").strip()
+        candidates = [
+            item
+            for item in await self.search(candidate_query, limit=10)
+            if item.price_brl is not None
+        ]
+        if condition_override:
+            candidates = [
+                item
+                for item in candidates
+                if (
+                    _is_sealed_catalog_item(item)
+                    if condition_override == "sealed"
+                    else (
+                        not _is_sealed_catalog_item(item)
+                        and _requested_photo_condition(getattr(item, "condition", "")) == "used"
+                    )
+                )
+            ]
+            if not candidates:
+                condition_label = "seminovo" if condition_override == "used" else "novo lacrado"
+                return None, {
+                    "encontrado": False,
+                    "motivo": f"Produto {condition_label} com preço confirmado não localizado",
+                    "condicao_solicitada": condition_override,
+                }
+
+        requested_capacity = _explicit_capacity_hint(candidate_query)
         if requested_capacity:
             candidates = [
                 item
@@ -1299,7 +1334,7 @@ class StoreCatalogCache(InventoryCache):
                 if _capacity_key(getattr(item, "capacity", None) or getattr(item, "name", ""))
                 == requested_capacity
             ]
-        requested_battery = _requested_battery_health(query)
+        requested_battery = _requested_battery_health(candidate_query)
         if requested_battery is not None:
             battery_candidates = [
                 item
@@ -1311,6 +1346,13 @@ class StoreCatalogCache(InventoryCache):
             if battery_candidates or not requested_capacity:
                 candidates = battery_candidates
         if not candidates:
+            if condition_override:
+                condition_label = "seminovo" if condition_override == "used" else "novo lacrado"
+                return None, {
+                    "encontrado": False,
+                    "motivo": f"Produto {condition_label} solicitado com preço confirmado não localizado",
+                    "condicao_solicitada": condition_override,
+                }
             if requested_battery is not None:
                 return None, {
                     "encontrado": False,
@@ -1319,7 +1361,7 @@ class StoreCatalogCache(InventoryCache):
             return None, {"encontrado": False, "motivo": "Produto com preço confirmado não localizado"}
 
         condition_pair = False
-        if len(candidates) == 2 and not _requested_condition_occurrences(query):
+        if len(candidates) == 2 and not _requested_condition_occurrences(candidate_query):
             condition_keys = {
                 "sealed"
                 if _is_sealed_catalog_item(item)
@@ -1340,14 +1382,17 @@ class StoreCatalogCache(InventoryCache):
                 and next(iter(product_keys))[1] is not None
             )
 
-        requested_price_cents = _requested_catalog_price_cents(query)
+        requested_price_cents = _requested_catalog_price_cents(candidate_query)
         price_selects_one_candidate = requested_price_cents is not None and sum(
             round(float(item.price_brl) * 100) == requested_price_cents
             for item in candidates
         ) == 1
         condition_pair = condition_pair and not price_selects_one_candidate
 
-        scored = [(_catalog_score(query, item, match_price=True), item) for item in candidates]
+        scored = [
+            (_catalog_score(candidate_query, item, match_price=True), item)
+            for item in candidates
+        ]
         best_score = max(score for score, _item in scored)
         best_candidates = [item for score, item in scored if score == best_score]
         unique_best = {
@@ -1422,3 +1467,4 @@ class StoreCatalogCache(InventoryCache):
             return error
         result = simulate_installment_table_with_entry(item, entry_amount_brl)
         return self._add_price_source(result, item)
+
