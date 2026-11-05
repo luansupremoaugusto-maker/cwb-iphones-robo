@@ -501,11 +501,17 @@ _GENERIC_TRADE_IN_FOLLOWUP_RE = re.compile(
     re.IGNORECASE,
 )
 _GENERIC_TRADE_IN_ENTRY_QUESTION_RE = re.compile(
-    r"\b(?:voce|voces|vcs|loja|a\s+loja|cwb\.iphones)\b.{0,35}"
     r"\b(?:aceit\w*|peg\w*|receb\w*)\b.{0,35}"
     r"\b(?:outro|outra)\b.{0,35}"
     r"\b(?:como\s+entrada|de\s+entrada|(?:na|em)\s+troca|"
-    r"(?:como\s+)?parte\s+do\s+pagamento)\b",
+    r"(?:como\s+)?parte\s+(?:(?:do|de)\s+)?pagamento)\b",
+    re.IGNORECASE,
+)
+_TRADE_IN_FORM_REQUEST_RE = re.compile(
+    r"\b(?:manda\w*|envia\w*|passa\w*|encaminha\w*|receb\w*)\b"
+    r".{0,45}\b(?:formulario|lista\s+de\s+avaliacao)\b|"
+    r"\b(?:formulario|lista\s+de\s+avaliacao)\b.{0,45}"
+    r"\b(?:manda\w*|envia\w*|passa\w*|encaminha\w*|receb\w*)\b",
     re.IGNORECASE,
 )
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
@@ -1659,6 +1665,16 @@ def is_trade_in_context_request(
     normalized = _normalize(text)
     if not normalized or not history:
         return False
+
+    if _TRADE_IN_FORM_REQUEST_RE.search(normalized):
+        if trade_in_em_andamento(history) or any(
+            entry.get("role") == "user"
+            and is_trade_in_request(entry.get("content"))
+            and not is_non_apple_trade_in_request(entry.get("content"))
+            and not is_parts_buyback_request(entry.get("content"))
+            for entry in history
+        ):
+            return True
 
     if is_photo_offer_confirmation(text, history):
         return False
