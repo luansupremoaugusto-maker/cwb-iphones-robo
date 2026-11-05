@@ -217,6 +217,34 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Vocês fazem compras de iphones?",
+        "Gostaria de encaminhar meu aparelho para avaliação",
+    ],
+)
+async def test_generic_buyback_and_device_evaluation_request_send_form(tmp_path, text):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+def test_customer_plural_purchase_wording_is_not_a_store_buyback_question():
+    assert is_trade_in_request("Quero fazer compras de iPhone na loja") is False
+
+
+@pytest.mark.asyncio
 async def test_generic_other_device_entry_question_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
