@@ -169,6 +169,19 @@ _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE = re.compile(
     r"carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_DEVICE_REPAIR_REQUEST_RE = re.compile(
+    r"\b(?:quero|queria|gostaria|precis\w*|necessit\w*|pode|poderia|"
+    r"consegue|conseguem|fazem?|quanto|qual\s+valor|onde|como)\b.{0,55}"
+    r"\b(?:consert\w*|repar\w*|manuten\w*|arrum\w*|assistencia\s+tecnica)\b"
+    r".{0,40}\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|"
+    r"aparelho|smartphone|telefone)\b"
+    r"|\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho|"
+    r"smartphone|telefone)\b.{0,40}"
+    r"\b(?:quero|queria|gostaria|precis\w*|necessit\w*|pode|poderia|"
+    r"consegue|conseguem|fazem?|quanto|qual\s+valor|onde|como)\b.{0,30}"
+    r"\b(?:consert\w*|repar\w*|manuten\w*|arrum\w*|assistencia\s+tecnica)\b",
+    re.IGNORECASE,
+)
 _COMPONENT_REPLACEMENT_CONDITION_RE = re.compile(
     r"\bcom\s+(?:a\s+)?(?:troca\w*|substitu\w*)\s+"
     r"(?:(?:de|do|da)\s+)?"
@@ -1537,6 +1550,11 @@ _TRADE_IN_FORM_FIELD_RE = re.compile(
 _TRADE_IN_FORM_ANSWER_RE = re.compile(
     r"(?im)^[ \t]*(?:r|gb|cor)[ \t]*:[ \t]*(\S.*)$"
 )
+_UNLABELED_TRADE_IN_FORM_MODEL_RE = re.compile(
+    r"^(?:iphone\s*)?\d{1,2}"
+    r"(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
+    r"(?:\s+\d{2,4}\s*(?:gb|tb)?)?$"
+)
 
 
 def is_completed_trade_in_form(text: str | None) -> bool:
@@ -1594,19 +1612,20 @@ def is_unlabeled_trade_in_form_response(
         return False
 
     normalized = _normalize(text)
-    if _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized):
+    if (
+        _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        or _EXPLICIT_DEVICE_REPAIR_REQUEST_RE.search(normalized)
+    ):
         return False
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if len(lines) < 8:
         return False
 
-    model_line = re.compile(
-        r"^(?:iphone\s*)?\d{1,2}"
-        r"(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
-        r"(?:\s+\d{2,4}\s*(?:gb|tb)?)?$"
-    )
-    if not any(model_line.fullmatch(_normalize(line)) for line in lines[:2]):
+    if not any(
+        _UNLABELED_TRADE_IN_FORM_MODEL_RE.fullmatch(_normalize(line))
+        for line in lines[:2]
+    ):
         return False
 
     has_battery_health = any(

@@ -1513,6 +1513,13 @@ async def test_unlabeled_evaluation_answers_with_past_repair_are_forwarded_to_at
     assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
     assert "assistência técnica" not in decision.reply.lower()
 
+    explicit_repair = f"{filled_form}\nQuero consertar meu iPhone."
+    assert is_unlabeled_trade_in_form_response(explicit_repair, history) is False
+    repair_decision = await service.respond(explicit_repair, history=history)
+
+    assert repair_decision.handoff is True
+    assert repair_decision.reply == TECHNICAL_ASSISTANCE_REPLY
+
 
 @pytest.mark.asyncio
 async def test_repair_after_evaluation_form_remains_technical_assistance(tmp_path):
