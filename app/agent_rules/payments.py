@@ -1025,6 +1025,37 @@ def _requested_installment_product_keys(value: str) -> tuple[str, ...]:
         )
     )
 
+
+def _installment_condition_override(text: str) -> str | None:
+    """Keep an explicit condition in the current installment request authoritative."""
+    normalized = _normalize(text)
+    normalized = re.sub(
+        r"\b(?:acompanha\w*|inclui\w*)\b(?:\s+\w+){0,8}\s+nov[oa]s?\b",
+        " ",
+        normalized,
+    )
+    normalized = re.sub(
+        r"\b(?:cabos?|fontes?|carregador(?:es)?|acessorios?)\b"
+        r"(?:\s+\w+){0,3}\s+nov[oa]s?\b",
+        " ",
+        normalized,
+    )
+    has_used = _has_seminovo_reference(normalized)
+    has_sealed = _has_explicit_sealed_condition(normalized)
+    if has_used != has_sealed:
+        return "used" if has_used else "sealed"
+
+    matches = list(
+        re.finditer(
+            r"\b(?P<used>seminov[oa]s?|semi\s+nov[oa]s?|usad[oa]s?)\b"
+            r"|\b(?P<sealed>lacrad[oa]s?|nov[oa]s?|encomend[oa]s?)\b",
+            normalized,
+        )
+    )
+    if not matches:
+        return None
+    return "used" if matches[-1].group("used") else "sealed"
+
 def _customer_installment_price_reference(text: str) -> float | None:
     """Recognize a price the customer is referring to in a follow-up."""
     normalized = _normalize(text)
@@ -1206,6 +1237,13 @@ def _installment_context_query(
         if len(current_capacity_keys) == 1
         else ""
     )
+
+    def include_current_condition(query: str) -> str:
+        condition = _installment_condition_override(current)
+        if condition is None:
+            return query
+        return f"{query.rstrip()}\n__installment_condition_override__: {condition}"
+
     product_reference_text = _without_installment_count_list(_normalize(current))
     current_families = _catalog_families(product_reference_text)
     latest_history_families = next(
@@ -1231,14 +1269,18 @@ def _installment_context_query(
     )
     if has_specific_product or _is_case_accessory_request(current):
         history_condition = _history_installment_condition(current, history)
-        return "\n".join(
-            part for part in (current_capacity_hint, current, history_condition) if part
+        return include_current_condition(
+            "\n".join(
+                part for part in (current_capacity_hint, current, history_condition) if part
+            ).strip()
         ).strip()
 
     selected_offer = _selected_installment_offer_context(history)
     if selected_offer:
-        return "\n".join(
-            part for part in (current_capacity_hint, selected_offer, current) if part
+        return include_current_condition(
+            "\n".join(
+                part for part in (current_capacity_hint, selected_offer, current) if part
+            ).strip()
         ).strip()
 
     # A customer may select one unit from a broad offer, ask about delivery,
@@ -1281,15 +1323,17 @@ def _installment_context_query(
             selection_capacity_hint = f"capacidade solicitada: {selected_capacity_keys[0]}"
         elif not selection_capacity_hint and len(assistant_capacity_keys) == 1:
             selection_capacity_hint = f"capacidade solicitada: {assistant_capacity_keys[0]}"
-        return "\n".join(
-            part
-            for part in (
-                selection_capacity_hint,
-                customer_context,
-                history_condition,
-                current,
-            )
-            if part
+        return include_current_condition(
+            "\n".join(
+                part
+                for part in (
+                    selection_capacity_hint,
+                    customer_context,
+                    history_condition,
+                    current,
+                )
+                if part
+            ).strip()
         ).strip()
 
     for item in reversed(history or []):
@@ -1309,22 +1353,26 @@ def _installment_context_query(
                 if not current_capacity_hint and len(assistant_capacity_keys) == 1
                 else ""
             )
-            return "\n".join(
-                part
-                for part in (
-                    current_capacity_hint or assistant_capacity_hint,
-                    assistant_context,
-                    current,
-                )
-                if part
+            return include_current_condition(
+                "\n".join(
+                    part
+                    for part in (
+                        current_capacity_hint or assistant_capacity_hint,
+                        assistant_context,
+                        current,
+                    )
+                    if part
+                ).strip()
             ).strip()
     previous_user_text = [
         item.get("content", "").strip()
         for item in (history or [])
         if item.get("role") == "user" and item.get("content", "").strip()
     ]
-    return "\n".join(
-        part for part in (current_capacity_hint, *previous_user_text[-4:], current) if part
+    return include_current_condition(
+        "\n".join(
+            part for part in (current_capacity_hint, *previous_user_text[-4:], current) if part
+        ).strip()
     ).strip()
 
 def _multi_model_installment_queries(
@@ -1374,3 +1422,4 @@ def _multi_model_installment_queries(
     if history_condition:
         queries = [f"{query}\n{history_condition}" for query in queries]
     return tuple(queries)
+

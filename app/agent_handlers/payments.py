@@ -63,6 +63,23 @@ from app.agent import (
     simulate_installment_table_with_entry,
 )
 
+
+def _condition_unavailable_installment_decision(
+    result: dict[str, Any],
+) -> AgentDecision | None:
+    condition = result.get("condicao_solicitada")
+    if condition not in {"used", "sealed"}:
+        return None
+    label = "seminovo" if condition == "used" else "novo lacrado"
+    return AgentDecision(
+        reply=(
+            f"Não localizei um produto {label} com preço confirmado para simular "
+            "o parcelamento. Se quiser, me diga outra capacidade ou modelo."
+        ),
+        confidence="medium",
+    )
+
+
 async def _try_installment_rate_question(
     self,
     text: str,
@@ -586,6 +603,9 @@ async def _try_specific_installment(
         if condition_tables is not None:
             return condition_tables
         return _format_ambiguous_installment_decision(result)
+    condition_unavailable = _condition_unavailable_installment_decision(result)
+    if condition_unavailable is not None:
+        return condition_unavailable
     if not result.get("ambiguo"):
         alternative = await self._try_unavailable_seminew_alternative(query)
         if alternative is not None:
@@ -701,6 +721,9 @@ async def _try_full_installment_table(
             if condition_tables is not None:
                 return condition_tables
             return _format_ambiguous_installment_decision(result)
+        condition_unavailable = _condition_unavailable_installment_decision(result)
+        if condition_unavailable is not None:
+            return condition_unavailable
         return await self._try_unavailable_seminew_alternative(
             query
         )
@@ -783,3 +806,4 @@ async def _try_entry_installment(
     except Exception:
         return None
     return None
+

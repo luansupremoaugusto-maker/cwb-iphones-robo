@@ -1026,6 +1026,102 @@ async def test_installment_question_after_delivery_keeps_unique_battery_matched_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_text", "expected_price", "other_condition_price"),
+    [
+        ("quanto fica o parcelamento do seminovo?", "7.040,00", "8.000,00"),
+        (
+            "quanto fica o parcelamento do iPhone 17 Pro Max 256GB seminovo "
+            "com carregador novo?",
+            "7.040,00",
+            "8.000,00",
+        ),
+        ("quanto fica o parcelamento do lacrado?", "8.000,00", "7.040,00"),
+    ],
+)
+async def test_installment_followup_uses_current_condition_not_previous_table(
+    tmp_path,
+    request_text,
+    expected_price,
+    other_condition_price,
+):
+    cache, settings = build_cache(tmp_path)
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-17-pro-max-256-used",
+            name="IPHONE 17 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="PRATEADO",
+            condition=None,
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=7040.0,
+            battery_health=100,
+            search_text="iphone 17 pro max prateado 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-17-pro-max-512-used",
+            name="IPHONE 17 PRO MAX",
+            category="Celular",
+            capacity="512GB",
+            color="AZUL INTENSO",
+            condition="SEMINOVO",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=7400.0,
+            battery_health=100,
+            search_text="iphone 17 pro max azul intenso 512gb celular seminovo",
+        ),
+    ]
+    cache.sealed_cache.items.append(
+        InventoryItem(
+            external_id="sheet:iphone-17-pro-max-256-sealed",
+            name="IPHONE 17 PRO MAX",
+            capacity="256GB",
+            price_brl=8000.0,
+            condition="novo lacrado",
+            source="google_sheets",
+            search_text="iphone 17 pro max 256gb novo lacrado",
+        )
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_path), settings, offline=True)
+
+    decision = await agent.respond(
+        request_text,
+        history=[
+            {
+                "role": "user",
+                "content": "Gostaria de saber se vocês têm iPhone 17 Pro Max novo lacrado ou seminovo",
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Seminovos disponíveis:\n"
+                    "• IPHONE 17 PRO MAX — PRATEADO — 256GB — SEMINOVO — R$ 7.040,00\n"
+                    "• IPHONE 17 PRO MAX — AZUL INTENSO — 512GB — SEMINOVO — R$ 7.400,00\n"
+                    "Novo lacrado por encomenda: iPhone 17 Pro Max 256GB — R$ 8.000,00"
+                ),
+            },
+            {"role": "user", "content": "Como funciona o parcelamento?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Parcelamento do iPhone 17 Pro Max 256 GB\n"
+                    "Preço à vista: R$ 8.000,00\n1x de R$ 8.416,62"
+                ),
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert "Parcelamento do IPHONE 17 PRO MAX 256GB" in decision.reply
+    assert f"Preço à vista: R$ {expected_price}" in decision.reply
+    assert f"R$ {other_condition_price}" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_installment_followup_after_ready_stock_question_uses_offered_macbook_neo(
     tmp_path,
 ):
@@ -2562,3 +2658,4 @@ async def test_installment_correction_after_photo_reply_keeps_both_iphone13_unit
     assert decision.reply.count("10x de") == 2
     assert decision.reply.count("12x de") == 2
     assert "IPHONE 16 PRO MAX" not in decision.reply
+
