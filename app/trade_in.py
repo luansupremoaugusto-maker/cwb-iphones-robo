@@ -520,6 +520,13 @@ _GENERIC_TRADE_IN_ENTRY_QUESTION_RE = re.compile(
     r"(?:como\s+)?parte\s+(?:(?:do|de)\s+)?pagamento)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_TRADE_IN_EVALUATION_REQUEST_RE = re.compile(
+    r"\b(?:encaminh\w*|envi\w*|mand\w*)\b.{0,35}\b"
+    r"(?:(?:meu|minha|meus|minhas|o|a|um|uma)\s+)?"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch|celulares?|aparelhos?|"
+    r"smartphones?|telefones?)\b.{0,35}\b(?:para|pra)\s+(?:uma\s+)?avali\w*\b",
+    re.IGNORECASE,
+)
 _TRADE_IN_FORM_REQUEST_RE = re.compile(
     r"\b(?:manda\w*|envia\w*|passa\w*|encaminha\w*|receb\w*)\b"
     r".{0,45}\b(?:formulario|lista\s+de\s+avaliacao)\b|"
@@ -1100,15 +1107,22 @@ def _is_store_buyback_question(text: str) -> bool:
     ):
         return True
 
-    # "Vocês realizam a compra de aparelho?" asks whether the store buys
-    # customers' devices; here "compra" describes the store's service.
+    # "Vocês fazem compras de iPhones?" asks whether the store buys
+    # customers' devices; here "compra(s)" describes the store's service.
+    has_store_buyback_device = _has_device_reference(text) or bool(
+        re.search(
+            r"\b(?:compr\w*|peg\w*|receb\w*|avali\w*)\b.{0,45}\biphones\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
     store_buyback_service = re.search(
         r"\b(?:a\s+loja|loja|cwb\.iphones|voce|voces|vcs)\s+"
-        r"(?:realiz\w*|faz\w*|efetu\w*)\s+(?:(?:a|uma)\s+)?compra\s+de\b",
+        r"(?:realiz\w*|faz\w*|efetu\w*)\s+(?:(?:a|uma)\s+)?compras?\s+de\b",
         text,
         flags=re.IGNORECASE,
     )
-    if store_buyback_service and _has_device_reference(text):
+    if store_buyback_service and has_store_buyback_device:
         return True
 
     store_subject = re.search(
@@ -1145,15 +1159,7 @@ def _is_store_buyback_question(text: str) -> bool:
         if customer_buying_at_store and not _has_personal_device_reference(text):
             store_subject = None
         buyback_context = store_subject or verb_first
-    # Accept the common plural "iPhones" after an explicit buyback verb.
     # "Vcs aceitam" alone is also used for catalog payment questions.
-    has_store_buyback_device = _has_device_reference(text) or bool(
-        re.search(
-            r"\b(?:compr\w*|peg\w*|receb\w*|avali\w*)\b.{0,45}\biphones\b",
-            text,
-            flags=re.IGNORECASE,
-        )
-    )
     return bool(buyback_context and has_store_buyback_device) or bool(
         re.search(r"\b(?:vocês|voces|vcs|loja)\b.{0,35}\baceitam\s+usado\b", text, re.IGNORECASE)
     )
@@ -1390,6 +1396,7 @@ def is_trade_in_request(text: str | None) -> bool:
     return bool(
         re.search(r"\b(?:avaliacao|avaliar)\s+(?:de\s+)?(?:celular|iphone|"
                   r"aparelho|produto)\b", normalized)
+        or _EXPLICIT_TRADE_IN_EVALUATION_REQUEST_RE.search(normalized)
         or re.search(r"\b(?:aceitam|compram|pegam)\s+(?:usado|seminovo)\b", normalized)
         or _GENERIC_TRADE_IN_ENTRY_QUESTION_RE.search(normalized)
     )
