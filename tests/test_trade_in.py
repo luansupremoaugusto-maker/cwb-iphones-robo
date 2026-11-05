@@ -2128,6 +2128,55 @@ async def test_iphone_catalog_buyer_question_does_not_start_trade_in(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_iphone_availability_question_with_battery_does_not_start_trade_in(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(object(), settings, cache_path=tmp_path / "inventory.json")
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-16-pro-max-256-battery-92",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5200,
+            battery_health=92,
+            search_text="iphone 16 pro max 256 gb titanio preto celular seminovo bateria 92",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = (
+        "Esse modelo do iPhone 16 pro max com 256gb, bateria 92%, "
+        "está disponível ainda?"
+    )
+
+    assert is_trade_in_request(text) is False
+
+    decision = await service.respond(
+        text,
+        history=[
+            {"role": "user", "content": "Bom dia"},
+            {
+                "role": "assistant",
+                "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+            },
+            {"role": "user", "content": "Tudo bem??"},
+            {
+                "role": "assistant",
+                "content": "Bom diaa! Tudo bem por aqui. E com você? Como posso te ajudar?",
+            },
+        ],
+    )
+
+    assert decision.reply != TRADE_IN_FORM
+    assert decision.product_references == ["used:iphone-16-pro-max-256-battery-92"]
+    assert "dispon" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_looking_at_iphone_14_stays_in_catalog_after_greeting(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = StoreCatalogCache(
