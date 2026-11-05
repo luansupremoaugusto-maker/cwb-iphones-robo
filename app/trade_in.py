@@ -1486,6 +1486,11 @@ def is_purchase_without_trade_in_request(
 
 
 _FORM_EM_ANDAMENTO_MARKER = "favor preencher lista de avaliacao"
+_TRADE_IN_DEVICE_OFFER_QUESTION_RE = re.compile(
+    r"\bqual\s+(?:aparelho|produto|modelo)\b.{0,55}\b"
+    r"(?:oferec\w*|deix\w*|dar|entrad\w*)\b",
+    re.IGNORECASE,
+)
 
 
 _SHORT_CONFIRMATION_REPLIES = frozenset(("sim", "sim por favor", "sim pfv", "pode", "pode sim", "claro", "ok", "okay", "beleza"))
@@ -1776,6 +1781,25 @@ def is_trade_in_context_request(
         for entry in history[-8:]
         if entry.get("role") == "user" and entry.get("content")
     )
+    recent_assistant_message = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history[-8:])
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    if (
+        _TRADE_IN_DEVICE_OFFER_QUESTION_RE.search(recent_assistant_message)
+        and re.search(r"\b(?:troca|avaliacao|entrada)\b", recent_assistant_message)
+        and re.search(r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b", normalized)
+        and not _NEGATION_RE.search(normalized)
+        and not _is_component_repair_request(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(normalized)
+    ):
+        return True
+
     user_context = f"{recent_user_context} {normalized}".strip()
     # Customers may answer an explicit buyback question by sending the phone's
     # condition in a second message. The device and trade-in intent can both

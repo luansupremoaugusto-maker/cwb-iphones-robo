@@ -3373,6 +3373,57 @@ async def test_trade_in_context_followup_sends_form_without_handoff(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_device_answer_to_trade_in_offer_question_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Oii, vocês pegam na troca?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Oii! Sim, aceitamos aparelhos da Apple na troca, mediante avaliação. "
+                "A lista de avaliação precisa ser preenchida. "
+                "Qual aparelho Apple você quer oferecer?"
+            ),
+        },
+    ]
+
+    decision = await service.respond("iphone 15 128gb", history=history)
+
+    assert is_trade_in_context_request("iphone 15 128gb", history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_device_answer_to_catalog_question_does_not_send_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Quero comprar um seminovo."},
+        {
+            "role": "assistant",
+            "content": "Claro! Qual aparelho Apple você quer comprar?",
+        },
+    ]
+
+    decision = await service.respond("iphone 15 128gb", history=history)
+
+    assert is_trade_in_context_request("iphone 15 128gb", history) is False
+    assert decision.reply != TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_trade_in_confirmation_sends_form_without_handoff(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
