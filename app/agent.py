@@ -194,11 +194,14 @@ REGRAS OBRIGATÓRIAS:
   se houver opção seminova em estoque e opção nova lacrada, envie as duas, separadas
   e identificadas. Só envie uma condição quando o cliente pedir explicitamente
   seminovo/usado ou lacrado/por encomenda.
-- Se o cliente apenas confirmar se um valor citado corresponde à condição que já
-  aparece na oferta recente (por exemplo, “por esse valor é seminovo então”),
-  confirme diretamente com base na oferta. Não encaminhe ao atendente só para
-  repetir uma condição já informada; encaminhe perguntas sobre estado físico,
-  reparos ou marcas de uso que não constem no cadastro.
+- Se o cliente perguntar se um valor corresponde à opção seminova, confira no
+  catálogo o mesmo produto disponível pelo valor exato antes de confirmar. Se não
+  houver correspondência única, ou o valor corresponder a outra condição, peça
+  esclarecimento. Depois de confirmar, responda diretamente sem acrescentar
+  informação sobre uma opção lacrada que não tenha sido conferida.
+- Não encaminhe ao atendente só para repetir uma condição já confirmada no
+  catálogo. Encaminhe perguntas sobre estado físico, reparos ou marcas de uso que
+  não constem no cadastro.
 - Não ofereça fotos espontaneamente em uma listagem com várias unidades. Para um
   aparelho selecionado, só ofereça fotos depois de get_product_photos confirmar
   URLs daquele registro exato; preserve capacidade, cor, condição, bateria e preço
@@ -1405,20 +1408,20 @@ _SEMINOVO_PRICE_CONFIRMATION_RE = re.compile(
 )
 
 
-def _is_known_seminovo_price_confirmation(
+def _known_seminovo_price_confirmation_query(
     text: str | None,
     history: list[dict[str, str]] | None,
-) -> bool:
-    """Confirm a price/condition already stated in the latest catalog offer."""
+) -> str | None:
+    """Return the latest specific seminovo offer for a price confirmation."""
     normalized = _normalize(text or "").strip(" .!?\t\r\n")
     if (
         not normalized
         or not history
         or not _SEMINOVO_PRICE_CONFIRMATION_RE.fullmatch(normalized)
     ):
-        return False
+        return None
     if trade_in_em_andamento(history) or is_trade_in_context_request(text, history):
-        return False
+        return None
 
     latest_assistant = next(
         (
@@ -1429,7 +1432,7 @@ def _is_known_seminovo_price_confirmation(
         "",
     )
     if not latest_assistant or history[-1].get("role") != "assistant":
-        return False
+        return None
 
     for sentence in re.split(r"(?<=[.!?])\s+|\r?\n", latest_assistant):
         normalized_sentence = _normalize(sentence)
@@ -1441,8 +1444,39 @@ def _is_known_seminovo_price_confirmation(
                 normalized_sentence,
             )
         ):
-            return True
-    return False
+            return re.sub(
+                r"\b(?:seminov[oa]s?|semi[\s-]+nov[oa]s?|usad[oa]s?)\b.*$",
+                "",
+                normalized_sentence,
+            ).strip()
+    return None
+
+
+def _catalog_offer_model_markers(query: str) -> tuple[str, ...]:
+    """Extract non-iPhone model markers needed to distinguish catalog variants."""
+    normalized = _normalize(query)
+    family_match = re.search(
+        r"\b(?:ipad|macbook|airpods?|apple\s+watch)\b",
+        normalized,
+    )
+    if family_match is None:
+        return ()
+
+    product_name = re.split(
+        r"\b(?:seminov[oa]s?|semi[\s-]+nov[oa]s?|usad[oa]s?|"
+        r"lacrad\w*|nov\w*|disponivel|estoque|r\$|bateria)\b",
+        normalized[family_match.end() :],
+        maxsplit=1,
+    )[0]
+    return tuple(
+        dict.fromkeys(
+            re.findall(
+                r"\b(?:pro|max|mini|plus|air|se|ultra|m\d{1,2}|"
+                r"a\d{1,2}|\d{1,2})\b",
+                product_name,
+            )
+        )
+    )
 
 
 def _has_sealed_reference(normalized: str) -> bool:
@@ -2832,16 +2866,11 @@ class AgentService:
                     confidence="high",
                 )
             )
-        if _is_known_seminovo_price_confirmation(text, history):
-            return protect_customer_decision(
-                AgentDecision(
-                    reply=(
-                        "Isso 😊 Esse valor é da opção seminova que te informei. "
-                        "O novo lacrado é por encomenda, com prazo de uma semana."
-                    ),
-                    confidence="high",
-                )
-            )
+        seminovo_confirmation_decision = (
+            await self._try_known_seminovo_price_confirmation(text, history)
+        )
+        if seminovo_confirmation_decision is not None:
+            return protect_customer_decision(seminovo_confirmation_decision)
         if (
             _is_contextual_boleto_followup(text, history)
             and not trade_in_em_andamento(history)
@@ -3426,6 +3455,71 @@ class AgentService:
             _try_catalog_price_recall as _agent_handler,
         )
         return await _agent_handler(self, text)
+
+    async def _try_known_seminovo_price_confirmation(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        query = _known_seminovo_price_confirmation_query(text, history)
+        requested_prices = _photo_price_selectors(text or "")
+        if query is None or len(requested_prices) != 1:
+            return None
+
+        family = _catalog_family(query)
+        model_markers = _catalog_offer_model_markers(query)
+        has_specific_model = (
+            family == "iphone"
+            and len(_requested_iphone_model_keys(query)) == 1
+        ) or any(re.search(r"\d", marker) for marker in model_markers)
+        if not has_specific_model:
+            return None
+
+        try:
+            candidates = await self.cache.search(query, limit=300)
+        except Exception:
+            return None
+
+        price_matches = []
+        for item in candidates:
+            if (
+                not _is_device_item(item)
+                or not _matches_requested_model(query, item)
+            ):
+                continue
+            item_name = _normalize(str(getattr(item, "name", "") or ""))
+            if any(
+                not re.search(rf"\b{re.escape(marker)}\b", item_name)
+                for marker in model_markers
+            ):
+                continue
+            try:
+                price_cents = round(float(getattr(item, "price_brl", None)) * 100)
+            except (TypeError, ValueError):
+                continue
+            if price_cents == requested_prices[0]:
+                price_matches.append(item)
+
+        if len(price_matches) != 1:
+            return None
+
+        item = price_matches[0]
+        item_condition = _normalize(
+            f"{getattr(item, 'name', '')} {getattr(item, 'condition', '')}"
+        )
+        if (
+            not _is_available_item(item)
+            or _is_sealed_item(item)
+            or not _has_seminovo_reference(item_condition)
+        ):
+            return None
+
+        reference = str(getattr(item, "external_id", "") or "")
+        return AgentDecision(
+            reply="Isso 😊 Esse valor corresponde à opção seminova disponível que te informei.",
+            product_references=[reference] if reference else [],
+            confidence="high",
+        )
 
     async def _try_product_availability(
         self,
