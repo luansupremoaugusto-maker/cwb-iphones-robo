@@ -225,7 +225,7 @@ async def test_generic_other_device_entry_question_sends_evaluation_form(tmp_pat
         settings,
         offline=True,
     )
-    text = "Vocês pegam outro como entrada?"
+    text = "e se aceitam outro como parte de pagamento"
     history = [
         {"role": "user", "content": "Gostaria de um 17 pro max"},
         {
@@ -242,6 +242,53 @@ async def test_generic_other_device_entry_question_sends_evaluation_form(tmp_pat
     assert decision.product_references == []
     assert decision.image_urls == []
     assert is_trade_in_request("Vocês aceitam R$ 500 como entrada?") is False
+
+
+@pytest.mark.asyncio
+async def test_resend_evaluation_form_after_generic_trade_in_question(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "e se aceitam outro como parte de pagamento",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim, podemos avaliar um aparelho Apple como parte do pagamento, "
+                "mas não tenho o link do formulário disponível."
+            ),
+        },
+    ]
+
+    decision = await service.respond(
+        "me manda o formulário por favor",
+        history=history,
+    )
+
+    assert is_trade_in_context_request("me manda o formulário por favor", history)
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    buyer_history = [
+        {"role": "user", "content": "Quero ver o iPhone 15 Plus seminovo."},
+        {
+            "role": "assistant",
+            "content": "Temos o iPhone 15 Plus seminovo disponível.",
+        },
+    ]
+    assert not is_trade_in_context_request(
+        "me manda o formulário por favor",
+        buyer_history,
+    )
 
 
 @pytest.mark.asyncio
