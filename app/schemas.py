@@ -35,6 +35,29 @@ class AgentDecision(BaseModel):
     image_urls: list[str] = Field(default_factory=list)
 
 
+class TurnInterpretation(BaseModel):
+    """Structured reading of an ambiguous customer turn, without business facts."""
+
+    intents: list[
+        Literal[
+            "catalog",
+            "installments",
+            "trade_in",
+            "photos",
+            "store_information",
+            "visit",
+            "other",
+            "unclear",
+        ]
+    ] = Field(default_factory=list)
+    current_request: str = ""
+    future_or_hypothetical_interest: list[str] = Field(default_factory=list)
+    rejected_suggestions: list[str] = Field(default_factory=list)
+    needs_clarification: bool = False
+    clarification_question: str | None = None
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+
 class IncomingMessage(BaseModel):
     event_id: str
     message_id: str
