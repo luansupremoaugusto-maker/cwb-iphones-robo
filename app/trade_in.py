@@ -1595,6 +1595,78 @@ def trade_in_em_andamento(historico: list[dict[str, str]] | None) -> bool:
     return False
 
 
+_PENDING_TRADE_IN_DETAILS_QUESTION_RE = re.compile(
+    r"\b(?:sabe|qual|quais|confirma|confirmar|informar|me\s+diga)\b"
+    r".{0,80}\b(?:modelo|capacidade|armazenamento)\b",
+    re.IGNORECASE,
+)
+_TRADE_IN_MODEL_CLARIFICATION_ANSWER_RE = re.compile(
+    r"^(?:e\s+)?(?:(?:o|a)\s+)?(?:iphone\s*)?"
+    r"(?:\d{1,2}(?:\s*(?:pro(?:\s*max)?|max|plus|mini|air|e|se))?"
+    r"|pro(?:\s*max)?|max|plus|mini|air|e|se)"
+    r"(?:\s+\d{2,4}\s*(?:gb|tb))?[.!?,\s]*$",
+    re.IGNORECASE,
+)
+_TRADE_IN_CAPACITY_ANSWER_RE = re.compile(
+    r"^(?:e\s+)?\d{2,4}\s*(?:gb|tb)[.!?,\s]*$",
+    re.IGNORECASE,
+)
+_ACTIVE_COMPONENT_REPAIR_QUESTION_RE = re.compile(
+    r"\b(?:quero|queria|gostaria|preciso|precisa|necessito|pode|poderia|"
+    r"consegue|quanto|qual\s+valor|onde|como)\b.{0,45}"
+    r"\b(?:trocar|troca|trocando|substitu\w*|consert\w*|repar\w*|arrum\w*)\b"
+    r".{0,30}\b(?:pelicula|capa|case|tela|bateria|display|vidro|conector|"
+    r"camera|carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b"
+    r"|\b(?:trocar|troca|trocando|substitu\w*|consert\w*|repar\w*|arrum\w*)\b"
+    r".{0,25}\b(?:pelicula|capa|case|tela|bateria|display|vidro|conector|"
+    r"camera|carcaca|microfone|alto\s+falante|chip|numero|linha|cor)\b"
+    r".{0,25}\b(?:quanto|valor|preco|custa|custo)\b",
+    re.IGNORECASE,
+)
+
+
+def is_pending_trade_in_evaluation_followup(
+    text: str | None,
+    image_description: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Resume an evaluation when the customer answers a model/details prompt."""
+    if not history or trade_in_em_andamento(history):
+        return False
+
+    latest_assistant_message = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history[-8:])
+            if entry.get("role") == "assistant" and entry.get("content")
+        ),
+        "",
+    )
+    if not (
+        re.search(r"\b(?:avaliacao|avaliar)\b", latest_assistant_message)
+        and _PENDING_TRADE_IN_DETAILS_QUESTION_RE.search(latest_assistant_message)
+        and _APPLE_PRODUCT_RE.search(latest_assistant_message)
+    ):
+        return False
+
+    normalized_text = _normalize(text)
+    if (
+        is_parts_buyback_request(text)
+        or is_non_apple_trade_in_request(text)
+        or _EXPLICIT_DEVICE_REPAIR_REQUEST_RE.search(normalized_text)
+        or _ACTIVE_COMPONENT_REPAIR_QUESTION_RE.search(normalized_text)
+    ):
+        return False
+
+    if image_description and _DEVICE_RE.search(_normalize(image_description)):
+        return True
+    return bool(
+        _TRADE_IN_MODEL_CLARIFICATION_ANSWER_RE.fullmatch(normalized_text)
+        or _TRADE_IN_CAPACITY_ANSWER_RE.fullmatch(normalized_text)
+        or _DEVICE_EVALUATION_CONDITION_RE.search(normalized_text)
+    )
+
+
 def is_trade_in_negotiation(text: str | None) -> bool:
     """Detect closing/negotiation language after a trade-in form was sent."""
     normalized = _normalize(text)

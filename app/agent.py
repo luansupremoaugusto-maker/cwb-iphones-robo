@@ -62,6 +62,7 @@ from app.trade_in import (
     is_unlabeled_trade_in_form_response,
     is_downgrade_request,
     is_box_inclusion_question,
+    is_pending_trade_in_evaluation_followup,
     is_trade_in_context_request,
     is_trade_in_request,
     has_explicit_trade_in_cue,
@@ -2923,6 +2924,12 @@ class AgentService:
                     handoff_reason=CATALOG_BUYER_DETAILS_REASON,
                     confidence="high",
                 )
+            )
+        if is_pending_trade_in_evaluation_followup(text, image_description, history):
+            return AgentDecision(
+                reply=TRADE_IN_FORM,
+                handoff=False,
+                confidence="high",
             )
         if (
             _is_device_condition_question(combined_request)
