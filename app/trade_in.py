@@ -356,6 +356,11 @@ _BARE_MODEL_ENTRY_OFFER_RE = re.compile(
     + r"(?:iphone\s*)?(?:[6-9]|1[0-8])\s+(?:de|como)\s+entrada\b",
     re.IGNORECASE,
 )
+_OWNED_IPHONE_ENTRY_GIVE_OFFER_RE = re.compile(
+    r"\b(?:eu\s*)?tenho\s+(?:(?:um|uma|o|a)\s+)?iphone\s*\d{1,2}\b"
+    r".{0,50}\b(?:para|pra)\s+dar\s+(?:de|como)\s+entrada\b",
+    re.IGNORECASE,
+)
 _DEVICE_AS_ENTRY_RE = re.compile(
     r"\b(?:aceita(?:m)?|peg(?:a|am|amos)|receb(?:e|em|emos))\s+"
     r"(?:(?:o|a)\s+)?(?:meu|minha)\s+"
@@ -973,6 +978,10 @@ def _has_owned_iphone_business_offer(text: str) -> bool:
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
     if _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text):
+        return not _NON_APPLE_RE.search(text)
+    # A WhatsApp typo such as "eutenho" can join "eu" and "tenho". The
+    # explicit iPhone model and "dar de entrada" still identify a device offer.
+    if _OWNED_IPHONE_ENTRY_GIVE_OFFER_RE.search(text):
         return not _NON_APPLE_RE.search(text)
     if _has_detailed_device_entry_offer(text):
         return True
