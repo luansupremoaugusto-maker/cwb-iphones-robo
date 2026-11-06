@@ -54,6 +54,27 @@ from app.agent import (
 from app.trade_in import trade_in_em_andamento
 
 
+_STORE_CONDITION_POLICY_QUESTION_RE = re.compile(
+    r"\b(?:so|somente|apenas)\b.{0,25}"
+    r"\b(?:trabalh\w*|vend\w*|comercializ\w*)\b.{0,35}"
+    r"\b(?:semi[\s-]*nov\w*|usad\w*|lacrad\w*|nov\w*)\b"
+    r"|\b(?:trabalh\w*|vend\w*|comercializ\w*)\b.{0,25}"
+    r"\b(?:so|somente|apenas)\b.{0,35}"
+    r"\b(?:semi[\s-]*nov\w*|usad\w*|lacrad\w*|nov\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def _try_store_condition_policy_question(self, text: str) -> AgentDecision | None:
+    if not _STORE_CONDITION_POLICY_QUESTION_RE.search(_normalize(text)):
+        return None
+    return AgentDecision(
+        reply=self.faq.get("condicao")
+        or "Trabalhamos com produtos seminovos e produtos novos, lacrados.",
+        confidence="high",
+    )
+
+
 def _append_delivery_or_pickup_info(self, reply: str, text: str) -> str:
     if not _is_delivery_or_pickup_request(text):
         return reply

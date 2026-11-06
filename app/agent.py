@@ -2779,6 +2779,9 @@ class AgentService:
                     form_completed=False,
                 )
             )
+        store_condition_policy_decision = self._try_store_condition_policy_question(text)
+        if store_condition_policy_decision is not None:
+            return protect_customer_decision(store_condition_policy_decision)
         image_availability_models = _explicit_image_availability_query(
             text,
             image_description,
@@ -3558,6 +3561,15 @@ class AgentService:
     def _try_store_hours(self, text: str) -> AgentDecision | None:
         from app.agent_handlers.store import (
             _try_store_hours as _agent_handler,
+        )
+        return _agent_handler(self, text)
+
+    def _try_store_condition_policy_question(
+        self,
+        text: str,
+    ) -> AgentDecision | None:
+        from app.agent_handlers.store import (
+            _try_store_condition_policy_question as _agent_handler,
         )
         return _agent_handler(self, text)
 

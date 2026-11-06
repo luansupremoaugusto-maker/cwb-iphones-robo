@@ -4877,3 +4877,74 @@ async def test_owned_iphone_details_after_catalog_trade_question_send_evaluation
     assert is_trade_in_context_request(replacement_profile, replacement_history) is True
     assert replacement_decision.reply == TRADE_IN_FORM
     assert replacement_decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_iphone_entry_offer_after_catalog_photos_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "eutenho um iphone 14 para dar de entrada como funcionaria?"
+    history = [
+        {
+            "role": "user",
+            "content": "Queria ver os valores dos IPhone 16 pro max Por gentileza",
+        },
+        {
+            "role": "assistant",
+            "content": "Encontrei opções de iPhone 16 Pro Max seminovo.",
+        },
+        {"role": "user", "content": "Só trabalha com semi novos?"},
+        {
+            "role": "assistant",
+            "content": "Sim, encontrei estas opções seminovas disponíveis.",
+        },
+        {
+            "role": "user",
+            "content": "Tem fotos desse titanio deserto de 256gb?",
+        },
+        {
+            "role": "assistant",
+            "content": "Claro! Seguem as fotos do IPHONE 16 PRO MAX 256GB.",
+        },
+        *[
+            {"role": "assistant", "content": "imagem ocultada"}
+            for _ in range(7)
+        ],
+    ]
+
+    assert is_trade_in_request(text) is True
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_only_seminovos_question_explains_new_sealed_order_option(tmp_path):
+    settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Queria ver os valores dos iPhones 16 Pro Max"},
+        {
+            "role": "assistant",
+            "content": "Encontrei opções de iPhone 16 Pro Max seminovo.",
+        },
+    ]
+
+    decision = await service.respond("Só trabalha com semi novos?", history=history)
+
+    assert decision.reply == FAQStore(settings.faq_file).get("condicao")
+    assert "lacrados" in decision.reply.lower()
+    assert decision.handoff is False
