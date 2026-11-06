@@ -45,7 +45,7 @@ from app.installments import (
     simulate_installment_with_entry,
 )
 from app.safety import protect_customer_decision
-from app.schemas import AgentDecision, InventoryItem
+from app.schemas import AgentDecision, InventoryItem, TurnInterpretation
 from app.trade_in import (
     CONDITION_HANDOFF_REASON,
     CONDITION_HANDOFF_REPLY,
@@ -291,8 +291,33 @@ REGRAS OBRIGATÓRIAS:
 - Se o histórico já tiver o formulário de avaliação enviado e o cliente tentar
   negociar ou fechar um valor, encaminhe ao atendente sem calcular, prometer valor
   ou assumir a negociação.
+- Quando receber um bloco "Interpretação contextual do turno", use-o para separar
+  pedidos atuais, interesses futuros/hipotéticos e sugestões recusadas. Ele resume
+  a intenção e não fornece fatos de estoque, preço ou política da loja. Confira
+  qualquer informação comercial nas ferramentas aprovadas. Se a interpretação
+  divergir claramente das palavras do cliente, priorize o texto do cliente ou
+  pergunte para esclarecer.
+- Um modelo citado como possibilidade futura pode ser útil para uma comparação ou
+  consulta informativa, mas não deve ser apresentado como a escolha atual do cliente.
 
 O campo reply deve ser exatamente a mensagem que será enviada ao cliente.
+""".strip()
+
+
+TURN_INTERPRETER_INSTRUCTIONS = """
+Leia o histórico recente e o turno atual do cliente como uma conversa, inclusive
+quando o turno reunir várias mensagens curtas do WhatsApp. Devolva somente a
+interpretação estruturada solicitada.
+
+Separe intenções simultâneas e diferencie: pedido para agir agora, possibilidade
+futura/hipotética e sugestão anterior recusada. Preserve modelos, capacidades,
+cores, condições, valores de entrada e prazo que o cliente realmente mencionou.
+Não transforme uma possibilidade futura em pedido atual. Não conclua estoque,
+preço, parcelamento, garantia ou política da loja; esses fatos vêm de outras
+fontes. Não classifique compra de aparelho como avaliação/troca sem sinais de que
+o cliente oferece um aparelho próprio. Se o pedido atual ainda puder ter mais de
+uma leitura plausível, marque needs_clarification e escreva uma pergunta curta em
+português brasileiro.
 """.strip()
 
 
@@ -306,6 +331,71 @@ def _normalize(value: str) -> str:
     normalized = re.sub(r"\s+", " ", without_accents).strip().lower()
     normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
     return re.sub(r"\bpromax\b", "pro max", normalized)
+
+
+def _should_use_turn_interpreter(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Select turns where the regex routes can benefit from contextual reading."""
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    # Preserve the dedicated evaluation workflow and its exact state transitions.
+    if (
+        trade_in_em_andamento(history)
+        or is_completed_trade_in_form(text)
+        or is_unlabeled_trade_in_form_response(text, history)
+        or is_downgrade_request(text)
+        or is_non_apple_trade_in_request(text)
+        or trade_in_catalog_target(text)
+        or is_trade_in_request(text)
+        or is_trade_in_context_request(text, history)
+    ):
+        return False
+
+    model_keys = set(_requested_iphone_model_keys(text))
+    has_ambiguity_marker = bool(
+        re.search(
+            r"\b(?:nao|nem|mas|porem|talvez|quem\s+sabe|se|caso|"
+            r"depois|mais\s+tarde|futuro|futura|ano\s+que\s+vem|"
+            r"fim\s+do\s+ano|mais\s+perto|na\s+verdade|em\s+vez\s+de|"
+            r"ou|tambem|outro|outra)\b",
+            normalized,
+        )
+    )
+    if len(model_keys) > 1 and (has_ambiguity_marker or len(text.splitlines()) > 1):
+        return True
+
+    # Conflicting service cues often arrive together in one WhatsApp batch.
+    intent_cues = (
+        bool(re.search(r"\b(?:foto|fotos|imagem|imagens)\b", normalized)),
+        bool(re.search(r"\b(?:parcel\w*|entrada|sinal|cartao|parcelas?)\b", normalized)),
+        bool(_has_product_reference(normalized)),
+        bool(re.search(r"\b(?:entrega|retirada|visita|endereco|horario)\b", normalized)),
+    )
+    if sum(intent_cues) >= 2:
+        return True
+
+    words = normalized.split()
+    last_assistant = next(
+        (
+            _normalize(entry.get("content", ""))
+            for entry in reversed(history or [])
+            if entry.get("role") == "assistant" and entry.get("content", "").strip()
+        ),
+        "",
+    )
+    is_short_contextual_reply = (
+        len(words) <= 7
+        and bool(
+            re.search(r"\b(?:sim|nao|esse|essa|isso|aquele|aquela|outro|outra)\b", normalized)
+        )
+        and "?" in last_assistant
+        and _has_recent_catalog_product_context(history)
+    )
+    return is_short_contextual_reply
 
 
 _IMPLICIT_DEVICE_BUYBACK_PRICE_RE = re.compile(
@@ -2605,6 +2695,20 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
     )
 
 
+def build_turn_interpreter(settings: Settings) -> Agent:
+    """Build a small structured-output pass for ambiguous conversational turns."""
+    return Agent(
+        name="Interpretação contextual do atendimento",
+        instructions=TURN_INTERPRETER_INSTRUCTIONS,
+        model=settings.openai_model,
+        model_settings=ModelSettings(
+            reasoning={"effort": "low"},
+            verbosity="low",
+        ),
+        output_type=TurnInterpretation,
+    )
+
+
 class AgentService:
     def __init__(self, cache: InventoryCache, faq: FAQStore, settings: Settings, offline: bool = False):
         self.cache = cache
@@ -2615,6 +2719,11 @@ class AgentService:
             set_default_openai_key(settings.openai_api_key, use_for_tracing=False)
             set_tracing_disabled(True)
         self.agent = None if offline else build_customer_agent(cache, faq, settings)
+        self.turn_interpreter = (
+            build_turn_interpreter(settings)
+            if not offline and settings.openai_api_key
+            else None
+        )
 
     @staticmethod
     def _sanitize_image_urls(
@@ -2634,6 +2743,91 @@ class AgentService:
         if not callable(getter):
             return set()
         return set(getter())
+
+    async def _interpret_turn(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+        image_description: str | None = None,
+    ) -> TurnInterpretation | None:
+        if self.turn_interpreter is None:
+            return None
+
+        context_lines = []
+        for item in (history or [])[-12:]:
+            role = "Cliente" if item.get("role") == "user" else "Atendente virtual"
+            context_lines.append(f"{role}: {item.get('content', '')}")
+        current = text.strip() or "O cliente enviou uma mensagem sem texto."
+        if image_description:
+            current += f"\nDescrição cautelosa da imagem: {image_description}"
+        prompt = "\n".join(
+            [
+                *context_lines,
+                "Turno atual do cliente:",
+                current,
+            ]
+        )
+        try:
+            result = await Runner.run(self.turn_interpreter, prompt, max_turns=1)
+            output = result.final_output
+            return (
+                output
+                if isinstance(output, TurnInterpretation)
+                else TurnInterpretation.model_validate(output)
+            )
+        except Exception:
+            # A failed interpretation should leave the established deterministic
+            # handlers available for this turn.
+            return None
+
+    async def _run_customer_agent(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+        image_description: str | None = None,
+        interpretation: TurnInterpretation | None = None,
+    ) -> AgentDecision | None:
+        if not self.settings.openai_api_key or self.agent is None:
+            return None
+
+        context_lines = []
+        for item in (history or [])[-12:]:
+            role = "Cliente" if item.get("role") == "user" else "Atendente virtual"
+            context_lines.append(f"{role}: {item.get('content', '')}")
+        if interpretation is not None:
+            context_lines.append(
+                "Interpretação contextual do turno (não contém fatos comerciais): "
+                + json.dumps(
+                    interpretation.model_dump(mode="json", exclude_none=True),
+                    ensure_ascii=False,
+                )
+            )
+        current = text.strip() or "O cliente enviou uma mensagem sem texto."
+        if image_description:
+            current += f"\nDescrição cautelosa da imagem: {image_description}"
+        prompt = "\n".join([*context_lines, f"Cliente: {current}"])
+        try:
+            result = await Runner.run(self.agent, prompt, max_turns=6)
+            output = result.final_output
+            decision = (
+                output
+                if isinstance(output, AgentDecision)
+                else AgentDecision.model_validate(output)
+            )
+            decision = _ensure_trade_in_form_before_handoff(
+                decision,
+                text,
+                history,
+                image_description=image_description,
+            )
+            return protect_customer_decision(
+                self._sanitize_image_urls(
+                    decision,
+                    approved_urls=self._approved_catalog_photo_urls(),
+                )
+            )
+        except Exception:
+            return None
 
     async def _try_combined_iphone_17_catalog_and_trade_in(
         self,
@@ -2720,6 +2914,8 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        turn_interpretation: TurnInterpretation | None = None
+        ambiguous_agent_attempted = False
         form_completed = is_completed_trade_in_form(text)
         unlabeled_form_response = is_unlabeled_trade_in_form_response(text, history)
         trade_target = trade_in_catalog_target(text)
@@ -3156,6 +3352,40 @@ class AgentService:
                 confidence="high",
             )
 
+        interpretation_text = "\n".join(
+            part.strip() for part in (text, image_description) if part and part.strip()
+        )
+        if (
+            self.turn_interpreter is not None
+            and self.agent is not None
+            and _should_use_turn_interpreter(interpretation_text, history)
+        ):
+            turn_interpretation = await self._interpret_turn(
+                text,
+                history,
+                image_description=image_description,
+            )
+            if turn_interpretation is not None:
+                if (
+                    turn_interpretation.needs_clarification
+                    and turn_interpretation.clarification_question
+                    and turn_interpretation.confidence in {"high", "medium"}
+                ):
+                    return AgentDecision(
+                        reply=turn_interpretation.clarification_question.strip(),
+                        confidence=turn_interpretation.confidence,
+                    )
+                if turn_interpretation.confidence in {"high", "medium"}:
+                    ambiguous_agent_attempted = True
+                    semantic_decision = await self._run_customer_agent(
+                        text,
+                        history,
+                        image_description=image_description,
+                        interpretation=turn_interpretation,
+                    )
+                    if semantic_decision is not None and semantic_decision.confidence != "low":
+                        return semantic_decision
+
         catalog_product_decision = await self._try_catalog_product_reference(
             text,
             image_description=image_description,
@@ -3218,38 +3448,21 @@ class AgentService:
                 handoff_reason="OPENAI_API_KEY não configurada",
                 confidence="low",
             )
-
-        context_lines = []
-        for item in (history or [])[-12:]:
-            role = "Cliente" if item.get("role") == "user" else "Atendente virtual"
-            context_lines.append(f"{role}: {item.get('content', '')}")
-        current = text.strip() or "O cliente enviou uma mensagem sem texto."
-        if image_description:
-            current += f"\nDescrição cautelosa da imagem: {image_description}"
-        prompt = "\n".join([*context_lines, f"Cliente: {current}"])
-        try:
-            result = await Runner.run(self.agent, prompt, max_turns=6)
-            output = result.final_output
-            decision = output if isinstance(output, AgentDecision) else AgentDecision.model_validate(output)
-            decision = _ensure_trade_in_form_before_handoff(
-                decision,
+        if not ambiguous_agent_attempted:
+            decision = await self._run_customer_agent(
                 text,
                 history,
                 image_description=image_description,
+                interpretation=turn_interpretation,
             )
-            return protect_customer_decision(
-                self._sanitize_image_urls(
-                    decision,
-                    approved_urls=self._approved_catalog_photo_urls(),
-                )
-            )
-        except Exception as exc:
-            return AgentDecision(
-                reply="Vou encaminhar sua mensagem para um atendente confirmar essa informação.",
-                handoff=True,
-                handoff_reason=f"Falha no agente: {type(exc).__name__}",
-                confidence="low",
-            )
+            if decision is not None:
+                return decision
+        return AgentDecision(
+            reply="Vou encaminhar sua mensagem para um atendente confirmar essa informação.",
+            handoff=True,
+            handoff_reason="Falha no agente: chamada ou resposta inválida",
+            confidence="low",
+        )
 
     async def _try_installment_rate_question(
         self,
