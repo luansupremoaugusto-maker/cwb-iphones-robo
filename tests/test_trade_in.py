@@ -4948,3 +4948,19 @@ async def test_only_seminovos_question_explains_new_sealed_order_option(tmp_path
     assert decision.reply == FAQStore(settings.faq_file).get("condicao")
     assert "lacrados" in decision.reply.lower()
     assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_store_condition_question_does_not_override_iphone_sale_offer(tmp_path):
+    settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond("Só quero vender meu iPhone 14 seminovo")
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
