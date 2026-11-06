@@ -31,6 +31,7 @@ from app.trade_in import (
     is_trade_in_request,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
+    trade_in_catalog_target,
     trade_in_em_andamento,
     is_unlabeled_trade_in_form_response,
 )
@@ -3724,6 +3725,102 @@ async def test_iphone_15_pro_max_upgrade_research_sends_evaluation_form(tmp_path
     assert decision.product_references == []
     assert is_parts_buyback_request(text) is False
     assert is_trade_in_request(text) is True
+
+
+@pytest.mark.asyncio
+async def test_available_target_before_detailed_iphone_offer_sends_catalog_and_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        object(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-256-battery-92",
+            name="iPhone 16 Pro Max",
+            category="Celular",
+            capacity="256 GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4840,
+            battery_health=92,
+            source="mercado_phone",
+            search_text="iphone 16 pro max 256 gb seminovo bateria 92%",
+        )
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    text = (
+        "Sobre o 16 Pro Max com 92% esta disponivel? Dando um iPhone 15 Pro Max "
+        "256gb bateria 89% Branco, sem avarias. Qual seria a diferenca pra "
+        "parcelar no cartao?"
+    )
+
+    decision = await service.respond(text)
+
+    target = trade_in_catalog_target(text)
+    assert target is not None
+    assert target.lower() == "iphone 16 pro max com 92%"
+    assert is_trade_in_request(text) is True
+    assert decision.reply.endswith(TRADE_IN_FORM)
+    assert "iPhone 16 Pro Max" in decision.reply
+    assert decision.product_references == ["iphone-16-pro-max-256-battery-92"]
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_question_about_evaluation_fields_resends_form_in_trade_in_context(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Sobre o 16 Pro Max com 92% esta disponivel? Dando um iPhone 15 Pro Max "
+        "256gb bateria 89% Branco, sem avarias. Qual seria a diferenca pra "
+        "parcelar no cartao?"
+    )
+    history = [
+        {"role": "user", "content": text},
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone 16 Pro Max de 256 GB, com 92% de bateria, esta disponivel. "
+                "Para calcular a diferenca, seu iPhone 15 Pro Max precisa passar "
+                "por avaliacao. A lista de avaliacao precisa ser preenchida."
+            ),
+        },
+        {"role": "user", "content": "Entendi, mas voce tem uma media?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Nao consigo passar uma media sem avaliar o iPhone 15 Pro Max. "
+                "Se puder, envie os dados solicitados na lista de avaliacao."
+            ),
+        },
+    ]
+
+    decision = await service.respond("Quais sao os dados?", history=history)
+
+    assert is_trade_in_context_request("Quais sao os dados?", history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+def test_question_about_evaluation_fields_without_trade_in_context_stays_unmatched():
+    history = [
+        {"role": "user", "content": "Quero comprar um iPhone 16 Pro Max."},
+        {
+            "role": "assistant",
+            "content": "Claro! Qual capacidade você deseja?",
+        },
+    ]
+
+    assert is_trade_in_context_request("Quais sao os dados?", history) is False
 
 
 @pytest.mark.asyncio

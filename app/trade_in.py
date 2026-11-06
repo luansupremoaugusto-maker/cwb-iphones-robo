@@ -464,6 +464,15 @@ _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE = re.compile(
     rf"(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?(?P<target_model>{_TRADE_UP_MODEL})\b",
     re.IGNORECASE,
 )
+_TARGET_FIRST_AVAILABLE_TRADE_IN_RE = re.compile(
+    rf"\b(?:iphone\s*)?(?P<target_model>{_TRADE_UP_MODEL})\b"
+    r"(?P<target_details>.{0,60}?)\b(?:esta|ta|continua|segue)\s+disponivel\b"
+    r".{0,120}?\b(?:dando|dar|entregando|entregar|passando|passar|"
+    r"oferecendo|oferecer|usando|usar)\b"
+    r".{0,25}\b(?:(?:um|uma|o|a)\s+)?(?:(?:meu|minha)\s+)?"
+    r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+    re.IGNORECASE,
+)
 _IMPLICIT_UPGRADE_DETAIL_RE = re.compile(
     r"\b(?:\d{2,4}\s*(?:gb|tb)|bateria|tela|face\s*id|funcion\w*|original)\b",
     re.IGNORECASE,
@@ -534,6 +543,19 @@ _TRADE_IN_FORM_REQUEST_RE = re.compile(
     r"\b(?:manda\w*|envia\w*|passa\w*|encaminha\w*|receb\w*)\b",
     re.IGNORECASE,
 )
+_TRADE_IN_FORM_FIELDS_QUESTION_RE = re.compile(
+    r"\b(?:quais?|que)\s+(?:sao\s+)?(?:os?\s+)?"
+    r"(?:dados|informacoes|campos|itens)\b|"
+    r"\bo\s+que\s+(?:preciso|precisa|devo)\s+(?:preencher|informar|enviar)\b",
+    re.IGNORECASE,
+)
+_TRADE_IN_FORM_PENDING_CONTEXT_RE = re.compile(
+    r"\b(?:lista|formulario)\s+de\s+avaliacao\b.{0,70}"
+    r"\b(?:preench\w*|dados|respostas|informacoes)\b|"
+    r"\b(?:preench\w*|dados\s+solicitados)\b.{0,70}"
+    r"\b(?:lista|formulario)\s+de\s+avaliacao\b",
+    re.IGNORECASE,
+)
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
     r"\b(?:ios|ipados|software|firmware|app|aplicativo|"
     r"sistema(?:\s+operacional)?)\b",
@@ -573,16 +595,33 @@ def _has_explicit_device_exchange_context(text: str) -> bool:
 
 def trade_in_catalog_target(text: str | None) -> str | None:
     """Extract the target iPhone when a customer explicitly offers theirs to trade."""
-    if _NEGATION_RE.search(_normalize(text)):
+    normalized = _normalize(text)
+    if _NEGATION_RE.search(normalized):
         return None
     match = _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text or "")
-    if not match:
+    if match:
+        model = re.sub(r"\s+", " ", match.group("target_model")).strip()
+        target_line_end = (text or "").find("\n", match.end("target_model"))
+        if target_line_end < 0:
+            target_line_end = len(text or "")
+        details = (text or "")[match.end("target_model") : target_line_end].strip()
+        return " ".join(part for part in (f"iPhone {model}", details) if part)
+
+    match = _TARGET_FIRST_AVAILABLE_TRADE_IN_RE.search(normalized)
+    if not match or _NON_APPLE_RE.search(normalized):
         return None
+    offered_device_context = normalized[match.end() :]
+    if (
+        not _COMPLETE_DEVICE_DETAIL_RE.search(offered_device_context)
+        or not re.search(
+            r"\b(?:diferenc\w*|troca|trocar|entrada|volta|troco)\b",
+            offered_device_context,
+        )
+    ):
+        return None
+
     model = re.sub(r"\s+", " ", match.group("target_model")).strip()
-    target_line_end = (text or "").find("\n", match.end("target_model"))
-    if target_line_end < 0:
-        target_line_end = len(text or "")
-    details = (text or "")[match.end("target_model") : target_line_end].strip()
+    details = re.sub(r"[\s,;:.-]+$", "", match.group("target_details")).strip()
     return " ".join(part for part in (f"iPhone {model}", details) if part)
 
 
@@ -1755,6 +1794,24 @@ def is_trade_in_context_request(
             and not is_parts_buyback_request(entry.get("content"))
             for entry in history
         ):
+            return True
+
+    if _TRADE_IN_FORM_FIELDS_QUESTION_RE.search(normalized):
+        has_pending_form_context = any(
+            entry.get("role") == "assistant"
+            and _TRADE_IN_FORM_PENDING_CONTEXT_RE.search(
+                _normalize(entry.get("content", ""))
+            )
+            for entry in history[-8:]
+        )
+        has_recent_trade_in_offer = any(
+            entry.get("role") == "user"
+            and is_trade_in_request(entry.get("content"))
+            and not is_non_apple_trade_in_request(entry.get("content"))
+            and not is_parts_buyback_request(entry.get("content"))
+            for entry in history[-8:]
+        )
+        if has_pending_form_context and has_recent_trade_in_offer:
             return True
 
     if is_photo_offer_confirmation(text, history):
