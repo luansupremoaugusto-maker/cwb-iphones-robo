@@ -3824,6 +3824,90 @@ def test_question_about_evaluation_fields_without_trade_in_context_stays_unmatch
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "image_description"),
+    [
+        (
+            "",
+            "Descrição visual da imagem recebida: lateral de um iPhone 14 Pro "
+            "com a tela levemente levantada após troca da bateria.",
+        ),
+        ("É o Pro", None),
+    ],
+)
+async def test_pending_evaluation_details_followup_sends_form_before_repair_routing(
+    tmp_path,
+    text,
+    image_description,
+):
+    settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Consegue avaliar meu iPhone, por favor?"},
+        {
+            "role": "assistant",
+            "content": "Consigo sim. Complete a mensagem com o modelo do aparelho, por favor.",
+        },
+        {"role": "user", "content": "Troquei a bateria por uma paralela."},
+        {
+            "role": "assistant",
+            "content": (
+                "Vou considerar a bateria trocada na avaliação. Não consigo confirmar "
+                "se é um iPhone 14 Pro ou 14 Pro Max. Você sabe o modelo exato e a "
+                "capacidade de armazenamento?"
+            ),
+        },
+    ]
+
+    decision = await service.respond(
+        text,
+        history=history,
+        image_description=image_description,
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_battery_repair_question_stays_technical_during_pending_evaluation(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, google_sheets_enabled=False)
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Vou considerar a bateria trocada na avaliação. Não consigo confirmar "
+                "se é um iPhone 14 Pro ou 14 Pro Max. Você sabe o modelo exato e a "
+                "capacidade de armazenamento?"
+            ),
+        }
+    ]
+
+    decision = await service.respond(
+        "Quanto custa trocar a bateria do meu iPhone 14 Pro?",
+        history=history,
+        image_description="Descrição visual da imagem recebida: lateral de um iPhone 14 Pro.",
+    )
+
+    assert decision.handoff is True
+    assert decision.reply == TECHNICAL_ASSISTANCE_REPLY
+
+
+@pytest.mark.asyncio
 async def test_discount_for_delivering_old_phone_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
