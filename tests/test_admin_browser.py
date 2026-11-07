@@ -191,6 +191,82 @@ def test_admin_page_controls_work_in_a_real_browser():
             browser.close()
 
 
+def test_refresh_catalog_forces_sources_and_renders_updated_sealed_devices():
+    html = render_admin_page("csrf-token")
+    updated_catalog = {
+        **CATALOG,
+        "lacrados": [
+            {
+                "nome": "iPhone 18",
+                "capacidade": "256 GB",
+                "condicao": "Lacrado por encomenda",
+                "quantidade": None,
+                "precos_brl": [5999.0],
+                "cores": ["Preto"],
+                "cor": "Preto",
+                "saude_bateria": None,
+                "fotos_disponiveis": 0,
+                "disponibilidade": "Por encomenda",
+            }
+        ],
+        "total_modelos": 2,
+    }
+    current_catalog = {"value": CATALOG}
+    refresh_requests: list[dict] = []
+
+    def route_request(route: Route) -> None:
+        request = route.request
+        path = request.url.split("?", 1)[0].removeprefix("http://admin.test")
+        if path == "/admin/api/monitoring/refresh":
+            refresh_requests.append(json.loads(request.post_data or "{}"))
+            current_catalog["value"] = updated_catalog
+            route.fulfill(
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "source": "all",
+                        "refreshed": {
+                            "mercado_phone": {"products": 1},
+                            "google_sheets": {"products": 1, "rates": 0},
+                        },
+                        "message": "Fonte(s) atualizada(s) com sucesso.",
+                    }
+                ),
+            )
+            return
+        if path == "/admin/api/catalog":
+            route.fulfill(
+                content_type="application/json",
+                body=json.dumps(current_catalog["value"]),
+            )
+            return
+        _route_page(route, html)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route("**/*", route_request)
+            page.on("dialog", lambda dialog: dialog.accept("Atualização manual do catálogo"))
+            page.goto("http://admin.test/admin")
+
+            with page.expect_request(
+                lambda request: request.url.endswith("/admin/api/monitoring/refresh")
+                and request.method == "POST"
+            ):
+                page.locator("#refresh-catalog").click()
+
+            expect(page.locator("#catalog-body")).to_contain_text("iPhone 18")
+            assert refresh_requests == [
+                {
+                    "source": "all",
+                    "justification": "Atualização manual do catálogo",
+                }
+            ]
+        finally:
+            browser.close()
+
+
 def test_admin_page_panels_can_be_collapsed_and_remember_state():
     html = render_admin_page("csrf-token")
 

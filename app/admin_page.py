@@ -1077,7 +1077,10 @@ _PAGE_TEMPLATE = """<!doctype html>
       }
 
       async function refreshSource(source) {
-        const justification = window.prompt("Informe uma justificativa para atualizar a fonte:", "Atualização manual de monitoramento");
+        const defaultJustification = source === "all"
+          ? "Atualização manual do catálogo"
+          : "Atualização manual de monitoramento";
+        const justification = window.prompt("Informe uma justificativa para atualizar a fonte:", defaultJustification);
         if (!justification || !justification.trim()) return;
         try {
           const response = await fetch("/admin/api/monitoring/refresh", {
@@ -1211,7 +1214,7 @@ _PAGE_TEMPLATE = """<!doctype html>
           lookupConversation();
         }
       });
-      byId("refresh-catalog").addEventListener("click", loadCatalog);
+      byId("refresh-catalog").addEventListener("click", () => refreshSource("all"));
       byId("export-csv").addEventListener("click", exportCatalogCsv);
       byId("export-pdf").addEventListener("click", exportCatalogPdf);
       sectionDefinitions.forEach(([key]) => byId(`export-${key}`).addEventListener("change", updateExportStatus));
