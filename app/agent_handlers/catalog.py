@@ -733,6 +733,13 @@ async def _try_catalog_price_recall(self, text: str) -> AgentDecision | None:
         confidence="high",
     )
 
+def _is_higher_battery_option_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        re.search(r"\b(?:bateria|saude)\b", normalized)
+        and re.search(r"\b(?:mais\s+(?:alta|elevada|boa)|maior|melhor)\b", normalized)
+    )
+
 async def _try_product_availability(
     self,
     text: str,
@@ -1811,6 +1818,18 @@ async def _try_product_availability(
             ),
             requested_apple_watch_models=requested_apple_watch_models,
         )
+    higher_battery_option_request = _is_higher_battery_option_request(text)
+    if higher_battery_option_request and selected and availability_header is None:
+        model_name = str(getattr(selected[0], "name", None) or "esse modelo").strip()
+        if len(selected) == 1:
+            availability_header = (
+                f"No momento, só encontrei esta opção de {model_name} disponível no catálogo:"
+            )
+        else:
+            availability_header = (
+                f"No momento, encontrei estas opções de {model_name} disponíveis no catálogo:"
+            )
+
     reply = _format_product_availability(
         selected,
         header=availability_header,
@@ -1818,6 +1837,30 @@ async def _try_product_availability(
         installment_quotes=installment_quotes,
         entry_amount=entry_amount,
     )
+    if higher_battery_option_request and selected:
+        battery_values = []
+        for item in selected:
+            if _is_sealed_item(item):
+                continue
+            try:
+                battery = float(getattr(item, "battery_health", None))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= battery <= 100:
+                battery_values.append(battery)
+        if len(selected) == 1 and battery_values:
+            reply += "\nNão localizei outra opção com saúde da bateria mais alta no momento."
+        elif battery_values:
+            highest_battery = max(battery_values)
+            reply += (
+                "\nA maior saúde da bateria cadastrada entre essas opções é "
+                f"{_format_battery(highest_battery)}."
+            )
+        elif len(selected) == 1:
+            reply += (
+                "\nA saúde da bateria desta unidade não está informada no catálogo, "
+                "então não consigo confirmar uma opção com saúde maior."
+            )
     if selected and _is_other_color_request(text):
         available_colors = _catalog_color_map(selected)
         if len(available_colors) == 1:

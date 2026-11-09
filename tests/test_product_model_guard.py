@@ -167,6 +167,78 @@ def test_battery_percentage_is_not_parsed_as_a_bare_catalog_model():
 
 
 @pytest.mark.asyncio
+async def test_single_iphone_15_battery_option_is_not_presented_as_a_higher_battery_alternative(
+    tmp_path,
+):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-15-rosa-128-battery-80",
+            name="iPhone 15",
+            category="Celular Apple",
+            capacity="128 GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2420,
+            battery_health=80,
+            source="mercado_phone",
+            search_text="iPhone 15 rosa 128 GB seminovo bateria 80%",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(
+        "O 15 tem outra opção com a saúde da bateria mais alta?",
+        history=[
+            {
+                "role": "assistant",
+                "content": (
+                    "No momento, só encontrei o iPhone 14 na cor vermelha, "
+                    "com 100% de saúde da bateria."
+                ),
+            }
+        ],
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-rosa-128-battery-80"]
+    assert "só encontrei esta opção de iPhone 15" in decision.reply
+    assert "80%" in decision.reply
+    assert "Não localizei outra opção com saúde da bateria mais alta" in decision.reply
+    assert "Sim 😊" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_regular_iphone_15_availability_keeps_the_existing_affirmative_reply(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-15-rosa-128-battery-80",
+            name="iPhone 15",
+            category="Celular Apple",
+            capacity="128 GB",
+            color="ROSA",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2420,
+            battery_health=80,
+            source="mercado_phone",
+            search_text="iPhone 15 rosa 128 GB seminovo bateria 80%",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond("Tem iPhone 15 disponível?")
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-15-rosa-128-battery-80"]
+    assert decision.reply.startswith("Sim 😊 Encontrei estas opções de iPhone 15 disponíveis:")
+
+
+@pytest.mark.asyncio
 async def test_battery_originality_followup_uses_the_recent_offer_instead_of_model_91(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
