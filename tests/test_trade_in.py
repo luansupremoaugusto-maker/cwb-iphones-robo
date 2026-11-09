@@ -1705,6 +1705,73 @@ async def test_owned_iphone_entry_difference_after_catalog_reply_sends_evaluatio
 
 
 @pytest.mark.asyncio
+async def test_store_purchased_iphone_trade_difference_after_catalog_offer_sends_evaluation_form(
+    tmp_path,
+):
+    class EmptyMercadoClient:
+        async def fetch_all_inventory(self):
+            return []
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            EmptyMercadoClient(),
+            settings,
+            cache_path=tmp_path / "inventory.json",
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Eu peguei com vcs o 13 pro Max 1 TB / saúde bateria em 83% - "
+        "Qual seria a diferença no 15 pro Max 256 ??"
+    )
+    history = [
+        {"role": "user", "content": "Usado não tem nada ?"},
+        {
+            "role": "assistant",
+            "content": (
+                "De 512 GB, não encontrei nenhum iPhone seminovo disponível. "
+                "Tenho estas opções seminovas em outras capacidades:\n"
+                "• iPhone 15 Pro Max — 256 GB, titânio preto, bateria 88% — R$ 4.350\n"
+                "• iPhone 15 Pro — 128 GB, titânio azul, bateria 80% — R$ 3.250\n"
+                "• iPhone 15 — 128 GB, rosa, bateria 80% — R$ 2.420"
+            ),
+        },
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+
+
+def test_store_purchased_iphone_stock_followup_after_catalog_offer_stays_out_of_evaluation():
+    text = (
+        "Eu peguei com vcs o 13 pro Max 1 TB / saúde bateria em 83% - "
+        "o 15 pro Max 256 está disponível?"
+    )
+    history = [
+        {"role": "user", "content": "Usado não tem nada ?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Tenho estas opções seminovas disponíveis: "
+                "iPhone 15 Pro Max — 256 GB, titânio preto, bateria 88% — R$ 4.350"
+            ),
+        },
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+
+@pytest.mark.asyncio
 async def test_progressive_used_iphone_buyback_question_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
