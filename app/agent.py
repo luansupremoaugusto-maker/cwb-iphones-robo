@@ -936,6 +936,8 @@ _COMMON_CATALOG_COLOR_NAMES = (
     "roxo profundo",
     "preto espacial",
     "titânio natural",
+    # Customers often shorten the titanium color to just "natural".
+    "natural",
     "titânio deserto",
     "titânio branco",
     "titânio preto",

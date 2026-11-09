@@ -215,7 +215,10 @@ def _unavailable_catalog_color_header(
         }.get(family, "aparelho")
     else:
         model_name = "aparelho"
-    color_label = " e ".join(requested_catalog_colors)
+    color_label = " e ".join(
+        "titânio natural" if color == "natural" else color
+        for color in requested_catalog_colors
+    )
     capacity_labels = [
         re.sub(
             r"(\d+(?:[.,]\d+)?)(gb|tb)",
