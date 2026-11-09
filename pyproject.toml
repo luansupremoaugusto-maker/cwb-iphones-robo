@@ -28,6 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "httpx2>=2,<3",
   "playwright>=1.50,<2",
   "pypdf>=5,<7",
   "pytest>=8.4,<9",
