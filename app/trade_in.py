@@ -1613,10 +1613,10 @@ _PENDING_TRADE_IN_DETAILS_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 _TRADE_IN_MODEL_CLARIFICATION_ANSWER_RE = re.compile(
-    r"^(?:e\s+)?(?:(?:o|a)\s+)?(?:iphone\s*)?"
+    r"^(?:e\s+)?(?:(?:o|a|um|uma)\s+)?(?:iphone\s*)?"
     r"(?:\d{1,2}(?:\s*(?:pro(?:\s*max)?|max|plus|mini|air|e|se))?"
     r"|pro(?:\s*max)?|max|plus|mini|air|e|se)"
-    r"(?:\s+\d{2,4}\s*(?:gb|tb))?[.!?,\s]*$",
+    r"(?:[\s,.;:!?]+\d{2,4}\s*(?:gb|tb))?[.!?,\s]*$",
     re.IGNORECASE,
 )
 _TRADE_IN_CAPACITY_ANSWER_RE = re.compile(

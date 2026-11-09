@@ -2960,6 +2960,12 @@ class AgentService:
                 ),
                 confidence="high",
             )
+        if is_pending_trade_in_evaluation_followup(text, image_description, history):
+            return AgentDecision(
+                reply=TRADE_IN_FORM,
+                handoff=False,
+                confidence="high",
+            )
         combined_catalog_request = (
             _combined_iphone_17_catalog_request(text, history)
             if not trade_in_em_andamento(history) and not _is_photo_request(text)
@@ -3122,12 +3128,6 @@ class AgentService:
                     handoff_reason=CATALOG_BUYER_DETAILS_REASON,
                     confidence="high",
                 )
-            )
-        if is_pending_trade_in_evaluation_followup(text, image_description, history):
-            return AgentDecision(
-                reply=TRADE_IN_FORM,
-                handoff=False,
-                confidence="high",
             )
         if (
             _is_device_condition_question(combined_request)

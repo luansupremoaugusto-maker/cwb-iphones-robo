@@ -3402,6 +3402,36 @@ async def test_device_answer_to_trade_in_offer_question_sends_evaluation_form(tm
 
 
 @pytest.mark.asyncio
+async def test_model_answer_with_article_after_trade_in_question_sends_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": "Queria ver para trocar o celular da minha mãe com vocês!",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Fazemos avaliação para troca, mas aceitamos somente aparelhos da Apple. "
+                "Qual é o modelo do celular da sua mãe? Para avaliar, também é necessário "
+                "preencher uma lista de avaliação."
+            ),
+        },
+    ]
+
+    decision = await service.respond("É um iPhone 14, 128gb!", history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_device_answer_to_catalog_question_does_not_send_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
