@@ -5434,6 +5434,89 @@ async def test_catalog_color_aliases_match_canonical_inventory_labels(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_natural_color_alias_keeps_iphone_15_pro_max_color_specific(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-15-pro-max-natural-color.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-15-pro-max-natural-256",
+            name="IPHONE 15 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO NATURAL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4130,
+            source="mercado_phone",
+            search_text="iphone 15 pro max titanio natural 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-15-pro-max-black-256",
+            name="IPHONE 15 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO PRETO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4350,
+            battery_health=88,
+            source="mercado_phone",
+            search_text="iphone 15 pro max titanio preto 256gb celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    initial_request = "Vocês tem o 15 pro max na cor natural ?"
+    available_natural = await agent.respond(initial_request)
+
+    assert available_natural.handoff is False
+    assert available_natural.reply.lower().startswith("sim")
+    assert available_natural.product_references == ["iphone-15-pro-max-natural-256"]
+    assert "TITÂNIO NATURAL" in available_natural.reply
+
+    cache.items = [cache.items[1]]
+    unavailable_natural = await agent.respond(initial_request)
+
+    assert unavailable_natural.handoff is False
+    assert unavailable_natural.reply.startswith(
+        "No momento, o iPhone 15 Pro Max titânio natural não está disponível."
+    )
+    assert unavailable_natural.product_references == ["iphone-15-pro-max-black-256"]
+    assert "TITÂNIO PRETO" in unavailable_natural.reply
+
+    observed_history = [
+        {"role": "user", "content": initial_request},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 15 PRO MAX disponíveis:\n"
+                "• IPHONE 15 PRO MAX — TITÂNIO PRETO — 256GB — SEMINOVO — "
+                "R$ 4.350,00 | Bat: 88%"
+            ),
+        },
+    ]
+    repeated_color_question = await agent.respond(
+        "Na cor natural tem?",
+        history=observed_history,
+    )
+
+    assert repeated_color_question.handoff is False
+    assert repeated_color_question.reply.lower().startswith(
+        "no momento, o iphone 15 pro max titânio natural"
+    )
+    assert "não está disponível" in repeated_color_question.reply.lower()
+    assert repeated_color_question.product_references == ["iphone-15-pro-max-black-256"]
+    assert not repeated_color_question.reply.lower().startswith("sim")
+
+
+@pytest.mark.asyncio
 async def test_broad_unavailable_color_reply_keeps_requested_iphone_family(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
