@@ -392,6 +392,12 @@ _OWNED_NUMBERED_IPHONE_RE = re.compile(
     r"(?:iphone\s*)?\d{1,2}\b",
     re.IGNORECASE,
 )
+_STORE_PURCHASED_IPHONE_PROFILE_RE = re.compile(
+    r"\b(?:peguei|comprei|adquiri)\s+(?:(?:aqui|ai)\s+)?(?:com|de)\s+"
+    r"(?:voces?|vcs?)\b.{0,35}\b(?:iphone\s*)?\d{1,2}\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    re.IGNORECASE,
+)
 _OWNED_APPLE_DEVICE_REFERENCE_RE = re.compile(
     r"\b(?:tenho|possuo|estou\s+com|to\s+com)\s+"
     r"(?:(?:um|uma|o|a|\d+)\s+)?"
@@ -607,6 +613,16 @@ def _has_explicit_device_exchange_context(text: str) -> bool:
             r"trocar\s+(?:por|para|pra|pro|pelo|pela))\b",
             text,
         )
+    )
+
+
+def _has_store_purchased_iphone_profile(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        _STORE_PURCHASED_IPHONE_PROFILE_RE.search(normalized)
+        and re.search(r"\b\d{1,4}\s*(?:gb|tb)\b", normalized)
+        and _DEVICE_EVALUATION_CONDITION_RE.search(normalized)
+        and not _NON_APPLE_RE.search(normalized)
     )
 
 
@@ -2043,6 +2059,39 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    recent_iphone_mentions = _BARE_IPHONE_MODEL_RE.findall(normalized)
+    target_appeared_in_recent_catalog = bool(
+        len(recent_iphone_mentions) >= 2
+        and any(
+            recent_iphone_mentions[-1] in assistant_content
+            and _APPLE_PRODUCT_RE.search(assistant_content)
+            and re.search(
+                r"\b(?:disponivel|opcoes|seminovo|estoque)\b|\br\$",
+                assistant_content,
+            )
+            for assistant_content in recent_assistant_contexts
+        )
+    )
+    # A customer who bought an iPhone from the store may describe its specs and
+    # ask the price difference for a recently offered model without saying
+    # "troca" or "entrada". Treat that as a pending evaluation only when the
+    # complete device profile and the specific catalog offer are both present.
+    if (
+        has_recent_apple_catalog_context
+        and target_appeared_in_recent_catalog
+        and _has_store_purchased_iphone_profile(normalized)
+        and re.search(r"\bdiferenc\w*\b", normalized)
+        and not _NEGATION_RE.search(user_context)
+        and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
+        and not _EXPLICIT_COMPONENT_REPAIR_REQUEST_RE.search(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+        and not _PURCHASE_INTENT_RE.search(normalized)
+        and not _STOCK_QUERY_RE.search(normalized)
+        and not _EXPLICIT_STOCK_QUERY_RE.search(normalized)
+    ):
+        return True
+
     # A customer may ask how much discount their described iPhone is worth,
     # then send condition details in a separate WhatsApp message. A complete
     # model/capacity/condition profile without catalog or explicit stock intent
