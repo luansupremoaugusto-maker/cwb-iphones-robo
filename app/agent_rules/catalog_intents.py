@@ -140,23 +140,30 @@ def _explicit_image_availability_query(
     text: str,
     image_description: str | None,
 ) -> str | None:
-    """Use only model identity from a photo when the customer clearly asks about stock."""
+    """Resolve a stock question about an attached iPhone photo to its visual item."""
     normalized_text = _normalize(text)
-    if (
-        not image_description
-        or not re.search(r"\b(?:disponivel|disponibilidade|estoque)\b", normalized_text)
-        or not re.search(r"\b(?:tem|teria|possui|sobrou|restou)\b", normalized_text)
-    ):
+    if not image_description or _requested_iphone_model_keys(text):
+        return None
+    has_stock_word = bool(
+        re.search(r"\b(?:disponivel|disponibilidade|estoque)\b", normalized_text)
+    )
+    refers_to_image = bool(
+        re.search(
+            r"\b(?:desse|desses|dessa|dessas|dele|deles|dela|delas|"
+            r"esse|essa|esses|essas|este|esta|estes|estas|isso)\b",
+            normalized_text,
+        )
+    )
+    asks_about_stock = has_stock_word or (
+        refers_to_image
+        and re.search(r"\b(?:tem|teria|possui|sobrou|restou)\b", normalized_text)
+    )
+    if not asks_about_stock:
         return None
     if re.search(
         r"\b(?:foto|fotos|imagem|imagens|parcel\w*|entrada|sinal|garantia|"
         r"reserva|endereco|horario|nota\s+fiscal|preco|valor|quanto|"
         r"bateria|cor|\d+\s*(?:gb|tb))\b",
-        normalized_text,
-    ):
-        return None
-    if not re.search(
-        r"\b(?:desse|desses|dessa|dessas|dele|deles|dela|delas)\b",
         normalized_text,
     ):
         return None
@@ -167,10 +174,17 @@ def _explicit_image_availability_query(
     models = _visual_iphone_model_keys(image_description)
     if not models:
         return ""
-    query = ", ".join(
-        " ".join(part for part in ("iPhone", str(number), variant) if part)
-        for number, variant in models
-    )
+    if len(models) == 1:
+        # Keep storage and color from the photo so stock for a different unit
+        # of the same model cannot be reported as a match.
+        query = _visual_catalog_search_query(image_description)
+        if query is None:
+            return ""
+    else:
+        query = ", ".join(
+            " ".join(part for part in ("iPhone", str(number), variant) if part)
+            for number, variant in models
+        )
     if not _has_seminovo_reference(text) and not _has_explicit_sealed_condition(text):
         image_seminovos = _has_seminovo_reference(image_description)
         image_sealed = _has_explicit_sealed_condition(image_description)

@@ -381,6 +381,114 @@ async def test_photo_request_for_model_listed_in_prior_availability_reply(tmp_pa
     assert "não localizei" in stock_decision.reply.lower()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "availability_question",
+    ["Tem disponibilidade desse aparelho?", "Esse está disponível?"],
+)
+async def test_image_stock_lookup_preserves_model_and_capacity(
+    tmp_path,
+    availability_question,
+):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-13-pro-image-availability.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id=f"iphone-13-pro-{capacity}",
+            name="iPhone 13 Pro",
+            category="Celular",
+            capacity=f"{capacity} GB",
+            price_brl=3100 if capacity == 128 else 3500,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text=f"iphone 13 pro {capacity} gb seminovo disponível para venda",
+        )
+        for capacity in (128, 256)
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        availability_question,
+        image_description=(
+            "Descrição visual da imagem recebida: iPhone 13 Pro com capacidade de 256 GB."
+        ),
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-13-pro-256"]
+    assert "256 GB" in decision.reply
+    assert "128 GB" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_image_stock_lookup_reports_requested_capacity_unavailable(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-13-pro-capacity-unavailable.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-128",
+            name="iPhone 13 Pro",
+            category="Celular",
+            capacity="128 GB",
+            price_brl=3100,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text="iphone 13 pro 128 gb seminovo disponível para venda",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Tem disponibilidade desse aparelho?",
+        image_description=(
+            "Descrição visual da imagem recebida: iPhone 13 Pro com capacidade de 256 GB."
+        ),
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "não localizei" in decision.reply.lower()
+    assert not decision.reply.lower().startswith("sim")
+
+
+@pytest.mark.asyncio
+async def test_unidentified_image_stock_query_asks_for_model_without_handoff(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "unidentified-image-availability.json",
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Tem disponibilidade desse aparelho?",
+        image_description=(
+            "Descrição visual da imagem recebida: celular escuro sem marca ou modelo legível."
+        ),
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "modelo" in decision.reply.lower()
+    assert "capacidade" in decision.reply.lower()
+
+
 def test_generic_apple_buyback_question_uses_the_evaluation_flow():
     assert is_trade_in_request("Vocês compram algum produto Apple?") is True
     assert is_trade_in_request("A loja compra celular usado?") is True
