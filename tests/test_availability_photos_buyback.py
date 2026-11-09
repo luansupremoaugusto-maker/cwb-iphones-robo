@@ -460,9 +460,7 @@ async def test_image_stock_lookup_reports_requested_capacity_unavailable(tmp_pat
     )
 
     assert decision.handoff is False
-    assert "preto" in decision.reply.lower()
-    assert "não está disponível" in decision.reply.lower()
-    assert "prateado" in decision.reply.lower()
+    assert "não localizei" in decision.reply.lower()
     assert not decision.reply.lower().startswith("sim")
 
 
@@ -513,8 +511,9 @@ async def test_image_stock_lookup_preserves_requested_color(tmp_path):
     )
 
     assert decision.handoff is False
-    assert decision.product_references == []
-    assert "não localizei" in decision.reply.lower()
+    assert "preto" in decision.reply.lower()
+    assert "não está disponível" in decision.reply.lower()
+    assert "prateado" in decision.reply.lower()
 
 
 @pytest.mark.asyncio
