@@ -359,7 +359,8 @@ def _customer_product_condition_context_query(
 def _extract_bare_catalog_model_reference(text: str) -> str | None:
     """Turn follow-ups such as "a bateria do 15" into an explicit model."""
     pattern = re.compile(
-        r"\b(?:do|da|dos|das|de|no|na|o|a|um|uma|esse|essa|este|esta)\s+"
+        r"\b(?:do|da|dos|das|de|no|na|o|a|um|uma|esse|essa|este|esta|"
+        r"desse|dessa|deste|desta)\s+"
         r"(?:iphone\s*)?(?P<number>\d{1,2})"
         r"(?P<variant>\s*(?:e|pro\s+max|pro|max|plus|mini|air))?\b",
         flags=re.IGNORECASE,

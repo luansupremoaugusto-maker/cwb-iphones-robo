@@ -3190,36 +3190,49 @@ class AgentService:
                 confidence="high",
             )
 
-        # WhatsApp can batch several quick messages into one turn. If that
-        # batch includes both a payment question and an explicit photo request,
-        # resolve the requested photos before the payment FAQ can consume the
-        # whole turn, then keep both answers in the same reply.
-        if _is_photo_request(text) and (
-            _is_payment_methods_question(text) or _is_installment_rate_question(text)
-        ):
+        # Resolve explicit photo requests before catalog availability can
+        # replace the requested photos with a stock listing. Preserve a second
+        # payment answer when WhatsApp batches that question into the same turn.
+        if _is_explicit_photo_request(text) and len(_photo_price_selectors(text)) < 2:
             photo_decision = await self._try_product_photos(
                 text,
                 history,
                 image_description=image_description,
             )
             if photo_decision is not None:
-                payment_decision = self._try_payment_methods(text)
-                if payment_decision is None:
-                    payment_decision = await self._try_installment_rate_question(
-                        text,
-                        history=history,
-                    )
-                if payment_decision is not None:
-                    photo_decision = photo_decision.model_copy(
-                        update={
-                            "reply": (
-                                f"{payment_decision.reply.rstrip()}\n\n"
-                                f"{photo_decision.reply.lstrip()}"
-                            )
-                        }
-                    )
+                if _is_payment_methods_question(text) or _is_installment_rate_question(text):
+                    payment_decision = self._try_payment_methods(text)
+                    if payment_decision is None:
+                        payment_decision = await self._try_installment_rate_question(
+                            text,
+                            history=history,
+                        )
+                    if payment_decision is not None:
+                        photo_decision = photo_decision.model_copy(
+                            update={
+                                "reply": (
+                                    f"{payment_decision.reply.rstrip()}\n\n"
+                                    f"{photo_decision.reply.lstrip()}"
+                                )
+                            }
+                        )
                 return protect_customer_decision(
                     self._sanitize_image_urls(photo_decision)
+                )
+            if not _is_photo_retry_request(text) or _has_photo_request_in_history(
+                history,
+                current_text=text,
+            ):
+                return protect_customer_decision(
+                    AgentDecision(
+                        reply=(
+                            "Não consegui confirmar as fotos desse aparelho agora. "
+                            "Vou encaminhar sua solicitação para um atendente confirmar."
+                        ),
+                        handoff=True,
+                        handoff_reason=PRODUCT_PHOTO_HANDOFF_REASON,
+                        confidence="low",
+                    )
                 )
 
         if _is_installment_budget_options_request(text, history):
@@ -4255,6 +4268,7 @@ from .agent_rules.catalog_intents import (
 from .agent_rules.photos import (
     _has_explicit_photo_device_reference,
     _is_broad_promotion_photo_request,
+    _is_explicit_photo_request,
     _is_made_to_order_sealed_item,
     _is_photo_request,
     _is_photo_retry_request,
