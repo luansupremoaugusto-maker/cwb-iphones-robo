@@ -327,6 +327,60 @@ async def test_photo_request_returns_only_approved_product_urls(tmp_path):
     assert "fotos do iPhone 15" in decision.reply
 
 
+@pytest.mark.asyncio
+async def test_photo_request_for_model_listed_in_prior_availability_reply(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-13-photo.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="mp:iphone-13-128",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA NOITE",
+            price_brl=1810.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            battery_health=93,
+            photo_urls=["https://photos.example/iphone-13-meia-noite-128.jpg"],
+            search_text="iphone 13 meia noite 128 gb celular seminovo bateria 93",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Vcs tem o iPhone 14"},
+        {
+            "role": "assistant",
+            "content": (
+                "No momento, não localizei esse produto seminovo disponível no sistema. "
+                "Algum outro modelo também interessaria? Segue a lista completa: "
+                "IPHONE 13 — MEIA NOITE — 128GB — SEMINOVO — R$ 1.810,00 | Bat: 93%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Vcs tem foto desse 13", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["mp:iphone-13-128"]
+    assert decision.image_urls == [
+        "https://photos.example/iphone-13-meia-noite-128.jpg"
+    ]
+    assert "iPhone 13" in decision.reply
+
+    stock_decision = await agent.respond("Vcs tem o iPhone 14 seminovo?")
+
+    assert stock_decision.image_urls == []
+    assert "não localizei" in stock_decision.reply.lower()
+
+
 def test_generic_apple_buyback_question_uses_the_evaluation_flow():
     assert is_trade_in_request("Vocês compram algum produto Apple?") is True
     assert is_trade_in_request("A loja compra celular usado?") is True
