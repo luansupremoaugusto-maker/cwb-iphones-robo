@@ -144,6 +144,8 @@ def _explicit_image_availability_query(
     normalized_text = _normalize(text)
     if not image_description or _requested_iphone_model_keys(text):
         return None
+    if _is_available_list_request(text):
+        return None
     has_stock_word = bool(
         re.search(r"\b(?:disponivel|disponibilidade|estoque)\b", normalized_text)
     )
@@ -154,9 +156,9 @@ def _explicit_image_availability_query(
             normalized_text,
         )
     )
-    asks_about_stock = has_stock_word or (
-        refers_to_image
-        and re.search(r"\b(?:tem|teria|possui|sobrou|restou)\b", normalized_text)
+    asks_about_stock = refers_to_image and (
+        has_stock_word
+        or re.search(r"\b(?:tem|teria|possui|sobrou|restou)\b", normalized_text)
     )
     if not asks_about_stock:
         return None

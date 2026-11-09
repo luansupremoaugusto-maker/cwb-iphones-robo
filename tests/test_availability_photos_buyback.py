@@ -466,6 +466,106 @@ async def test_image_stock_lookup_reports_requested_capacity_unavailable(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_image_stock_lookup_preserves_requested_color(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-13-pro-color-unavailable.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-256-preto",
+            name="iPhone 13 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="PRETO",
+            price_brl=3500,
+            quantity=0,
+            availability="Indisponível",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text="iphone 13 pro 256 gb preto seminovo indisponível",
+        ),
+        InventoryItem(
+            external_id="iphone-13-pro-256-prateado",
+            name="iPhone 13 Pro",
+            category="Celular",
+            capacity="256 GB",
+            color="PRATEADO",
+            price_brl=3500,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text="iphone 13 pro 256 gb prateado seminovo disponível para venda",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Esse está disponível?",
+        image_description=(
+            "Descrição visual da imagem recebida: iPhone 13 Pro 256 GB preto."
+        ),
+    )
+
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert "não localizei" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_image_does_not_override_general_stock_list_request(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "general-stock-list-with-image.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-pro-256",
+            name="iPhone 13 Pro",
+            category="Celular",
+            capacity="256 GB",
+            price_brl=3500,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text="iphone 13 pro 256 gb seminovo disponível para venda",
+        ),
+        InventoryItem(
+            external_id="iphone-15-128",
+            name="iPhone 15",
+            category="Celular",
+            capacity="128 GB",
+            price_brl=3900,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            search_text="iphone 15 128 gb seminovo disponível para venda",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(
+        "Quais modelos vocês têm em estoque?",
+        image_description=(
+            "Descrição visual da imagem recebida: iPhone 13 Pro 256 GB."
+        ),
+    )
+
+    assert decision.handoff is False
+    assert "iPhone 13 Pro" in decision.reply
+    assert "iPhone 15" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_unidentified_image_stock_query_asks_for_model_without_handoff(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

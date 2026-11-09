@@ -3006,6 +3006,7 @@ class AgentService:
             decision = await self._try_product_availability(
                 f"{text} {image_availability_models}",
                 history=history,
+                image_description=image_description,
             )
             if decision is not None:
                 return protect_customer_decision(decision)
