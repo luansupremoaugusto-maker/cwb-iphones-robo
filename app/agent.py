@@ -3099,6 +3099,9 @@ class AgentService:
                     confidence="high",
                 )
             )
+        sealed_order_payment_decision = self._try_sealed_order_payment(text, history)
+        if sealed_order_payment_decision is not None:
+            return protect_customer_decision(sealed_order_payment_decision)
         if _is_catalog_purchase_advice_question(combined_request, history):
             return protect_customer_decision(
                 AgentDecision(
@@ -3562,6 +3565,16 @@ class AgentService:
             _try_payment_methods as _agent_handler,
         )
         return _agent_handler(self, text)
+
+    def _try_sealed_order_payment(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+    ) -> AgentDecision | None:
+        from app.agent_handlers.payments import (
+            _try_sealed_order_payment as _agent_handler,
+        )
+        return _agent_handler(self, text, history)
 
     async def _try_combined_catalog_payment_methods(
         self,

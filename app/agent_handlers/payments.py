@@ -18,6 +18,7 @@ from app.agent import (
     _format_ambiguous_installment_decision,
     _has_explicit_sealed_condition,
     _has_installment_product_context,
+    _has_product_reference,
     _has_recent_card_installment_simulation,
     _has_recent_catalog_sale_context,
     _has_recent_specific_installment_selection,
@@ -306,6 +307,59 @@ def _try_payment_methods(self, text: str) -> AgentDecision | None:
         )
     return AgentDecision(
         reply=self._append_delivery_or_pickup_info(reply, text),
+        confidence="high",
+    )
+
+
+def _has_sealed_order_context(text: str, history: list[dict[str, str]] | None) -> bool:
+    sealed_order = re.compile(r"\b(?:lacrad\w*|encomend\w*)\b")
+    if sealed_order.search(_normalize(text)):
+        return True
+
+    for entry in reversed((history or [])[-8:]):
+        content = entry.get("content", "")
+        normalized = _normalize(content)
+        if not normalized:
+            continue
+        if entry.get("role") == "user" and sealed_order.search(normalized):
+            return True
+        if entry.get("role") != "assistant" or not _has_product_reference(normalized):
+            continue
+        return bool(sealed_order.search(normalized))
+    return False
+
+
+def _try_sealed_order_payment(
+    self,
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> AgentDecision | None:
+    normalized = _normalize(text)
+    asks_payment_process = bool(
+        re.search(
+            r"\bcomo\b.{0,45}\b(?:funcion\w*|pagamento|pagar)\b.{0,35}\b(?:pagamento|pagar)\b"
+            r"|\b(?:pagamento|pagar)\b.{0,35}\b(?:como|funcion\w*)\b",
+            normalized,
+        )
+    ) or (
+        bool(re.search(r"\b(?:lacrad\w*|encomend\w*)\b", normalized))
+        and _is_payment_methods_question(text)
+    )
+    if (
+        _is_payment_link_request(text)
+        or not asks_payment_process
+        or not _has_sealed_order_context(text, history)
+    ):
+        return None
+
+    order_information = self.faq.get("lacrados") or (
+        "Os aparelhos novos lacrados são vendidos por encomenda, com prazo de "
+        "entrega de 1 semana. Para envios, o pagamento deve ser antecipado "
+        "antes do despacho; na retirada na loja, o pagamento é feito na hora."
+    )
+    payment_methods = self.faq.get("pagamento") or PAYMENT_METHODS_REPLY
+    return AgentDecision(
+        reply=f"{order_information}\n\n{payment_methods}",
         confidence="high",
     )
 
