@@ -3499,6 +3499,35 @@ async def test_model_answer_with_article_after_trade_in_question_sends_form(tmp_
 
 
 @pytest.mark.asyncio
+async def test_model_confirmation_after_trade_in_question_sends_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Vocês aceitam 16 na troca?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Aceitamos aparelhos Apple na troca, mediante avaliação. "
+                "Para o seu iPhone 16, é necessário preencher o formulário de avaliação. "
+                "Você pode me confirmar se é iPhone 16, 16 Plus, 16 Pro ou 16 Pro Max?"
+            ),
+        },
+    ]
+
+    decision = await service.respond("iPhone 16", history=history)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_device_answer_to_catalog_question_does_not_send_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
