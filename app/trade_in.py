@@ -303,6 +303,13 @@ _REPLACED_DEVICE_COMPONENT_DETAIL_RE = re.compile(
 def _has_abbreviated_iphone_buyback_profile(text: str) -> bool:
     """Recognize an owned bare iPhone model described for evaluation."""
     normalized = _normalize(text)
+    has_owned_bare_model_buyback_profile = bool(
+        _OWNED_NUMBERED_IPHONE_RE.search(normalized)
+        and _BUYBACK_VERB_RE.search(normalized)
+        and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
+        and not _PARTS_BUYBACK_OBJECT_RE.search(normalized)
+        and not _EXPLICIT_PART_ONLY_OFFER_RE.search(normalized)
+    )
     has_battery_health_profile = bool(
         re.search(r"\b(?:comprei|tenho|possuo|meu|minha)\b", normalized)
         and _BATTERY_PERCENT_AFTER_BATTERY_RE.search(normalized)
@@ -312,8 +319,13 @@ def _has_abbreviated_iphone_buyback_profile(text: str) -> bool:
         and _REPLACED_DEVICE_COMPONENT_DETAIL_RE.search(normalized)
     )
     return bool(
-        _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE.search(normalized)
-        and (has_battery_health_profile or has_replaced_component_profile)
+        (
+            (
+                _STORE_BUYBACK_WITH_BARE_IPHONE_MODEL_RE.search(normalized)
+                and (has_battery_health_profile or has_replaced_component_profile)
+            )
+            or has_owned_bare_model_buyback_profile
+        )
         and not _NON_APPLE_RE.search(normalized)
         and not _DEVICE_COMPONENT_REPAIR_RE.search(normalized)
         and not _NEGATION_RE.search(normalized)
@@ -2309,6 +2321,10 @@ _COMPLETE_DEVICE_CLARIFICATION_RE = re.compile(
     r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho)\b",
     re.IGNORECASE,
 )
+_NOT_PARTS_CLARIFICATION_RE = re.compile(
+    r"\bnao\s+(?:e|eh)\s+avuls[oa]s?\b",
+    re.IGNORECASE,
+)
 _NEGATED_COMPLETE_DEVICE_CLARIFICATION_RE = re.compile(
     r"\b(?:nao|nunca|jamais)\b[,;]?\s+(?:e|esta|ta|veio|tem)\b.{0,20}"
     r"\b(?:complet[oa]s?|inteir[oa]s?)\b",
@@ -2320,11 +2336,14 @@ def _is_complete_device_clarification_after_parts_reply(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> bool:
-    """Resume evaluation when a customer clarifies a device is complete."""
+    """Resume evaluation when a customer clarifies a prior offer was not a part."""
     if (
         not history
         or trade_in_em_andamento(history)
-        or not _COMPLETE_DEVICE_CLARIFICATION_RE.search(text)
+        or not (
+            _COMPLETE_DEVICE_CLARIFICATION_RE.search(text)
+            or _NOT_PARTS_CLARIFICATION_RE.search(text)
+        )
         or _NEGATED_COMPLETE_DEVICE_CLARIFICATION_RE.search(text)
     ):
         return False
@@ -2346,12 +2365,12 @@ def _is_complete_device_clarification_after_parts_reply(
         if entry.get("role") == "user" and entry.get("content")
     )
     return bool(
-        _BARE_IPHONE_MODEL_RE.search(prior_user_context)
+        _OWNED_NUMBERED_IPHONE_RE.search(prior_user_context)
         and _COMPLETE_DEVICE_DETAIL_RE.search(prior_user_context)
         and _BUYBACK_VERB_RE.search(prior_user_context)
-        and not _PARTS_BUYBACK_OBJECT_RE.search(prior_user_context)
+        and not is_parts_buyback_request(prior_user_context)
         and not _EXPLICIT_PART_ONLY_OFFER_RE.search(prior_user_context)
-        and not _NON_APPLE_RE.search(prior_user_context)
+        and not _NON_APPLE_RE.search(f"{prior_user_context} {text}")
     )
 
 
