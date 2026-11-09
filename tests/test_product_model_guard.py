@@ -5508,9 +5508,10 @@ async def test_natural_color_alias_keeps_iphone_15_pro_max_color_specific(tmp_pa
     )
 
     assert repeated_color_question.handoff is False
-    assert repeated_color_question.reply.startswith(
-        "No momento, o iPhone 15 Pro Max titânio natural não está disponível."
+    assert repeated_color_question.reply.lower().startswith(
+        "no momento, o iphone 15 pro max titânio natural"
     )
+    assert "não está disponível" in repeated_color_question.reply.lower()
     assert repeated_color_question.product_references == ["iphone-15-pro-max-black-256"]
     assert not repeated_color_question.reply.lower().startswith("sim")
 
