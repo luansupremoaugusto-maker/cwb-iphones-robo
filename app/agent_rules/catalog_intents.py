@@ -157,7 +157,14 @@ def _explicit_image_availability_query(
             normalized_text,
         )
     )
-    asks_about_stock = refers_to_image and (
+    implicit_image_reference = bool(
+        re.fullmatch(
+            r"(?:ainda\s+)?(?:esta|ta|continua|segue)(?:\s+ainda)?\s+"
+            r"(?:disponivel|em\s+estoque|no\s+estoque)\s*[?.!]*",
+            normalized_text,
+        )
+    )
+    asks_about_stock = (refers_to_image or implicit_image_reference) and (
         has_stock_word
         or re.search(r"\b(?:tem|teria|possui|sobrou|restou)\b", normalized_text)
     )

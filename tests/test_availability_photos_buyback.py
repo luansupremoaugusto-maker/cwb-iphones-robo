@@ -384,7 +384,11 @@ async def test_photo_request_for_model_listed_in_prior_availability_reply(tmp_pa
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "availability_question",
-    ["Tem disponibilidade desse aparelho?", "Esse está disponível?"],
+        [
+            "Tem disponibilidade desse aparelho?",
+            "Esse está disponível?",
+            "Ainda está disponível ?",
+        ],
 )
 async def test_image_stock_lookup_preserves_model_and_capacity(
     tmp_path,
