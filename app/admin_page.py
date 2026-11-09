@@ -105,6 +105,7 @@ _PAGE_TEMPLATE = """<!doctype html>
     .panel > [hidden] { display: none !important; }
     .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .operational-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .usage-summary { grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 18px 0; }
     .summary-card { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 15px; }
     .summary-card strong { display: block; font-size: 25px; line-height: 1.15; margin-top: 3px; }
     .summary-card span { color: var(--muted); font-size: 13px; }
@@ -193,6 +194,11 @@ _PAGE_TEMPLATE = """<!doctype html>
     .control-grid { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.2fr) minmax(260px, 1.4fr) auto; }
     .sessions-table table { min-width: 720px; }
     .field { display: grid; gap: 5px; }
+    .usage-budget-form { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(230px, 1fr) auto; }
+    .usage-budget-form .field { max-width: 420px; }
+    .usage-alert { margin: 12px 0; }
+    .usage-table { margin-top: 12px; }
+    .usage-table table { min-width: 980px; }
     #phone-field[hidden] { display: none; }
     label { font-size: 13px; font-weight: 700; }
     .warning { background: #fffaeb; border: 1px solid #fedf89; border-radius: 9px; color: #7a2e0b; font-size: 13px; margin: 14px 0 0; padding: 10px 12px; }
@@ -202,9 +208,9 @@ _PAGE_TEMPLATE = """<!doctype html>
       .actions { width: 100%; }
       .actions > * { flex: 1; text-align: center; }
       .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .operational-summary, .health-grid, .monitoring-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .operational-summary, .usage-summary, .health-grid, .monitoring-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .panel-heading { flex-direction: column; }
-      .command-grid, .control-grid { grid-template-columns: 1fr; }
+      .command-grid, .control-grid, .usage-budget-form { grid-template-columns: 1fr; }
       .command-grid button, .control-grid button { width: 100%; }
     }
   </style>
@@ -285,6 +291,72 @@ _PAGE_TEMPLATE = """<!doctype html>
         <div class="monitoring-card"><strong>Fontes desatualizadas</strong><p id="monitoring-stale-status">Verificando…</p></div>
         <div class="monitoring-card"><strong>Falhas nas últimas 24 horas</strong><p id="monitoring-error-status">Verificando…</p></div>
       </div>
+    </section>
+
+    <section class="panel" data-panel-key="llm-usage" aria-labelledby="llm-usage-title">
+      <div class="panel-heading">
+        <div>
+          <h2 id="llm-usage-title">Uso dos modelos de IA</h2>
+          <p class="muted">Chamadas e tokens por etapa, no horário UTC. Nenhuma mensagem ou telefone é salvo nesta medição.</p>
+        </div>
+        <div class="actions">
+          <button id="refresh-llm-usage" class="secondary" type="button">Atualizar uso</button>
+          <a class="button-link secondary" href="https://platform.openai.com/usage" target="_blank" rel="noopener">Conferir cobrança na OpenAI</a>
+          <button class="panel-toggle" type="button" data-panel-toggle aria-expanded="true" aria-label="Minimizar painel" title="Minimizar painel">−</button>
+        </div>
+      </div>
+      <div class="summary-grid usage-summary" aria-label="Resumo do uso dos modelos">
+        <div class="summary-card"><span>Chamadas hoje</span><strong id="llm-today-calls">—</strong></div>
+        <div class="summary-card"><span>Tokens contabilizados hoje</span><strong id="llm-today-tokens">—</strong></div>
+        <div class="summary-card"><span>Chamadas no mês</span><strong id="llm-month-calls">—</strong></div>
+        <div class="summary-card"><span>Tokens contabilizados no mês</span><strong id="llm-month-tokens">—</strong></div>
+        <div class="summary-card"><span>Falhas no período</span><strong id="llm-period-errors">—</strong></div>
+      </div>
+      <div id="llm-usage-alert" class="warning usage-alert" role="status" aria-live="polite">Carregando medição…</div>
+      <div class="export-panel">
+        <div>
+          <h3>Alerta diário de tokens</h3>
+          <p class="muted">O alerta avisa ao atingir 80% do limite e novamente ao ultrapassá-lo. Não bloqueia mensagens. Use 0 para desativar.</p>
+        </div>
+        <form id="llm-usage-budget-form" class="usage-budget-form">
+          <div class="field">
+            <label for="llm-daily-token-budget">Limite diário de tokens</label>
+            <input id="llm-daily-token-budget" type="number" min="0" max="9223372036854775807" step="1000" placeholder="0 = sem limite">
+          </div>
+          <button id="llm-usage-budget-submit" type="submit">Salvar limite</button>
+        </form>
+        <p id="llm-usage-budget-status" class="status muted" role="status" aria-live="polite"></p>
+      </div>
+      <p id="llm-usage-status" class="status muted" role="status" aria-live="polite">Aguardando dados…</p>
+      <h3>Uso diário · últimos 30 dias</h3>
+      <div class="table-wrap compact-table usage-table">
+        <table>
+          <thead><tr><th>Data UTC</th><th>Chamadas</th><th>Solicitações</th><th>Entrada</th><th>Saída</th><th>Total</th><th>Falhas</th><th>Sem tokens</th></tr></thead>
+          <tbody id="llm-usage-daily-body"></tbody>
+        </table>
+      </div>
+      <h3 style="margin-top:18px">Consumo por mês · últimos 12 meses</h3>
+      <div class="table-wrap compact-table usage-table">
+        <table>
+          <thead><tr><th>Mês UTC</th><th>Chamadas</th><th>Solicitações</th><th>Entrada</th><th>Saída</th><th>Total</th><th>Falhas</th><th>Sem tokens</th></tr></thead>
+          <tbody id="llm-usage-monthly-body"></tbody>
+        </table>
+      </div>
+      <h3 style="margin-top:18px">Por etapa e modelo · últimos 30 dias</h3>
+      <div class="table-wrap compact-table usage-table">
+        <table>
+          <thead><tr><th>Etapa</th><th>Modelo</th><th>Chamadas</th><th>Solicitações</th><th>Entrada</th><th>Saída</th><th>Total</th><th>Sem tokens</th><th>Falhas</th></tr></thead>
+          <tbody id="llm-usage-stage-body"></tbody>
+        </table>
+      </div>
+      <h3 style="margin-top:18px">Por mês, etapa e modelo · últimos 12 meses</h3>
+      <div class="table-wrap compact-table usage-table">
+        <table>
+          <thead><tr><th>Mês UTC</th><th>Etapa</th><th>Modelo</th><th>Chamadas</th><th>Solicitações</th><th>Tokens</th><th>Sem tokens</th><th>Falhas</th></tr></thead>
+          <tbody id="llm-usage-monthly-stage-body"></tbody>
+        </table>
+      </div>
+      <p class="source-note">Transcrição de áudio é cobrada por duração e pode não retornar tokens para contabilização aqui. Compare o gasto real no Usage da OpenAI; o painel externo é a referência de cobrança.</p>
     </section>
 
     <section class="panel" data-panel-key="conversation-lookup" aria-labelledby="conversation-lookup-title">
@@ -554,9 +626,17 @@ _PAGE_TEMPLATE = """<!doctype html>
       };
       const itemText = (item) => [item.nome, item.capacidade, item.condicao, item.cor, item.disponibilidade, ...(item.cores || [])].join(" ").toLocaleLowerCase();
       const asText = (value, fallback = "—") => value === null || value === undefined || value === "" ? fallback : String(value);
+      const formatCount = (value) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(Number(value || 0));
+      const formatPercent = (value) => `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(Number(value || 0))}%`;
       const batteryText = (value) => value === null || value === undefined || value === "" ? "—" : `${value}%`;
       const queueText = (item) => [item.chat_name, item.phone, item.status, item.status_label, item.last_message, item.paused_reason].join(" ").toLocaleLowerCase();
       const auditText = (item) => [item.event_type, item.subject, JSON.stringify(item.detail || {})].join(" ").toLocaleLowerCase();
+      const llmStageLabels = {
+        turn_interpreter: "Interpretação de contexto",
+        customer_agent: "Resposta ao cliente",
+        audio_transcription: "Transcrição de áudio",
+        image_analysis: "Análise de imagem"
+      };
 
       async function fetchJson(path, options = {}) {
         const response = await fetch(path, { credentials: "same-origin", ...options });
@@ -965,6 +1045,112 @@ _PAGE_TEMPLATE = """<!doctype html>
         }
       }
 
+      function renderLLMUsage(data) {
+        const today = data.today || {};
+        const month = data.month_to_date || {};
+        const period = data.period || {};
+        byId("llm-today-calls").textContent = formatCount(today.calls);
+        byId("llm-today-tokens").textContent = formatCount(today.total_tokens);
+        byId("llm-month-calls").textContent = formatCount(month.calls);
+        byId("llm-month-tokens").textContent = formatCount(month.total_tokens);
+        byId("llm-period-errors").textContent = formatCount(period.errors);
+
+        const budget = data.budget || {};
+        const alert = byId("llm-usage-alert");
+        const limit = budget.daily_token_limit;
+        if (budget.status === "unconfigured") {
+          alert.textContent = "Alerta diário desativado. Configure um limite abaixo para receber avisos ao atingir 80% e 100%.";
+        } else if (budget.status === "exceeded") {
+          alert.textContent = `Limite diário ultrapassado: ${formatCount(budget.used_tokens)} de ${formatCount(limit)} tokens contabilizados (${formatPercent(budget.percent)}).`;
+        } else if (budget.status === "warning") {
+          alert.textContent = `Atenção: ${formatCount(budget.used_tokens)} de ${formatCount(limit)} tokens contabilizados hoje (${formatPercent(budget.percent)} do limite).`;
+        } else {
+          alert.textContent = `Uso de hoje: ${formatCount(budget.used_tokens)} de ${formatCount(limit)} tokens contabilizados (${formatPercent(budget.percent)} do limite).`;
+        }
+        if (budget.tracking_incomplete) {
+          alert.textContent += ` Há ${formatCount(today.unknown_token_calls)} chamada(s) sem tokens informados pela API; o total contabilizado pode estar incompleto.`;
+        }
+        byId("llm-daily-token-budget").value = limit ?? 0;
+        const canManage = data.permissions?.manage_budget === true;
+        byId("llm-daily-token-budget").disabled = !canManage;
+        byId("llm-usage-budget-submit").disabled = !canManage;
+        byId("llm-usage-budget-status").textContent = canManage ? "" : "Somente o perfil proprietário pode alterar o limite.";
+
+        const dailyBody = byId("llm-usage-daily-body");
+        dailyBody.replaceChildren();
+        (data.daily || []).forEach((item) => {
+          const row = document.createElement("tr");
+          [item.date, formatCount(item.calls), formatCount(item.requests), formatCount(item.input_tokens), formatCount(item.output_tokens), formatCount(item.total_tokens), formatCount(item.errors), formatCount(item.unknown_token_calls)].forEach((value) => appendCell(row, value));
+          dailyBody.append(row);
+        });
+        if (!dailyBody.children.length) {
+          const row = document.createElement("tr");
+          const cell = appendCell(row, "Nenhuma chamada registrada neste período.");
+          cell.colSpan = 8;
+          dailyBody.append(row);
+        }
+
+        const monthlyBody = byId("llm-usage-monthly-body");
+        monthlyBody.replaceChildren();
+        (data.monthly || []).forEach((item) => {
+          const row = document.createElement("tr");
+          [item.month, formatCount(item.calls), formatCount(item.requests), formatCount(item.input_tokens), formatCount(item.output_tokens), formatCount(item.total_tokens), formatCount(item.errors), formatCount(item.unknown_token_calls)].forEach((value) => appendCell(row, value));
+          monthlyBody.append(row);
+        });
+        if (!monthlyBody.children.length) {
+          const row = document.createElement("tr");
+          const cell = appendCell(row, "Nenhum dado mensal disponível.");
+          cell.colSpan = 8;
+          monthlyBody.append(row);
+        }
+
+        const stageBody = byId("llm-usage-stage-body");
+        stageBody.replaceChildren();
+        (data.stages || []).forEach((item) => {
+          const row = document.createElement("tr");
+          [llmStageLabels[item.stage] || item.stage, item.model, formatCount(item.calls), formatCount(item.requests), formatCount(item.input_tokens), formatCount(item.output_tokens), formatCount(item.total_tokens), formatCount(item.unknown_token_calls), formatCount(item.errors)].forEach((value) => appendCell(row, value));
+          stageBody.append(row);
+        });
+        if (!stageBody.children.length) {
+          const row = document.createElement("tr");
+          const cell = appendCell(row, "Nenhuma chamada registrada neste período.");
+          cell.colSpan = 9;
+          stageBody.append(row);
+        }
+
+        const monthlyStageBody = byId("llm-usage-monthly-stage-body");
+        monthlyStageBody.replaceChildren();
+        (data.monthly_stages || []).forEach((item) => {
+          const row = document.createElement("tr");
+          [item.month, llmStageLabels[item.stage] || item.stage, item.model, formatCount(item.calls), formatCount(item.requests), formatCount(item.total_tokens), formatCount(item.unknown_token_calls), formatCount(item.errors)].forEach((value) => appendCell(row, value));
+          monthlyStageBody.append(row);
+        });
+        if (!monthlyStageBody.children.length) {
+          const row = document.createElement("tr");
+          const cell = appendCell(row, "Nenhuma chamada registrada neste período.");
+          cell.colSpan = 8;
+          monthlyStageBody.append(row);
+        }
+      }
+
+      async function loadLLMUsage() {
+        const status = byId("llm-usage-status");
+        const button = byId("refresh-llm-usage");
+        status.className = "status muted";
+        status.textContent = "Atualizando medição…";
+        button.disabled = true;
+        try {
+          const data = await fetchJson("/admin/api/llm-usage?days=30");
+          renderLLMUsage(data);
+          status.textContent = `Período de ${data.period_start} a ${data.period_end} (UTC). Atualizado ${formatDate(data.generated_at)}.`;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      }
+
       async function loadHumanQueue() {
         const status = byId("human-queue-status");
         status.className = "status muted";
@@ -1221,6 +1407,41 @@ _PAGE_TEMPLATE = """<!doctype html>
       updateExportStatus();
       byId("catalog-search").addEventListener("input", renderTable);
       byId("refresh-dashboard").addEventListener("click", loadDashboard);
+      byId("refresh-llm-usage").addEventListener("click", loadLLMUsage);
+      byId("llm-usage-budget-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const input = byId("llm-daily-token-budget");
+        const rawValue = input.value.trim();
+        const parsed = rawValue === "" ? null : Number(rawValue);
+        const status = byId("llm-usage-budget-status");
+        if (parsed !== null && (!Number.isSafeInteger(parsed) || parsed < 0)) {
+          status.className = "status error";
+          status.textContent = "Informe um limite inteiro igual ou maior que zero.";
+          return;
+        }
+        const button = byId("llm-usage-budget-submit");
+        status.className = "status muted";
+        status.textContent = "Salvando limite…";
+        button.disabled = true;
+        try {
+          const response = await fetch("/admin/api/llm-usage/budget", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Admin-CSRF": csrfToken },
+            body: JSON.stringify({ daily_token_budget: parsed === 0 ? null : parsed })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || "Não foi possível salvar o limite.");
+          await loadLLMUsage();
+          status.className = "status success";
+          status.textContent = result.message;
+        } catch (error) {
+          status.className = "status error";
+          status.textContent = error.message;
+        } finally {
+          button.disabled = byId("llm-daily-token-budget").disabled;
+        }
+      });
       byId("refresh-queue").addEventListener("click", loadHumanQueue);
       byId("refresh-audit").addEventListener("click", loadAudit);
       byId("human-queue-search").addEventListener("input", renderHumanQueue);
@@ -1302,6 +1523,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       invalidateCommandPreview();
       loadCatalog();
       loadOperationalPanel();
+      loadLLMUsage();
       loadControl();
       loadSessions();
     })();

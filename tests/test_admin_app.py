@@ -431,6 +431,71 @@ def test_admin_dashboard_returns_conversation_counts_and_source_health(configure
     assert isinstance(payload["sources"]["zapi"]["ok"], bool)
 
 
+def test_admin_llm_usage_requires_auth_and_returns_privacy_minimal_metrics(configured_runtime):
+    configured_runtime.repository.record_llm_usage(
+        stage="customer_agent",
+        model="gpt-6-luna",
+        requests=1,
+        input_tokens=12,
+        output_tokens=8,
+        total_tokens=20,
+    )
+
+    with TestClient(create_app(configured_runtime)) as client:
+        unauthenticated = client.get("/admin/api/llm-usage")
+        response = client.get("/admin/api/llm-usage?days=30", auth=("admin", "secret"))
+        invalid_period = client.get("/admin/api/llm-usage?days=0", auth=("admin", "secret"))
+
+    assert unauthenticated.status_code == 401
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    payload = response.json()
+    assert payload["today"]["calls"] == 1
+    assert payload["today"]["total_tokens"] == 20
+    assert payload["stages"][0]["stage"] == "customer_agent"
+    assert "phone" not in payload
+    assert "prompt" not in payload
+    assert invalid_period.status_code == 400
+
+
+def test_admin_llm_usage_budget_requires_owner_and_csrf(configured_runtime):
+    token = build_admin_csrf_token(configured_runtime.settings)
+    with TestClient(create_app(configured_runtime)) as client:
+        missing_csrf = client.post(
+            "/admin/api/llm-usage/budget",
+            auth=("admin", "secret"),
+            json={"daily_token_budget": 1000},
+        )
+        accepted = client.post(
+            "/admin/api/llm-usage/budget",
+            auth=("admin", "secret"),
+            headers={"X-Admin-CSRF": token},
+            json={"daily_token_budget": 1000},
+        )
+
+    assert missing_csrf.status_code == 403
+    assert accepted.status_code == 200
+    assert accepted.json()["daily_token_budget"] == 1000
+    assert configured_runtime.repository.get_llm_daily_token_budget() == 1000
+    assert configured_runtime.repository.list_audit_events(limit=1)[0]["event_type"] == "llm_usage_budget_updated"
+
+
+def test_admin_llm_usage_budget_cannot_be_changed_by_operator(configured_runtime):
+    configured_runtime.settings.admin_role = "operator"
+    token = build_admin_csrf_token(configured_runtime.settings)
+
+    with TestClient(create_app(configured_runtime)) as client:
+        response = client.post(
+            "/admin/api/llm-usage/budget",
+            auth=("admin", "secret"),
+            headers={"X-Admin-CSRF": token},
+            json={"daily_token_budget": 1000},
+        )
+
+    assert response.status_code == 403
+    assert configured_runtime.repository.get_llm_daily_token_budget() is None
+
+
 def test_admin_queue_returns_human_conversations_with_latest_message(configured_runtime):
     configured_runtime.repository.get_or_create_conversation("5511888888888", "Maria")
     configured_runtime.repository.add_message(

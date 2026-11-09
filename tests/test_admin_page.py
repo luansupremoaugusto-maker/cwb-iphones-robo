@@ -72,6 +72,20 @@ def test_admin_page_contains_dashboard_queue_and_audit_sections():
     assert "/admin/api/audit" in html
 
 
+def test_admin_page_includes_llm_usage_monitoring_and_budget_controls():
+    from app.admin_page import render_admin_page
+
+    html = render_admin_page("csrf-token")
+
+    assert 'data-panel-key="llm-usage"' in html
+    assert "/admin/api/llm-usage?days=30" in html
+    assert "/admin/api/llm-usage/budget" in html
+    assert "turn_interpreter" in html
+    assert "audio_transcription" in html
+    assert "platform.openai.com/usage" in html
+    assert "Nenhuma mensagem ou telefone é salvo nesta medição." in html
+
+
 def test_admin_page_does_not_render_recovery_queue():
     from app.admin_page import render_admin_page
 

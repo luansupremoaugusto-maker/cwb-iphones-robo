@@ -18,6 +18,7 @@ from urllib.parse import parse_qs
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
 
 from app.admin import (
     AdminCommandRequest,
@@ -63,6 +64,10 @@ ADMIN_SESSION_MAX_AGE = 8 * 60 * 60
 RECOVERY_CONVERSATION_STATUSES = frozenset(("bot_active", "human_pending", "human_active"))
 logger = logging.getLogger(__name__)
 _ADMIN_NO_STORE_HEADERS = {"Cache-Control": "no-store"}
+
+
+class LLMUsageBudgetRequest(BaseModel):
+    daily_token_budget: int | None = Field(default=None, ge=0, le=2**63 - 1)
 
 
 def _parse_basic_authorization(value: str | None) -> tuple[str, str] | None:
@@ -646,6 +651,46 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         }
         return _admin_json(
             payload
+        )
+
+    @app.get("/admin/api/llm-usage")
+    async def admin_llm_usage(request: Request, days: int = 30) -> dict[str, Any]:
+        _require_admin_operator(request)
+        if days < 1 or days > 366:
+            raise HTTPException(status_code=400, detail="O período deve ter entre 1 e 366 dias")
+        current: Runtime = request.app.state.runtime
+        payload = current.repository.llm_usage_summary(days=days)
+        payload["permissions"] = {
+            "manage_budget": str(current.settings.admin_role).strip().lower() == "owner",
+        }
+        return _admin_json(payload)
+
+    @app.post("/admin/api/llm-usage/budget")
+    async def admin_llm_usage_budget(
+        command: LLMUsageBudgetRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        operator = _require_admin_owner(request)
+        current: Runtime = request.app.state.runtime
+        _require_admin_csrf(request, current.settings)
+        try:
+            budget = current.repository.set_llm_daily_token_budget(command.daily_token_budget)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Limite diário de tokens inválido") from exc
+        current.repository.audit(
+            "llm_usage_budget_updated",
+            None,
+            {"daily_token_budget": budget, "operator": operator},
+        )
+        return _admin_json(
+            {
+                "daily_token_budget": budget,
+                "message": (
+                    "Alerta diário desativado."
+                    if budget is None
+                    else f"Alerta diário configurado para {budget:,} tokens.".replace(",", ".")
+                ),
+            }
         )
 
     @app.get("/admin/api/control")

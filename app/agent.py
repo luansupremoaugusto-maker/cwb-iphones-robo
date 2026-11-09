@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agents import Agent, ModelSettings, Runner, function_tool, set_default_openai_key
@@ -44,6 +45,7 @@ from app.installments import (
     simulate_installment_table_with_entry,
     simulate_installment_with_entry,
 )
+from app.llm_usage import agent_run_usage, record_llm_usage_safely
 from app.safety import protect_customer_decision
 from app.schemas import AgentDecision, InventoryItem, TurnInterpretation
 from app.trade_in import (
@@ -2712,11 +2714,19 @@ def build_turn_interpreter(settings: Settings) -> Agent:
 
 
 class AgentService:
-    def __init__(self, cache: InventoryCache, faq: FAQStore, settings: Settings, offline: bool = False):
+    def __init__(
+        self,
+        cache: InventoryCache,
+        faq: FAQStore,
+        settings: Settings,
+        offline: bool = False,
+        usage_recorder: Callable[..., Any] | None = None,
+    ):
         self.cache = cache
         self.faq = faq
         self.settings = settings
         self.offline = offline
+        self.usage_recorder = usage_recorder
         if not offline and settings.openai_api_key:
             set_default_openai_key(settings.openai_api_key, use_for_tracing=False)
             set_tracing_disabled(True)
@@ -2725,6 +2735,24 @@ class AgentService:
             build_turn_interpreter(settings)
             if not offline and settings.openai_api_key
             else None
+        )
+
+    def _record_model_run(
+        self,
+        stage: str,
+        started_at: float,
+        *,
+        result: Any = None,
+        error: Exception | None = None,
+    ) -> None:
+        record_llm_usage_safely(
+            self.usage_recorder,
+            stage=stage,
+            model=self.settings.openai_model,
+            status="error" if error is not None else "success",
+            duration_ms=round((time.perf_counter() - started_at) * 1000),
+            usage=agent_run_usage(result) if result is not None else None,
+            error=error,
         )
 
     @staticmethod
@@ -2769,8 +2797,16 @@ class AgentService:
                 current,
             ]
         )
+        started_at = time.perf_counter()
         try:
             result = await Runner.run(self.turn_interpreter, prompt, max_turns=1)
+        except Exception as exc:
+            self._record_model_run("turn_interpreter", started_at, error=exc)
+            # A failed interpretation should leave the established deterministic
+            # handlers available for this turn.
+            return None
+        self._record_model_run("turn_interpreter", started_at, result=result)
+        try:
             output = result.final_output
             return (
                 output
@@ -2778,8 +2814,6 @@ class AgentService:
                 else TurnInterpretation.model_validate(output)
             )
         except Exception:
-            # A failed interpretation should leave the established deterministic
-            # handlers available for this turn.
             return None
 
     async def _run_customer_agent(
@@ -2808,8 +2842,14 @@ class AgentService:
         if image_description:
             current += f"\nDescrição cautelosa da imagem: {image_description}"
         prompt = "\n".join([*context_lines, f"Cliente: {current}"])
+        started_at = time.perf_counter()
         try:
             result = await Runner.run(self.agent, prompt, max_turns=6)
+        except Exception as exc:
+            self._record_model_run("customer_agent", started_at, error=exc)
+            return None
+        self._record_model_run("customer_agent", started_at, result=result)
+        try:
             output = result.final_output
             decision = (
                 output

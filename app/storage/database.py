@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     and_,
+    case,
     create_engine,
     delete,
     func,
@@ -32,6 +33,10 @@ from sqlalchemy.pool import StaticPool
 from app.config import normalize_phone, phone_variants
 
 JOB_LEASE_SECONDS = 5 * 60
+LLM_USAGE_RETENTION_DAYS = 400
+LLM_USAGE_STAGES = frozenset(
+    {"turn_interpreter", "customer_agent", "audio_transcription", "image_analysis"}
+)
 
 
 def utc_now() -> datetime:
@@ -184,6 +189,31 @@ class AuditEventRecord(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
+class LLMUsageRecord(Base):
+    """Privacy-minimal usage metrics for one model/API invocation."""
+
+    __tablename__ = "llm_usage_events"
+    __table_args__ = (
+        Index("ix_llm_usage_events_day_stage_model", "usage_day", "stage", "model"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    usage_day = Column(String(10), nullable=False, index=True)
+    stage = Column(String(40), nullable=False, index=True)
+    model = Column(String(128), nullable=False)
+    status = Column(String(16), nullable=False, default="success", index=True)
+    calls = Column(Integer, nullable=False, default=1)
+    requests = Column(Integer, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    cached_input_tokens = Column(Integer, nullable=True)
+    reasoning_tokens = Column(Integer, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    error_type = Column(String(128), nullable=True)
+
+
 class SystemSettingRecord(Base):
     __tablename__ = "system_settings"
 
@@ -300,6 +330,216 @@ class Repository:
                 record.updated_at = utc_now()
             session.commit()
             return record.value
+
+    def get_llm_daily_token_budget(self) -> int | None:
+        value = self.get_setting("llm_daily_token_budget")
+        try:
+            budget = int(value)
+        except (TypeError, ValueError):
+            return None
+        return budget if budget > 0 else None
+
+    def set_llm_daily_token_budget(self, value: int | None) -> int | None:
+        if value is None or int(value) == 0:
+            normalized = None
+        else:
+            normalized = int(value)
+            if normalized < 0 or normalized > 2**63 - 1:
+                raise ValueError("Limite diário de tokens inválido")
+        self.set_setting("llm_daily_token_budget", normalized)
+        return normalized
+
+    def record_llm_usage(
+        self,
+        *,
+        stage: str,
+        model: str,
+        status: str = "success",
+        requests: int | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        duration_ms: int | None = None,
+        error_type: str | None = None,
+    ) -> None:
+        normalized_stage = str(stage).strip()
+        normalized_status = str(status).strip().lower()
+        if normalized_stage not in LLM_USAGE_STAGES:
+            raise ValueError("Etapa de uso do modelo inválida")
+        if normalized_status not in {"success", "error"}:
+            raise ValueError("Estado de uso do modelo inválido")
+
+        def safe_count(value: int | None) -> int | None:
+            if value is None:
+                return None
+            count = int(value)
+            if count < 0 or count > 2**63 - 1:
+                raise ValueError("Métrica de uso do modelo inválida")
+            return count
+
+        now = utc_now()
+        with Session(self.engine) as session:
+            session.add(
+                LLMUsageRecord(
+                    created_at=now,
+                    usage_day=now.date().isoformat(),
+                    stage=normalized_stage,
+                    model=str(model or "desconhecido").strip()[:128] or "desconhecido",
+                    status=normalized_status,
+                    calls=1,
+                    requests=safe_count(requests),
+                    input_tokens=safe_count(input_tokens),
+                    output_tokens=safe_count(output_tokens),
+                    total_tokens=safe_count(total_tokens),
+                    cached_input_tokens=safe_count(cached_input_tokens),
+                    reasoning_tokens=safe_count(reasoning_tokens),
+                    duration_ms=safe_count(duration_ms),
+                    error_type=(str(error_type).strip()[:128] or None) if error_type else None,
+                )
+            )
+            session.commit()
+
+    def llm_usage_summary(self, days: int = 30) -> dict[str, Any]:
+        today = utc_now().date()
+        safe_days = max(1, min(int(days), 366))
+        period_start = today - timedelta(days=safe_days - 1)
+        month_start = today.replace(day=1)
+        month_index = today.year * 12 + today.month - 1 - 11
+        monthly_start_year, monthly_start_zero_month = divmod(month_index, 12)
+        monthly_start = f"{monthly_start_year:04d}-{monthly_start_zero_month + 1:02d}-01"
+        query_start = min(period_start.isoformat(), monthly_start)
+        today_text = today.isoformat()
+        month_text = month_start.isoformat()
+        monthly_keys: list[str] = []
+        for offset in range(11, -1, -1):
+            index = today.year * 12 + today.month - 1 - offset
+            year, zero_month = divmod(index, 12)
+            monthly_keys.append(f"{year:04d}-{zero_month + 1:02d}")
+
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(
+                    LLMUsageRecord.usage_day,
+                    LLMUsageRecord.stage,
+                    LLMUsageRecord.model,
+                    func.sum(LLMUsageRecord.calls).label("calls"),
+                    func.sum(LLMUsageRecord.requests).label("requests"),
+                    func.sum(case((LLMUsageRecord.requests.is_not(None), LLMUsageRecord.calls), else_=0)).label("request_calls"),
+                    func.sum(LLMUsageRecord.input_tokens).label("input_tokens"),
+                    func.sum(LLMUsageRecord.output_tokens).label("output_tokens"),
+                    func.sum(LLMUsageRecord.total_tokens).label("total_tokens"),
+                    func.sum(LLMUsageRecord.cached_input_tokens).label("cached_input_tokens"),
+                    func.sum(LLMUsageRecord.reasoning_tokens).label("reasoning_tokens"),
+                    func.sum(case((LLMUsageRecord.total_tokens.is_(None), LLMUsageRecord.calls), else_=0)).label("unknown_token_calls"),
+                    func.sum(case((LLMUsageRecord.status == "error", LLMUsageRecord.calls), else_=0)).label("errors"),
+                    func.sum(LLMUsageRecord.duration_ms).label("duration_ms_total"),
+                )
+                .where(LLMUsageRecord.usage_day >= query_start)
+                .group_by(LLMUsageRecord.usage_day, LLMUsageRecord.stage, LLMUsageRecord.model)
+                .order_by(LLMUsageRecord.usage_day, LLMUsageRecord.stage, LLMUsageRecord.model)
+            ).all()
+
+        def empty_totals() -> dict[str, int]:
+            return {
+                "calls": 0,
+                "requests": 0,
+                "request_calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "cached_input_tokens": 0,
+                "reasoning_tokens": 0,
+                "unknown_token_calls": 0,
+                "errors": 0,
+                "duration_ms_total": 0,
+            }
+
+        def add_row(target: dict[str, int], row: Any) -> None:
+            for field in target:
+                value = row.get(field, 0) if isinstance(row, dict) else getattr(row, field, 0)
+                target[field] += int(value or 0)
+
+        period = empty_totals()
+        today_totals = empty_totals()
+        month_totals = empty_totals()
+        daily: dict[str, dict[str, int]] = {}
+        stages: dict[tuple[str, str], dict[str, int]] = {}
+        monthly = {month: empty_totals() for month in monthly_keys}
+        monthly_stages: dict[tuple[str, str, str], dict[str, int]] = {}
+        for row in rows:
+            day = str(row.usage_day)
+            month = day[:7]
+            row_totals = {field: int(getattr(row, field) or 0) for field in empty_totals()}
+            if day == today_text:
+                add_row(today_totals, row_totals)
+            if day >= month_text:
+                add_row(month_totals, row_totals)
+            if month in monthly:
+                add_row(monthly[month], row_totals)
+                add_row(
+                    monthly_stages.setdefault(
+                        (month, str(row.stage), str(row.model)), empty_totals()
+                    ),
+                    row_totals,
+                )
+            if day < period_start.isoformat():
+                continue
+            add_row(period, row_totals)
+            add_row(daily.setdefault(day, empty_totals()), row_totals)
+            add_row(stages.setdefault((str(row.stage), str(row.model)), empty_totals()), row_totals)
+
+        stage_items = [
+            {"stage": stage, "model": model, **totals}
+            for (stage, model), totals in stages.items()
+        ]
+        stage_items.sort(key=lambda item: (item["total_tokens"], item["calls"]), reverse=True)
+        daily_items = [{"date": day, **totals} for day, totals in sorted(daily.items(), reverse=True)]
+        monthly_items = [
+            {"month": month, **monthly[month]} for month in reversed(monthly_keys)
+        ]
+        monthly_stage_items = [
+            {"month": month, "stage": stage, "model": model, **totals}
+            for (month, stage, model), totals in monthly_stages.items()
+        ]
+        monthly_stage_items.sort(
+            key=lambda item: (item["month"], item["total_tokens"], item["calls"]),
+            reverse=True,
+        )
+
+        budget = self.get_llm_daily_token_budget()
+        used = today_totals["total_tokens"]
+        percent = (used / budget * 100) if budget else None
+        if budget is None:
+            budget_status = "unconfigured"
+        elif used >= budget:
+            budget_status = "exceeded"
+        elif used >= budget * 0.8:
+            budget_status = "warning"
+        else:
+            budget_status = "ok"
+        return {
+            "generated_at": utc_now().isoformat(),
+            "timezone": "UTC",
+            "period_start": period_start.isoformat(),
+            "period_end": today_text,
+            "period_days": safe_days,
+            "today": today_totals,
+            "month_to_date": month_totals,
+            "period": period,
+            "daily": daily_items,
+            "stages": stage_items,
+            "monthly": monthly_items,
+            "monthly_stages": monthly_stage_items,
+            "budget": {
+                "daily_token_limit": budget,
+                "used_tokens": used,
+                "percent": round(percent, 1) if percent is not None else None,
+                "status": budget_status,
+                "tracking_incomplete": today_totals["unknown_token_calls"] > 0,
+            },
+        }
 
     def get_bot_control_state(self) -> dict[str, Any]:
         value = self.get_setting(
@@ -1928,6 +2168,10 @@ class Repository:
             old_batches = session.scalars(
                 select(MessageBatchRecord).where(MessageBatchRecord.updated_at < older_than)
             ).all()
+            usage_cutoff = utc_now() - timedelta(days=LLM_USAGE_RETENTION_DAYS)
+            old_usage_count = session.execute(
+                delete(LLMUsageRecord).where(LLMUsageRecord.created_at < usage_cutoff)
+            ).rowcount or 0
             old_conversation_ids = [int(record.id) for record in old_conversations]
             if old_conversation_ids:
                 session.execute(
@@ -1954,4 +2198,5 @@ class Repository:
                 "events": len(old_events),
                 "audits": len(old_audits),
                 "batches": len(old_batches),
+                "llm_usage": int(old_usage_count),
             }

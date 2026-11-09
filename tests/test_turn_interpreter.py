@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.adapters.mercado_phone import InventoryCache
@@ -75,6 +77,44 @@ async def test_ambiguous_turn_interpretation_is_passed_to_customer_agent(tmp_pat
             interpretation,
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_runs_record_sdk_usage_for_interpreter_and_customer_agent(tmp_path, monkeypatch):
+    service = _agent_service(tmp_path)
+    events = []
+    service.usage_recorder = lambda **event: events.append(event)
+    usage = SimpleNamespace(
+        requests=2,
+        input_tokens=10,
+        output_tokens=4,
+        total_tokens=14,
+        input_tokens_details=SimpleNamespace(cached_tokens=3),
+        output_tokens_details=SimpleNamespace(reasoning_tokens=2),
+    )
+    interpretation = TurnInterpretation(intents=["catalog"], confidence="high")
+    decision = AgentDecision(reply="Vou consultar o catálogo.", confidence="high")
+
+    async def runner_run(agent, _prompt, **_kwargs):
+        output = interpretation if agent is service.turn_interpreter else decision
+        return SimpleNamespace(
+            final_output=output,
+            context_wrapper=SimpleNamespace(usage=usage),
+        )
+
+    monkeypatch.setattr("app.agent.Runner.run", runner_run)
+
+    assert await service._interpret_turn("Tem iPhone 15?", history=None) == interpretation
+    assert await service._run_customer_agent("Tem iPhone 15?", history=None) == decision
+
+    assert [event["stage"] for event in events] == ["turn_interpreter", "customer_agent"]
+    assert all(event["requests"] == 2 for event in events)
+    assert all(event["input_tokens"] == 10 for event in events)
+    assert all(event["output_tokens"] == 4 for event in events)
+    assert all(event["total_tokens"] == 14 for event in events)
+    assert all(event["cached_input_tokens"] == 3 for event in events)
+    assert all(event["reasoning_tokens"] == 2 for event in events)
+    assert all(event["status"] == "success" for event in events)
 
 
 @pytest.mark.asyncio
