@@ -30,8 +30,8 @@ dependencies = [
 dev = [
   "playwright>=1.50,<2",
   "pypdf>=5,<7",
-  "pytest>=8.3,<9",
-  "pytest-asyncio>=0.24,<1",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.4.1.post1,<2",
 ]
 
 [tool.pytest.ini_options]

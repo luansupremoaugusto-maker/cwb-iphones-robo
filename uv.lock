@@ -1133,14 +1133,15 @@ wheels = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "0.26.0"
+version = "1.4.1.post1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8e/c4/453c52c659521066969523e87d85d54139bbd17b78f09532fb8eb8cdb58e/pytest_asyncio-0.26.0.tar.gz", hash = "sha256:c4df2a697648241ff39e7f0e4a73050b03f123f760673956cf0d72a4990e312f", size = 54156, upload-time = "2025-03-25T06:22:28.883Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/7f/c60a4338420b33453d4f814ac0c930abd399f162b9bdd21af4b9e363037f/pytest_asyncio-1.4.1.post1.tar.gz", hash = "sha256:f582d9ea4a1c082195abe8bd29a1fe106aeb1cd435e3dad2d3bc2749935c36a2", size = 145360, upload-time = "2026-11-01T18:26:03.732Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/7f/338843f449ace853647ace35870874f69a764d251872ed1b4de9f234822c/pytest_asyncio-0.26.0-py3-none-any.whl", hash = "sha256:7b51ed894f4fbea1340262bdae5135797ebbe21d8638978e35d31c6d19f72fb0", size = 19694, upload-time = "2025-03-25T06:22:27.807Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/de/adbc7578959cfab07e5e7c05cf6d54224a51e7667ea2c07458b6bc571e75/pytest_asyncio-1.4.1.post1-py3-none-any.whl", hash = "sha256:0755e488cc0a2b9bd2eab7292cc6390d4cbb8390f1020745647bae5a708e0165", size = 17140, upload-time = "2026-11-01T18:26:02.168Z" },
 ]
 
 [[package]]
@@ -1414,8 +1415,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pydantic-settings", specifier = ">=2.8,<3" },
     { name = "pypdf", marker = "extra == 'dev'", specifier = ">=5,<7" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<9" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24,<1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4,<9" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.1.post1,<2" },
     { name = "python-bidi", specifier = ">=0.6,<1" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "reportlab", specifier = ">=4.4,<5" },
