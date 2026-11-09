@@ -55,8 +55,18 @@ def build_runtime(settings: Settings, offline: bool = False) -> Runtime:
     cache = StoreCatalogCache(mercado, settings, sealed_cache=google_sheets)
     faq = FAQStore(settings.faq_file)
     zapi = ZapiClient(settings)
-    agent = AgentService(cache, faq, settings, offline=offline)
-    media = None if offline or not settings.openai_api_key else OpenAIMediaService(settings)
+    agent = AgentService(
+        cache,
+        faq,
+        settings,
+        offline=offline,
+        usage_recorder=repository.record_llm_usage,
+    )
+    media = (
+        None
+        if offline or not settings.openai_api_key
+        else OpenAIMediaService(settings, usage_recorder=repository.record_llm_usage)
+    )
     photo_normalizer = None if offline else ProductPhotoNormalizer(settings)
     processor = MessageProcessor(settings, repository, zapi, agent, media, photo_normalizer)
     return Runtime(

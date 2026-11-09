@@ -191,6 +191,110 @@ def test_admin_page_controls_work_in_a_real_browser():
             browser.close()
 
 
+def test_admin_llm_usage_panel_renders_metrics_and_saves_token_budget():
+    html = render_admin_page("csrf-token")
+    budget_updates: list[dict] = []
+    usage_response = {
+        "generated_at": "2026-11-09T12:00:00+00:00",
+        "period_start": "2026-10-11",
+        "period_end": "2026-11-09",
+        "today": {"calls": 2, "total_tokens": 120, "unknown_token_calls": 1},
+        "month_to_date": {"calls": 4, "total_tokens": 300},
+        "period": {"errors": 1},
+        "daily": [
+            {
+                "date": "2026-11-09",
+                "calls": 2,
+                "requests": 2,
+                "input_tokens": 80,
+                "output_tokens": 40,
+                "total_tokens": 120,
+                "errors": 0,
+                "unknown_token_calls": 1,
+            }
+        ],
+        "monthly": [
+            {
+                "month": "2026-11",
+                "calls": 4,
+                "requests": 4,
+                "input_tokens": 200,
+                "output_tokens": 100,
+                "total_tokens": 300,
+                "errors": 1,
+                "unknown_token_calls": 1,
+            }
+        ],
+        "stages": [
+            {
+                "stage": "customer_agent",
+                "model": "gpt-6-luna",
+                "calls": 1,
+                "requests": 1,
+                "input_tokens": 80,
+                "output_tokens": 40,
+                "total_tokens": 120,
+                "unknown_token_calls": 0,
+                "errors": 0,
+            }
+        ],
+        "monthly_stages": [
+            {
+                "month": "2026-11",
+                "stage": "customer_agent",
+                "model": "gpt-6-luna",
+                "calls": 2,
+                "requests": 2,
+                "total_tokens": 300,
+                "unknown_token_calls": 0,
+                "errors": 0,
+            }
+        ],
+        "budget": {
+            "daily_token_limit": 100,
+            "used_tokens": 120,
+            "percent": 120.0,
+            "status": "exceeded",
+            "tracking_incomplete": True,
+        },
+        "permissions": {"manage_budget": True},
+    }
+
+    def route_request(route: Route) -> None:
+        path = route.request.url.split("?", 1)[0].removeprefix("http://admin.test")
+        if path == "/admin/api/llm-usage":
+            route.fulfill(content_type="application/json", body=json.dumps(usage_response))
+            return
+        if path == "/admin/api/llm-usage/budget":
+            budget_updates.append(json.loads(route.request.post_data or "{}"))
+            route.fulfill(
+                content_type="application/json",
+                body=json.dumps({"daily_token_budget": None, "message": "Alerta diário desativado."}),
+            )
+            return
+        _route_page(route, html)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route("**/*", route_request)
+            page.goto("http://admin.test/admin")
+            expect(page.locator("#llm-today-calls")).to_have_text("2")
+            expect(page.locator("#llm-today-tokens")).to_have_text("120")
+            expect(page.locator("#llm-usage-alert")).to_contain_text("Limite diário ultrapassado")
+            expect(page.locator("#llm-usage-alert")).to_contain_text("total contabilizado pode estar incompleto")
+            expect(page.locator("#llm-usage-stage-body")).to_contain_text("Resposta ao cliente")
+            expect(page.locator("#llm-usage-monthly-stage-body")).to_contain_text("2026-11")
+
+            page.locator("#llm-daily-token-budget").fill("0")
+            page.locator("#llm-usage-budget-submit").click()
+            expect(page.locator("#llm-usage-budget-status")).to_have_text("Alerta diário desativado.")
+            assert budget_updates == [{"daily_token_budget": None}]
+        finally:
+            browser.close()
+
+
 def test_refresh_catalog_forces_sources_and_renders_updated_sealed_devices():
     html = render_admin_page("csrf-token")
     updated_catalog = {
@@ -277,8 +381,8 @@ def test_admin_page_panels_can_be_collapsed_and_remember_state():
             _open_admin_page(page, html)
 
             panels = page.locator("section.panel[data-panel-key]")
-            assert panels.count() == 7
-            assert panels.locator("[data-panel-toggle]").count() == 7
+            assert panels.count() == 8
+            assert panels.locator("[data-panel-toggle]").count() == 8
 
             operations = page.locator('section.panel[data-panel-key="operations"]')
             toggle = operations.locator("[data-panel-toggle]")

@@ -48,13 +48,25 @@ async def test_handoff_pause_and_authorized_resume_commands():
 @pytest.mark.asyncio
 async def test_audio_and_image_use_openai_only_for_transcription_or_description():
     transcription = AsyncMock(return_value=SimpleNamespace(text="iPhone treze azul"))
-    vision = AsyncMock(return_value=SimpleNamespace(output_text="Possível iPhone azul; modelo incerto."))
+    vision = AsyncMock(
+        return_value=SimpleNamespace(
+            output_text="Possível iPhone azul; modelo incerto.",
+            usage=SimpleNamespace(
+                input_tokens=40,
+                output_tokens=6,
+                total_tokens=46,
+                input_tokens_details=SimpleNamespace(cached_tokens=4),
+                output_tokens_details=SimpleNamespace(reasoning_tokens=2),
+            ),
+        )
+    )
     client = SimpleNamespace(
         audio=SimpleNamespace(transcriptions=SimpleNamespace(create=transcription)),
         responses=SimpleNamespace(create=vision),
     )
     settings = Settings(openai_api_key=None)
-    media = OpenAIMediaService(settings, client=client)
+    usage_events = []
+    media = OpenAIMediaService(settings, client=client, usage_recorder=lambda **event: usage_events.append(event))
 
     transcript = await media.transcribe(b"audio", "audio/ogg")
     description = await media.describe_image(b"image", "image/jpeg", "celular")
@@ -65,3 +77,9 @@ async def test_audio_and_image_use_openai_only_for_transcription_or_description(
     vision_args = vision.await_args.kwargs
     assert vision_args["model"] == "gpt-6-luna"
     assert vision_args["input"][0]["content"][1]["type"] == "input_image"
+    assert [event["stage"] for event in usage_events] == ["audio_transcription", "image_analysis"]
+    assert usage_events[0]["requests"] == 1
+    assert usage_events[0]["total_tokens"] is None
+    assert usage_events[1]["total_tokens"] == 46
+    assert usage_events[1]["cached_input_tokens"] == 4
+    assert all("prompt" not in event and "phone" not in event for event in usage_events)
