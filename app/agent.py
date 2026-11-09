@@ -2990,21 +2990,35 @@ class AgentService:
         image_availability_models = _explicit_image_availability_query(
             text,
             image_description,
+            list(getattr(self.cache, "items", []) or []),
         )
         if image_availability_models is not None:
-            if image_availability_models:
-                decision = await self._try_product_availability(
-                    f"{text} {image_availability_models}",
-                    history=history,
+            if not image_availability_models:
+                return protect_customer_decision(
+                    AgentDecision(
+                        reply=(
+                            "Não consegui identificar com segurança o modelo e a capacidade "
+                            "na foto. Você pode me confirmar esses dados para eu consultar o estoque?"
+                        ),
+                        handoff=False,
+                        confidence="medium",
+                    )
                 )
-                if decision is not None:
-                    return protect_customer_decision(decision)
+            decision = await self._try_product_availability(
+                f"{text} {image_availability_models}",
+                history=history,
+            )
+            if decision is not None:
+                return protect_customer_decision(decision)
             return protect_customer_decision(
                 AgentDecision(
-                    reply=CATALOG_BUYER_DETAILS_REPLY,
+                    reply=(
+                        "Não consegui consultar o estoque desse modelo agora. "
+                        "Vou encaminhar a consulta para um atendente confirmar."
+                    ),
                     handoff=True,
-                    handoff_reason=CATALOG_BUYER_DETAILS_REASON,
-                    confidence="high",
+                    handoff_reason="Falha ao consultar disponibilidade do produto identificado na imagem",
+                    confidence="low",
                 )
             )
         if (
