@@ -1626,6 +1626,14 @@ def trade_in_em_andamento(historico: list[dict[str, str]] | None) -> bool:
 _PENDING_TRADE_IN_DETAILS_QUESTION_RE = re.compile(
     r"\b(?:sabe|qual|quais|confirma|confirmar|informar|me\s+diga)\b"
     r".{0,80}\b(?:modelo|capacidade|armazenamento)\b",
+    # Some assistant replies list the supported model variants directly and
+    # ask the customer to confirm which one they mean without saying "modelo".
+    # Keep these answers in the pending evaluation flow instead of the catalog.
+    re.IGNORECASE,
+)
+_PENDING_TRADE_IN_MODEL_CONFIRMATION_QUESTION_RE = re.compile(
+    r"\b(?:confirma|confirmar)\b.{0,60}\bse\s+(?:e|seria)\s+"
+    r"(?:(?:um|uma|o|a)\s+)?(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
     re.IGNORECASE,
 )
 _TRADE_IN_MODEL_CLARIFICATION_ANSWER_RE = re.compile(
@@ -1672,7 +1680,12 @@ def is_pending_trade_in_evaluation_followup(
     )
     if not (
         re.search(r"\b(?:avaliacao|avaliar)\b", latest_assistant_message)
-        and _PENDING_TRADE_IN_DETAILS_QUESTION_RE.search(latest_assistant_message)
+        and (
+            _PENDING_TRADE_IN_DETAILS_QUESTION_RE.search(latest_assistant_message)
+            or _PENDING_TRADE_IN_MODEL_CONFIRMATION_QUESTION_RE.search(
+                latest_assistant_message
+            )
+        )
         and _APPLE_PRODUCT_RE.search(latest_assistant_message)
     ):
         return False
