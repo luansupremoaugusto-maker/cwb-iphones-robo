@@ -71,6 +71,31 @@ def _is_photo_request(text: str) -> bool:
         re.search(r"\b(?:do|da|desse|dessa|deste|desta|dele|dela)\b", normalized)
     )
 
+
+def _is_explicit_photo_request(text: str) -> bool:
+    """Distinguish a current request to send/view photos from a photo mention."""
+    normalized = _normalize(text)
+    if not _is_photo_request(text):
+        return False
+    if _is_photo_retry_request(text):
+        return True
+    has_action = bool(
+        re.search(
+            r"\b(?:manda\w*|mande|mandar|enviar|envia\w*|mostra\w*|mostre|"
+            r"ver|tem|teria|possui|disponivel|quero|queria|gostaria|"
+            r"consegue\w*|cade)\b",
+            normalized,
+        )
+    )
+    starts_with_photo = bool(
+        re.match(
+            r"^(?:(?:me|pode|poderia)\s+)?(?:(?:a|as|uma|umas)\s+)?"
+            r"(?:foto|fotos|imagem|imagens)\b",
+            normalized,
+        )
+    )
+    return has_action or starts_with_photo
+
 def _has_explicit_photo_device_reference(text: str) -> bool:
     normalized = _normalize(text)
     return bool(

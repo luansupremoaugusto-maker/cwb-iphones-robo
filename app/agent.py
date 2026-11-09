@@ -3193,7 +3193,7 @@ class AgentService:
         # Resolve explicit photo requests before catalog availability can
         # replace the requested photos with a stock listing. Preserve a second
         # payment answer when WhatsApp batches that question into the same turn.
-        if _is_photo_request(text):
+        if _is_explicit_photo_request(text) and len(_photo_price_selectors(text)) < 2:
             photo_decision = await self._try_product_photos(
                 text,
                 history,
@@ -4268,6 +4268,7 @@ from .agent_rules.catalog_intents import (
 from .agent_rules.photos import (
     _has_explicit_photo_device_reference,
     _is_broad_promotion_photo_request,
+    _is_explicit_photo_request,
     _is_made_to_order_sealed_item,
     _is_photo_request,
     _is_photo_retry_request,
