@@ -29,18 +29,28 @@ def _fold_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", plain).strip().lower()
 
 
-def _is_whatsapp_business_greeting(incoming: IncomingMessage) -> bool:
-    """Recognize the store's WhatsApp Business greeting, not a staff reply."""
+def _whatsapp_business_auto_reply_reason(incoming: IncomingMessage) -> str | None:
+    """Identify the store's WhatsApp Business greeting and away reply."""
     if not incoming.from_me or incoming.kind != "text":
-        return False
+        return None
 
     normalized = re.sub(r"[^a-z0-9]+", " ", _fold_text(incoming.text))
     normalized = re.sub(r"\s+", " ", normalized).strip()
-    return (
+    if (
         "cwb iphones" in normalized
         and "agradece seu contato" in normalized
         and "como podemos ajudar" in normalized
-    )
+    ):
+        return "whatsapp_business_greeting"
+
+    if (
+        "agradecemos sua mensagem" in normalized
+        and "nao estamos disponiveis no momento" in normalized
+        and "entraremos em contato assim que possivel" in normalized
+    ):
+        return "whatsapp_business_away_message"
+
+    return None
 
 
 def _clean_summary_text(value: str | None, limit: int = 900) -> str:
@@ -194,11 +204,12 @@ class MessageProcessor:
                 self.repository.audit("ignored_event", incoming.phone, {"reason": "provider_control_event"})
                 continue
             if incoming.from_me:
-                if _is_whatsapp_business_greeting(incoming):
+                auto_reply_reason = _whatsapp_business_auto_reply_reason(incoming)
+                if auto_reply_reason:
                     self.repository.audit(
                         "ignored_event",
                         incoming.phone,
-                        {"reason": "whatsapp_business_greeting", "message_id": incoming.message_id},
+                        {"reason": auto_reply_reason, "message_id": incoming.message_id},
                     )
                     continue
                 if incoming.from_api or self.repository.has_message_provider_id(
