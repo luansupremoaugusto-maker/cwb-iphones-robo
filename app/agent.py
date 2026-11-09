@@ -2990,6 +2990,7 @@ class AgentService:
         image_availability_models = _explicit_image_availability_query(
             text,
             image_description,
+            list(getattr(self.cache, "items", []) or []),
         )
         if image_availability_models is not None:
             if not image_availability_models:
@@ -3006,7 +3007,6 @@ class AgentService:
             decision = await self._try_product_availability(
                 f"{text} {image_availability_models}",
                 history=history,
-                image_description=image_description,
             )
             if decision is not None:
                 return protect_customer_decision(decision)

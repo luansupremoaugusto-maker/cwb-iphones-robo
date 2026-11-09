@@ -84,9 +84,9 @@ def _visual_catalog_search_query(
         match = re.fullmatch(r"(?P<number>\d+(?:\.\d+)?)(?P<unit>gb|tb)", capacities[0])
         if match:
             parts.extend((match.group("number"), match.group("unit").upper()))
-    color = _current_catalog_color(image_description, items or [])
-    if color:
-        parts.append(color)
+    colors = _requested_catalog_colors(image_description, items or [])
+    if len(colors) == 1:
+        parts.append(colors[0])
     return " ".join(part for part in parts if part)
 
 def _visual_iphone_model_keys(
@@ -139,6 +139,7 @@ def _visual_iphone_model_segments(
 def _explicit_image_availability_query(
     text: str,
     image_description: str | None,
+    items: list[Any] | None = None,
 ) -> str | None:
     """Resolve a stock question about an attached iPhone photo to its visual item."""
     normalized_text = _normalize(text)
@@ -179,7 +180,7 @@ def _explicit_image_availability_query(
     if len(models) == 1:
         # Keep storage and color from the photo so stock for a different unit
         # of the same model cannot be reported as a match.
-        query = _visual_catalog_search_query(image_description)
+        query = _visual_catalog_search_query(image_description, items)
         if query is None:
             return ""
     else:
