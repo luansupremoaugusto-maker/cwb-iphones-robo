@@ -1999,6 +1999,40 @@ async def test_multiple_iphone_exchange_offer_with_battery_details_sends_evaluat
 
 
 @pytest.mark.asyncio
+async def test_counted_plural_iphone_trade_in_question_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "Estou com 3 iPhones e gostaria de saber se vocês pegam na troca"
+    history = [
+        {"role": "user", "content": "Boa tarde"},
+        {
+            "role": "assistant",
+            "content": "CWB.IPHONES agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert is_trade_in_context_request(text, history) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+    buyer_text = "Quero comprar 3 iPhones. Vocês aceitam cartão?"
+    buyer_decision = await service.respond(buyer_text, history=history)
+
+    assert is_trade_in_request(buyer_text) is False
+    assert "lista de avaliação" not in buyer_decision.reply.lower()
+    assert buyer_decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_compact_exchange_offer_with_bare_model_and_battery_returns_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
