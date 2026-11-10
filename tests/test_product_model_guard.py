@@ -908,6 +908,107 @@ async def test_iphone_range_from_13_up_lists_every_available_model(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sealed_iphone_range_starting_at_16_includes_newer_models(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = []
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-15-sealed", "iPhone 15", "128 GB", 4000),
+        _sealed_item("iphone-16-sealed", "iPhone 16", "128 GB", 5200),
+        _sealed_item("iphone-16e-sealed", "iPhone 16e", "128 GB", 4700),
+        _sealed_item("iphone-17e-sealed", "iPhone 17e", "256 GB", 4800),
+        _sealed_item("iphone-17-air-sealed", "iPhone 17 Air", "256 GB", 6000),
+    ]
+
+    decision = await agent.respond(
+        "Tem outros telefones lacrados a partir do iPhone 16?"
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-sealed",
+        "iphone-16e-sealed",
+        "iphone-17e-sealed",
+        "iphone-17-air-sealed",
+    }
+    assert "iPhone 15" not in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_sealed_iphone_range_followup_uses_floor_from_prior_model_context(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = []
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-15-sealed", "iPhone 15", "128 GB", 4000),
+        _sealed_item("iphone-16-sealed", "iPhone 16", "128 GB", 5200),
+        _sealed_item("iphone-17e-sealed", "iPhone 17e", "256 GB", 4800),
+    ]
+    history = [
+        {
+            "role": "user",
+            "content": "Tem outros telefones lacrados a partir do iPhone 16?",
+        },
+        {
+            "role": "assistant",
+            "content": "Encontrei o iPhone 16 novo lacrado, 128 GB, por R$ 5.200,00.",
+        },
+    ]
+
+    decision = await agent.respond(
+        "Só tem o 16? A partir do 16 não tem?",
+        history=history,
+    )
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-16-sealed",
+        "iphone-17e-sealed",
+    }
+    assert "iPhone 15" not in decision.reply
+
+
+def test_comparative_cheaper_question_is_not_treated_as_lowest_price_request():
+    question = "Saberia me explicar porque o 17E é mais barato que o 16?"
+
+    assert _is_cheapest_catalog_request(question) is False
+
+
+@pytest.mark.asyncio
+async def test_comparative_price_followup_does_not_return_previous_iphone16_offer(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16-used-128",
+            name="iPhone 16",
+            category="Celular",
+            capacity="128 GB",
+            price_brl=3630,
+            quantity=1,
+            availability="Disponível para venda",
+            condition="SEMINOVO",
+            search_text="iPhone 16 128 GB seminovo disponível",
+        )
+    ]
+    history = [
+        {"role": "user", "content": "Tem lacrados a partir do iPhone 16?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de iPhone 16 disponíveis: "
+                "iPhone 16 128 GB — seminovo — R$ 3.630,00."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Saberia me explicar porque o 17E é mais barato que o 16?",
+        history=history,
+    )
+
+    assert decision.product_references == []
+    assert "iphone 16 128 gb" not in _normalize(decision.reply)
+
+
+@pytest.mark.asyncio
 async def test_batched_base_model_query_keeps_all_options_for_each_requested_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
