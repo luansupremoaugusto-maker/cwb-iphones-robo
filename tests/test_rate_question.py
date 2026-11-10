@@ -107,6 +107,84 @@ async def test_generic_rate_question_avoids_percentage_disclosure_and_asks_model
 
 
 @pytest.mark.asyncio
+async def test_rate_question_after_multi_unit_offer_simulates_selected_color(tmp_path):
+    agent = build_rate_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-13-midnight-93",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA-NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1810.0,
+            battery_health=93,
+            search_text="iphone 13 meia-noite 128 gb celular seminovo bateria 93",
+        ),
+        InventoryItem(
+            external_id="iphone-13-midnight-91",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="MEIA-NOITE",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1760.0,
+            battery_health=91,
+            search_text="iphone 13 meia-noite 128 gb celular seminovo bateria 91",
+        ),
+        InventoryItem(
+            external_id="iphone-13-blue-82",
+            name="iPhone 13",
+            category="Celular",
+            capacity="128 GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1660.0,
+            battery_health=82,
+            search_text="iphone 13 azul 128 gb celular seminovo bateria 82",
+        ),
+    ]
+    agent.cache.sealed_cache.items = []
+
+    decision = await agent.respond(
+        "O azul parcela no cartão? Tem juros?",
+        history=[
+            {"role": "user", "content": "Qual valor e saúde da bateria"},
+            {
+                "role": "assistant",
+                "content": "Claro! De qual modelo e capacidade você gostaria de saber o valor e a saúde da bateria?",
+            },
+            {"role": "user", "content": "Do 13"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Do iPhone 13 seminovo, encontrei estas opções:\n"
+                    "• 128GB, meia-noite — R$ 1.810, bateria 93%\n"
+                    "• 128GB, meia-noite — R$ 1.760, bateria 91%\n"
+                    "• 128GB, azul — R$ 1.660, bateria 82%"
+                ),
+            },
+        ],
+    )
+
+    reply = decision.reply.lower()
+    assert decision.handoff is False
+    assert "iPhone 13, seminovo, azul" in decision.reply
+    assert "Preço à vista: R$ 1.660,00" in decision.reply
+    assert "18x de" in decision.reply
+    assert "tem juros da máquina" in reply
+    assert "r$ 1.810,00" not in reply
+    assert "r$ 1.760,00" not in reply
+    assert "qual modelo e capacidade" not in reply
+
+
+@pytest.mark.asyncio
 async def test_rate_followup_confirms_previous_installment_table_includes_interest(tmp_path):
     agent = build_empty_agent(tmp_path)
     history = [

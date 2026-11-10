@@ -4457,6 +4457,7 @@ from .agent_rules.payments import (
     _requested_device_quantity,
     _requested_installment_product_keys,
     _requested_installments,
+    _selected_catalog_option_context_for_installment,
     _selected_installment_offer_context,
     _selected_price_from_installment_choice,
     _strip_catalog_history_constraints,

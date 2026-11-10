@@ -56,6 +56,7 @@ from app.agent import (
     _requested_installment_product_keys,
     _requested_installments,
     _requested_iphone_model_keys,
+    _selected_catalog_option_context_for_installment,
     format_brl,
     format_installment_rates,
     format_installment_table,
@@ -100,6 +101,27 @@ async def _try_installment_rate_question(
             ),
             confidence="high",
         )
+    if _has_recent_catalog_sale_context(history):
+        selected_option = _selected_catalog_option_context_for_installment(text, history)
+        method = getattr(self.cache, "simulate_all_installments", None)
+        if selected_option is not None and callable(method):
+            query, label = selected_option
+            try:
+                result = await method(query)
+            except Exception:
+                result = {}
+            if result.get("encontrado"):
+                return AgentDecision(
+                    reply=(
+                        "Sim, o parcelamento no cartão tem juros da máquina. "
+                        f"Para {label}:\n\n{format_installment_table(result)}"
+                    ),
+                    confidence="high",
+                )
+            if result.get("ambiguo"):
+                ambiguous = _format_ambiguous_installment_decision(result)
+                if ambiguous is not None:
+                    return ambiguous
     if (
         _is_installment_rate_for_referenced_price(text)
         and _has_recent_catalog_sale_context(history)
