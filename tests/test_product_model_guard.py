@@ -3572,6 +3572,28 @@ async def test_mac_or_ipad_availability_question_lists_both_requested_families(t
 
 
 @pytest.mark.asyncio
+async def test_specific_ipad_and_macbook_request_keeps_both_models_scoped(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("ipad-11-128", "iPad 11", "128 GB", 3300),
+        _sealed_item("macbook-neo-13", "MacBook Neo 2026 13", "256 GB", 4900),
+        _sealed_item("macbook-air-15", "MacBook Air", "512 GB", 8500),
+    ]
+
+    combined = await agent.respond("Queria ver o iPad 11 e o MacBook neo")
+    ipad_only = await agent.respond("Queria ver o iPad 11")
+
+    assert combined.handoff is False
+    assert set(combined.product_references) == {"ipad-11-128", "macbook-neo-13"}
+    assert "iPad 11" in combined.reply
+    assert "MacBook Neo 2026 13" in combined.reply
+    assert "MacBook Air" not in combined.reply
+    assert ipad_only.handoff is False
+    assert ipad_only.product_references == ["ipad-11-128"]
+    assert "MacBook" not in ipad_only.reply
+
+
+@pytest.mark.asyncio
 async def test_availability_query_with_two_models_keeps_available_second_model(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
