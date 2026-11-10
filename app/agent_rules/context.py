@@ -372,6 +372,14 @@ def _extract_bare_catalog_model_reference(text: str) -> str | None:
         # Ignore that component while preserving an actual model earlier in
         # the same request, such as "o 15 na faixa de 1.000 reais".
         amount_tail = (text or "")[match.end("number") :]
+        # Times such as "das 13:30" follow the same preposition + number
+        # shape as a bare model. Do not let the hour become a catalog query.
+        if re.match(
+            r"\s*(?::\s*[0-5]\d|h(?:s)?(?:\s*[0-5]\d)?\b|horas?\b)",
+            amount_tail,
+            flags=re.IGNORECASE,
+        ):
+            continue
         if re.match(r"\s*[.,]\s*\d{3}(?!\d)", amount_tail):
             continue
         if re.match(r"\s*%|\s+por\s+cento\b", amount_tail, flags=re.IGNORECASE):
