@@ -1078,7 +1078,8 @@ def _has_device_offer(text: str) -> bool:
 
     if re.search(
         r"\b(?:trade[- ]?in|retoma|retomar|troca de celular|"
-        r"parte do pagamento|como entrada|de entrada|para troca|na troca|na jogada)\b",
+        r"parte do pagamento|como entrada|de entrada|para troca|na troca|na jogada|"
+        r"(?:para|pra)\s+(?:uma\s+)?possivel\s+troca)\b",
         text,
         flags=re.IGNORECASE,
     ) and (
