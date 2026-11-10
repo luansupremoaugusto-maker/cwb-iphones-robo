@@ -927,14 +927,23 @@ def _has_personal_device_reference(text: str) -> bool:
             text,
             flags=re.IGNORECASE,
         )
+        or (
+            re.search(
+                r"\b(?:eu\s+)?comprei\s+(?:(?:um|uma|o|a)\s+)?"
+                r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
+                r"aparelho|smartphone|telefone)\b",
+                text,
+                flags=re.IGNORECASE,
+            )
+            and _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
+        )
         or re.search(
-            r"\b(?:eu\s+)?comprei\s+(?:(?:um|uma|o|a)\s+)?"
-            r"(?:iphone|ipad|macbook|apple\s+watch|airpods?|celular|"
-            r"aparelho|smartphone|telefone)\b",
+            r"\b(?:tenho|possuo|estou\s+com|to\s+com)\s+"
+            r"(?:\d+|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)\s+"
+            r"iphones?\b",
             text,
             flags=re.IGNORECASE,
         )
-        and _GENERIC_TRADE_IN_FOLLOWUP_RE.search(text)
     )
 
 
