@@ -542,6 +542,12 @@ def _requested_iphone_model_floor(value: Any) -> tuple[int, str] | None:
         r"(?:pra|para)\s+cima\b",
         normalized,
     )
+    if match is None:
+        match = re.search(
+            r"\ba\s+partir\s+(?:de|do|da)\s+(?:iphones?\s+)?"
+            r"(?P<number>\d{1,2})(?:\s+(?P<variant>pro\s+max|pro))?\b",
+            normalized,
+        )
     if not match:
         return None
     variant = " ".join((match.group("variant") or "").split())
