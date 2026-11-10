@@ -39,6 +39,37 @@ from app.adapters.mercado_phone import InventoryCache
 
 
 @pytest.mark.asyncio
+async def test_buyer_conditional_interest_after_greeting_does_not_get_trade_in_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Boa tarde"},
+        {
+            "role": "assistant",
+            "content": "CWB.IPHONES agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    text = "Teria interesse em comprar um iPhone"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert "Qual modelo de iPhone" in decision.reply
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_downgrade_question_confirms_service_and_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(

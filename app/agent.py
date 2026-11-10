@@ -287,6 +287,10 @@ REGRAS OBRIGATÓRIAS:
   não são trade-in. Dinheiro, PIX, cartão ou entrada em reais também não são
   aparelho usado. Só trate como trade-in quando o cliente oferecer um aparelho
   Apple próprio ou perguntar se a loja compra/aceita um aparelho Apple.
+- Depois de perguntar "Como podemos ajudar?", uma resposta como "Teria interesse
+  em comprar um iPhone?" expressa interesse de compra do cliente. Pergunte qual
+  modelo procura e consulte o catálogo; use a lista de avaliação quando a mensagem
+  indicar que o aparelho é do cliente ou perguntar explicitamente se a loja o compra.
 - iPhone 16e e iPhone 16 são modelos diferentes; o mesmo vale para iPhone 17e,
   iPhone 17, Pro e Pro Max. O "e" entre dois modelos, como "17 e 15", é uma
   conjunção e não o sufixo do modelo. Confirme a variante antes de informar preço.
@@ -825,6 +829,12 @@ def _is_unresolved_iphone_model_selection(text: str) -> bool:
         re.search(r"\bmodelo\s+em\s+mente\b", normalized)
         and re.search(r"\b(?:compr\w*|lacrad\w*)\b", normalized)
     )
+    buyer_purchase_interest = bool(
+        re.search(
+            r"\b(?:tenho|teria|teriam)\s+interesse\s+em\s+compr\w*\b",
+            normalized,
+        )
+    )
     first_iphone_purchase = bool(
         _is_affirmative_first_iphone_statement(normalized)
         and re.search(
@@ -836,7 +846,7 @@ def _is_unresolved_iphone_model_selection(text: str) -> bool:
         "iphone" in _catalog_families(normalized)
         and not _requested_iphone_model_keys(normalized)
         and _extract_budget_limit(text) is None
-        and (has_model_selection_prompt or first_iphone_purchase)
+        and (has_model_selection_prompt or first_iphone_purchase or buyer_purchase_interest)
     )
 
 

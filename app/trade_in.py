@@ -1030,16 +1030,31 @@ def _has_device_offer(text: str) -> bool:
     ):
         return True
 
-    # In informal Portuguese, "tem interesse em comprar um iPhone" commonly
-    # omits "vocês" and means that the customer is asking whether the store
-    # wants to buy the described device. Keep the first-person buyer phrasing
-    # ("tenho interesse em comprar") in the catalog flow.
-    if re.search(
-        r"\b(?:tem|teria|possui)\s+interesse\s+em\s+compr\w*\b",
+    # "Teria interesse em comprar um iPhone?" can be a customer's answer to
+    # "Como podemos ajudar?". Treat the conditional as a buyback only when the
+    # customer identifies their own device or names the store as the buyer.
+    interest_purchase = re.search(
+        r"\b(?P<verb>tem|teria|teriam|possui|possuem)\s+interesse\s+em\s+compr\w*\b",
         text,
         flags=re.IGNORECASE,
-    ) and _APPLE_PRODUCT_RE.search(text):
-        return True
+    )
+    if interest_purchase and _APPLE_PRODUCT_RE.search(text):
+        explicit_store_subject = re.search(
+            r"\b(?:voces?|a\s+loja|loja)\b.{0,35}"
+            r"\b(?:tem|teria|teriam|possui|possuem)\s+interesse\s+em\s+compr\w*\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        conditional_verb = interest_purchase.group("verb").lower() in {
+            "teria",
+            "teriam",
+        }
+        if (
+            not conditional_verb
+            or explicit_store_subject
+            or _has_personal_device_reference(text)
+        ):
+            return True
 
     if _BARE_MODEL_EXCHANGE_OFFER_RE.search(text) and not _NON_APPLE_RE.search(text):
         return True
