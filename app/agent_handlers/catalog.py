@@ -81,6 +81,7 @@ from app.agent import (
     _product_interest_model_context,
     _requested_apple_watch_model_keys,
     _requested_battery_health,
+    _requested_catalog_price_cents,
     _requested_capacity_keys,
     _requested_catalog_colors,
     _requested_device_quantity,
@@ -1023,6 +1024,7 @@ async def _try_product_availability(
         if visual_search_query
         else query
     )
+    catalog_lookup_query = _availability_catalog_query(catalog_search_query)
     if not (
         _is_product_availability_request(
             query,
@@ -1048,6 +1050,25 @@ async def _try_product_availability(
         requested_budget = current_request_budget
         if requested_budget is None and not allow_buyer_interest_with_image:
             requested_budget = _extract_latest_budget_limit(customer_request_context)
+    requested_catalog_price_cents = _requested_catalog_price_cents(text)
+    if (
+        requested_catalog_price_cents is None
+        and _has_recent_catalog_product_context(history)
+        and (
+            _has_seminovo_reference(_normalize(text))
+            or _has_explicit_sealed_condition(_normalize(text))
+        )
+    ):
+        # A short condition follow-up such as "usado tem algum?" still refers
+        # to the quoted item and price from the customer's previous message.
+        requested_catalog_price_cents = _requested_catalog_price_cents(
+            customer_request_context
+        )
+    apple_watch_price_query = (
+        requested_catalog_price_cents is not None
+        and _catalog_families(catalog_filter_query) == ("apple_watch",)
+        and not _requested_apple_watch_model_keys(text, allow_bare=True)
+    )
     requested_quantity = _requested_device_quantity(
         text if allow_buyer_interest_with_image else query
     )
@@ -1064,9 +1085,41 @@ async def _try_product_availability(
         condition_query = customer_condition_context
     try:
         candidates = await self.cache.search(
-            _availability_catalog_query(catalog_search_query),
+            catalog_lookup_query,
             limit=300,
         )
+        if apple_watch_price_query:
+            # Generic price references can be ranked below unrelated rows by
+            # the inventory's literal-number search. Include every cached
+            # Apple Watch row so the price selector sees the full family.
+            family_items = [
+                *list(getattr(self.cache, "items", []) or []),
+                *list(
+                    getattr(
+                        getattr(self.cache, "sealed_cache", None),
+                        "items",
+                        [],
+                    )
+                    or []
+                ),
+            ]
+            candidate_ids = {
+                (
+                    str(getattr(item, "source", "") or ""),
+                    str(getattr(item, "external_id", "") or ""),
+                )
+                for item in candidates
+            }
+            for item in family_items:
+                if not _matches_requested_model(catalog_filter_query, item):
+                    continue
+                candidate_id = (
+                    str(getattr(item, "source", "") or ""),
+                    str(getattr(item, "external_id", "") or ""),
+                )
+                if candidate_id not in candidate_ids:
+                    candidates.append(item)
+                    candidate_ids.add(candidate_id)
     except Exception:
         alternative = await self._try_unavailable_lacrado_alternative(
             catalog_filter_query,
@@ -1399,7 +1452,50 @@ async def _try_product_availability(
         if matching_color_candidates:
             public_candidates = matching_color_candidates
 
+    apple_watch_price_match = False
+    apple_watch_price_miss = False
+    if apple_watch_price_query and requested_budget is None:
+        priced_candidates: list[tuple[int, Any]] = []
+        for item in public_candidates:
+            price = _confirmed_catalog_price(item)
+            if price is None:
+                continue
+            try:
+                price_cents = round(float(price) * 100)
+            except (TypeError, ValueError):
+                continue
+            priced_candidates.append(
+                (abs(price_cents - requested_catalog_price_cents), item)
+            )
+
+        if priced_candidates:
+            closest_difference = min(difference for difference, _item in priced_candidates)
+            # Treat a quoted Watch price as an approximate reference when the
+            # nearest available option is within 10% of the amount mentioned.
+            if closest_difference * 10 <= requested_catalog_price_cents:
+                public_candidates = [
+                    item
+                    for difference, item in priced_candidates
+                    if difference == closest_difference
+                ]
+                apple_watch_price_match = True
+            else:
+                public_candidates = []
+                apple_watch_price_miss = True
+        else:
+            public_candidates = []
+            apple_watch_price_miss = True
+
     if not public_candidates:
+        if apple_watch_price_miss:
+            return AgentDecision(
+                reply=(
+                    "Não encontrei um Apple Watch disponível próximo de "
+                    f"{format_brl(requested_catalog_price_cents / 100)}. "
+                    "Posso procurar em outra faixa de preço?"
+                ),
+                confidence="medium",
+            )
         if allow_buyer_interest_with_image:
             selected_text_models = _requested_iphone_model_keys(text)
             if len(selected_text_models) == 1:
@@ -1589,7 +1685,7 @@ async def _try_product_availability(
         selected = sorted(public_candidates, key=price_sort_key)
     else:
         scored = [
-            (_catalog_score(catalog_search_query, item), item)
+            (_catalog_score(catalog_lookup_query, item), item)
             for item in public_candidates
         ]
         best_score = max(score for score, _item in scored)
@@ -1830,6 +1926,31 @@ async def _try_product_availability(
                 f"No momento, encontrei estas opções de {model_name} disponíveis no catálogo:"
             )
 
+    apple_watch_price_near_match = False
+    if apple_watch_price_match and selected:
+        selected_price = _confirmed_catalog_price(selected[0])
+        selected_price_cents = (
+            round(float(selected_price) * 100)
+            if selected_price is not None
+            else None
+        )
+        if (
+            selected_price_cents is not None
+            and selected_price_cents != requested_catalog_price_cents
+        ):
+            amount_text = format_brl(requested_catalog_price_cents / 100)
+            if len(selected) == 1:
+                availability_header = (
+                    f"Não encontrei exatamente por {amount_text}. "
+                    "A opção mais próxima que encontrei é:"
+                )
+            else:
+                availability_header = (
+                    f"Não encontrei exatamente por {amount_text}. "
+                    "As opções mais próximas que encontrei são:"
+                )
+            apple_watch_price_near_match = True
+
     reply = _format_product_availability(
         selected,
         header=availability_header,
@@ -1837,6 +1958,8 @@ async def _try_product_availability(
         installment_quotes=installment_quotes,
         entry_amount=entry_amount,
     )
+    if apple_watch_price_near_match:
+        reply += "\nEra essa opção que você viu?"
     if higher_battery_option_request and selected:
         battery_values = []
         for item in selected:
