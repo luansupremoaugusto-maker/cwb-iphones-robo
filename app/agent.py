@@ -26,6 +26,7 @@ from app.adapters.catalog_cache import (
     _model_key,
     _requested_apple_watch_model_keys,
     _requested_battery_health,
+    _requested_catalog_price_cents,
     _requested_ipad_model_keys,
     _requested_iphone_model_floor,
     _requested_iphone_model_keys,
@@ -1634,6 +1635,15 @@ def _availability_catalog_query(query: str) -> str:
     normalized = _normalize(query)
     if _is_neutral_encomenda_availability(normalized):
         query = re.sub(r"\bencomendas?\b", " ", query, flags=re.IGNORECASE)
+    # A quoted price is a selector for the catalog, not a product identifier.
+    # Keep its numeric digits out of token search so they cannot match unrelated
+    # SKU/product IDs and crowd the intended model out of the candidate set.
+    query = re.sub(
+        r"\br\$\s*\d+(?:\.\d{3})*(?:,\d{2})?\b",
+        " ",
+        query,
+        flags=re.IGNORECASE,
+    )
     # Mercado Phone stores the product type as singular "Celular". Keep a
     # generic plural request searchable before the later budget filter runs.
     return re.sub(r"\bcelulares\b", "celular", query, flags=re.IGNORECASE)
