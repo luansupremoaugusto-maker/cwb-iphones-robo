@@ -1186,6 +1186,107 @@ def _selected_installment_offer_context(
             return re.sub(r"\s+", " ", selected_context).strip()
     return None
 
+
+def _selected_catalog_option_context_for_installment(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> tuple[str, str] | None:
+    """Resolve a color/capacity/battery choice against a recent priced offer."""
+    requested_colors = _requested_catalog_colors(text, [])
+    requested_capacities = _requested_capacity_keys(text)
+    requested_battery = _requested_battery_health(text)
+    if (
+        len(requested_colors) > 1
+        or len(requested_capacities) > 1
+        or not (requested_colors or requested_capacities or requested_battery is not None)
+    ):
+        return None
+
+    requested_models = _requested_iphone_model_keys(text)
+    if len(requested_models) > 1:
+        return None
+
+    for entry in reversed((history or [])[-8:]):
+        if entry.get("role") != "assistant":
+            continue
+        offer = entry.get("content", "")
+        models = _requested_iphone_model_keys(offer)
+        if not _has_product_reference(offer) or len(models) != 1:
+            continue
+        if requested_models and requested_models[0] != models[0]:
+            return None
+
+        option_lines = [
+            re.sub(r"^\s*[-•*]\s*", "", line).strip()
+            for line in offer.replace("\r", "").split("\n")
+            if re.search(r"\br\s*\$", line, flags=re.IGNORECASE)
+        ]
+        if not option_lines:
+            return None
+
+        offer_capacities = _requested_capacity_keys(offer)
+        matching_options: list[str] = []
+        for option in option_lines:
+            option_colors = _requested_catalog_colors(option, [])
+            option_capacities = _requested_capacity_keys(option)
+            option_battery = _requested_battery_health(option)
+            if requested_colors and not set(requested_colors).intersection(option_colors):
+                continue
+            if requested_capacities and requested_capacities[0] not in (
+                option_capacities or offer_capacities
+            ):
+                continue
+            if requested_battery is not None and option_battery != requested_battery:
+                continue
+            matching_options.append(option)
+
+        if len(matching_options) != 1:
+            return None
+
+        option = matching_options[0]
+        offer_is_used = _has_seminovo_reference(offer)
+        offer_is_sealed = _has_explicit_sealed_condition(offer)
+        current_is_used = _has_seminovo_reference(text)
+        current_is_sealed = _has_explicit_sealed_condition(text)
+        if offer_is_used and offer_is_sealed:
+            return None
+        if (current_is_used and offer_is_sealed) or (current_is_sealed and offer_is_used):
+            return None
+        condition = (
+            "seminovo" if current_is_used or offer_is_used
+            else "novo lacrado" if current_is_sealed or offer_is_sealed
+            else ""
+        )
+
+        number, variant = models[0]
+        model = f"iPhone {number}" + (f" {variant.title()}" if variant else "")
+        option_capacities = _requested_capacity_keys(option)
+        selected_capacity = (
+            option_capacities[0]
+            if len(option_capacities) == 1
+            else offer_capacities[0]
+            if len(offer_capacities) == 1
+            else requested_capacities[0]
+            if requested_capacities
+            else None
+        )
+        option_colors = _requested_catalog_colors(option, [])
+        selected_color = option_colors[0] if len(option_colors) == 1 else None
+        selected_battery = _requested_battery_health(option)
+        details = [model]
+        if condition:
+            details.append(condition)
+        if selected_color:
+            details.append(selected_color)
+        if selected_capacity:
+            details.append(selected_capacity.upper())
+        if selected_battery is not None:
+            details.append(f"bateria {selected_battery:g}%")
+        label = ", ".join(details)
+        query = " ".join(details) + "\n" + option
+        return query, label
+    return None
+
 def _bare_iphone_model_in_installment_question(
     text: str,
     history: list[dict[str, str]] | None,
