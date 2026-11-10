@@ -626,6 +626,63 @@ async def test_visit_followup_with_time_only_uses_explicit_today_offer(tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_visit_followup_time_with_minutes_is_not_an_iphone_model(tmp_path, monkeypatch):
+    current = datetime(2026, 11, 10, 6, 51, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    settings = Settings(faq_path="data/faq.yaml")
+    cache = InventoryCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-13-128",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=1660,
+            search_text="iphone 13 azul 128gb seminovo disponível para venda",
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Tem iPhone 14 Pro?"},
+        {
+            "role": "assistant",
+            "content": "Temos opções de iPhone 14 Pro disponíveis.",
+        },
+        {"role": "user", "content": "Onde fica a loja?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim, temos loja física. Hoje é terça-feira, 10/11/2026. "
+                "Atendemos hoje das 09:00 às 18:00, com horário marcado. "
+                "Endereço: Avenida Nossa Senhora da Luz, 1341 - Curitiba. "
+                "Posso marcar uma visita para hoje? Qual horário fica melhor para você?"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "A partir das 13:30 eu já estou disponível",
+        history=history,
+    )
+
+    assert decision.handoff is True
+    assert "solicitação da sua visita" in decision.reply.lower()
+    assert "terça-feira, 10/11/2026" in decision.reply.lower()
+    assert "13:30" in decision.reply
+    assert "iphone 13" not in decision.reply.lower()
+    assert "agendamento" in (decision.handoff_reason or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_visit_followup_now_reports_closed_on_saturday(tmp_path, monkeypatch):
     current = datetime(2026, 8, 15, 16, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
     monkeypatch.setattr(agent_module, "_store_now", lambda: current)
