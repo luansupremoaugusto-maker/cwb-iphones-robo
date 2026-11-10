@@ -465,6 +465,22 @@ def _requested_ipad_model_keys(value: Any) -> tuple[str, ...]:
     return tuple(selected)
 
 
+_MACBOOK_MODEL_REFERENCE_PATTERN = re.compile(
+    r"\bmacbooks?\s+(?P<model>air|pro|neo)\b"
+)
+
+
+def _requested_macbook_model_keys(value: Any) -> tuple[str, ...]:
+    """Return explicitly named MacBook model families."""
+    normalized = _score_text(value)
+    return tuple(
+        dict.fromkeys(
+            match.group("model")
+            for match in _MACBOOK_MODEL_REFERENCE_PATTERN.finditer(normalized)
+        )
+    )
+
+
 _APPLE_WATCH_MODEL_PATTERN = re.compile(
     r"\b(?:(?:apple\s+)?watch\s+)?"
     r"(?P<family>series|se|ultra)\s*(?P<number>\d{1,2})"
@@ -553,8 +569,17 @@ def _matches_requested_model(query: str, item: Any) -> bool:
         return _is_sealed_accessory_item(item) and _matches_requested_accessory(query, item)
     if not _matches_requested_family(query, item):
         return False
+    item_text = " ".join(
+        str(value or "")
+        for value in (
+            getattr(item, "name", ""),
+            getattr(item, "description", ""),
+            getattr(item, "search_text", ""),
+        )
+    )
+    item_family = _catalog_family(getattr(item, "name", "")) or _catalog_family(item_text)
     floor = _requested_iphone_model_floor(query)
-    if floor is not None:
+    if floor is not None and item_family == "iphone":
         item_model = _model_key(getattr(item, "name", ""))
         return (
             _is_iphone_catalog_item(item)
@@ -570,13 +595,17 @@ def _matches_requested_model(query: str, item: Any) -> bool:
             )
         )
     targets = _requested_iphone_model_keys(query)
-    if targets:
+    if targets and item_family == "iphone":
         return _is_iphone_catalog_item(item) and _model_key(getattr(item, "name", "")) in targets
     ipad_targets = _requested_ipad_model_keys(query)
-    if not ipad_targets:
-        return True
-    item_ipad_models = _requested_ipad_model_keys(getattr(item, "name", ""))
-    return bool(set(ipad_targets).intersection(item_ipad_models))
+    if ipad_targets and item_family == "ipad":
+        item_ipad_models = _requested_ipad_model_keys(getattr(item, "name", ""))
+        return bool(set(ipad_targets).intersection(item_ipad_models))
+    macbook_targets = _requested_macbook_model_keys(query)
+    if macbook_targets and item_family == "macbook":
+        item_macbook_models = _requested_macbook_model_keys(getattr(item, "name", ""))
+        return bool(set(macbook_targets).intersection(item_macbook_models))
+    return True
 
 
 def _capacity_key(value: Any) -> str | None:
