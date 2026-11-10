@@ -25,6 +25,17 @@ def test_explicit_new_purchase_with_broken_phone_is_not_trade_in():
     assert is_trade_in_request(text) is False
 
 
+def test_unqualified_conditional_iphone_purchase_interest_is_not_trade_in():
+    buyer_text = "Teria interesse em comprar um iPhone"
+    store_buyback_text = "Vocês teriam interesse em comprar um iPhone?"
+    owned_device_text = "Teria interesse em comprar meu iPhone 13?"
+
+    assert is_trade_in_request(buyer_text) is False
+    assert is_purchase_without_trade_in_request(buyer_text) is True
+    assert is_trade_in_request(store_buyback_text) is True
+    assert is_trade_in_request(owned_device_text) is True
+
+
 def test_purchase_context_cannot_be_rewritten_as_trade_in_handoff():
     decision = _ensure_trade_in_form_before_handoff(
         AgentDecision(
