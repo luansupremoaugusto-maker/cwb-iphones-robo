@@ -266,7 +266,22 @@ def _is_catalog_price_followup(text: str) -> bool:
             normalized,
         )
     )
-    return has_deictic_reference or short_price_question
+    asks_price_and_battery_health = bool(
+        re.search(
+            r"\b(?:saude|percentual|porcentagem)\b.{0,20}\bbateria\b"
+            r"|\bbateria\b.{0,20}\b(?:saude|percentual|porcentagem)\b",
+            normalized,
+        )
+        and re.search(
+            r"\b(?:valor(?:es)?|precos?|custa|quanto\s+(?:custa|fica|sai))\b",
+            normalized,
+        )
+    )
+    return (
+        has_deictic_reference
+        or short_price_question
+        or asks_price_and_battery_health
+    )
 
 def _is_other_color_request(text: str) -> bool:
     return bool(re.search(r"\boutra(?:s)?\s+cor(?:es)?\b", _normalize(text)))

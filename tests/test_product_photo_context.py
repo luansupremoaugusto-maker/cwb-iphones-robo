@@ -689,6 +689,53 @@ async def test_yes_to_iphone_14_photo_offer_resolves_the_last_selected_unit(
 
 
 @pytest.mark.asyncio
+async def test_price_and_battery_question_after_photos_uses_shown_model_and_capacity(
+    tmp_path,
+):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "iphone-13-photo-price-battery.json",
+    )
+    cache.items = [
+        InventoryItem(
+            external_id=external_id,
+            name="IPHONE 13",
+            category="Celular",
+            capacity=capacity,
+            color=color,
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            source="mercado_phone",
+            search_text=f"iphone 13 {color} {capacity} celular seminovo bateria {battery}",
+        )
+        for external_id, capacity, color, price, battery in (
+            ("iphone-13-128", "128GB", "MEIA-NOITE", 1730.0, 87),
+            ("iphone-13-256", "256GB", "AZUL", 1900.0, 95),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Me manda foto do iPhone 13"},
+        {
+            "role": "assistant",
+            "content": "Claro! Seguem as fotos do IPHONE 13 128GB.",
+        },
+    ]
+
+    decision = await agent.respond("Qual valor e saude da bateria", history=history)
+
+    assert decision.product_references == ["iphone-13-128"], decision
+    assert "R$ 1.730" in decision.reply, decision
+    assert "87%" in decision.reply, decision
+
+
+@pytest.mark.asyncio
 async def test_current_battery_selection_overrides_previous_photo_price(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
