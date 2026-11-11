@@ -1148,7 +1148,9 @@ def _has_device_offer(text: str) -> bool:
     ):
         return True
 
-    if re.search(
+    # A shop's "venda do iPhone" can be a stock query. Require ownership or
+    # a clear device-selling verb before treating this wording as an offer.
+    sale_or_valuation_cue = re.search(
         r"\b(?:vender|venda|avaliar|avaliacao|quanto vale|"
         r"quanto voces dao|quanto vcs dao)\b.{0,35}\b(?:meu|minha|"
         r"celular|iphone|aparelho|usado|ele|ela)\b"
@@ -1156,7 +1158,21 @@ def _has_device_offer(text: str) -> bool:
         r"celular|iphone|aparelho|usado|ele|ela)\b",
         text,
         flags=re.IGNORECASE,
-    ) and _has_device_reference(text):
+    )
+    explicit_device_sale_verb = re.search(
+        r"\b(?:vender|vendo|vendendo)\b.{0,35}\b"
+        r"(?:iphone|ipad|macbook|airpods?|apple\s+watch|celular|aparelho)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if (
+        sale_or_valuation_cue
+        and _has_device_reference(text)
+        and (
+            _has_personal_device_reference(text)
+            or explicit_device_sale_verb
+        )
+    ):
         return True
 
     # Pronoun-only phrasing from voice messages: "pega ele como pagamento?"
