@@ -43,6 +43,7 @@ from app.installments import (
     format_installment_result,
     format_installment_table,
     simulate_installment,
+    simulate_installment_balance,
     simulate_installment_table_with_entry,
     simulate_installment_with_entry,
 )
@@ -4424,6 +4425,7 @@ from .agent_rules.payments import (
     _cash_price_quotes_from_history,
     _customer_installment_price_reference,
     _extract_budget_limit,
+    _extract_customer_financed_balance,
     _extract_entry_amount,
     _extract_installment_budget,
     _extract_latest_budget_limit,
@@ -4450,6 +4452,7 @@ from .agent_rules.payments import (
     _is_installment_offer_confirmation,
     _is_installment_rate_for_referenced_price,
     _is_installment_rate_question,
+    _is_short_interest_confirmation,
     _is_installment_selection_followup,
     _is_no_interest_installment_question,
     _is_payment_link_followup,
