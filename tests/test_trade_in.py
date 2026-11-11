@@ -70,6 +70,54 @@ async def test_buyer_conditional_interest_after_greeting_does_not_get_trade_in_f
 
 
 @pytest.mark.asyncio
+async def test_iphone_sale_catalog_request_does_not_start_trade_in(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(
+        object(), settings, cache_path=tmp_path / "inventory.json"
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="used:iphone-15-pro-128",
+            name="iPhone 15 Pro",
+            category="Celular",
+            capacity="128 GB",
+            color="TITÂNIO AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3250,
+            battery_health=80,
+            search_text="iphone 15 pro 128 gb titanio azul celular seminovo",
+        ),
+    ]
+    cache.last_refresh = time.time()
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Boa tarde, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+    ]
+    text = (
+        "Gostaria de conhecer um pouco mais dos modelos que vcs tem "
+        "pra venda do iPhone 15"
+    )
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert is_trade_in_request("Vendo iPhone 13") is True
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply != TRADE_IN_FORM
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert decision.handoff is False
+    assert "iPhone 15 Pro" in decision.reply
+    assert "R$ 3.250,00" in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_downgrade_question_confirms_service_and_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
@@ -2384,6 +2432,57 @@ async def test_iphone_catalog_buyer_question_does_not_start_trade_in(tmp_path):
     assert decision.reply != TRADE_IN_FORM
     assert decision.product_references == ["used:iphone-16-pro-max-256"]
     assert "R$ 5.200,00" in decision.reply
+
+
+@pytest.mark.asyncio
+async def test_catalog_selection_after_wrong_form_does_not_resume_trade_in(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(
+            object(), settings, cache_path=tmp_path / "inventory.json"
+        ),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Boa tarde, tudo bem?"},
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "user",
+            "content": "Gostaria de conhecer um pouco mais dos modelos que vcs tem pra venda do iPhone 15",
+        },
+        {"role": "assistant", "content": TRADE_IN_FORM},
+        {"role": "user", "content": "Eu quero ver os que vcs tem a venda"},
+        {
+            "role": "assistant",
+            "content": "Não encontrei opções cadastradas no momento.",
+        },
+        {"role": "user", "content": "Se você tiver algo do 16 pode mandar também!"},
+        {
+            "role": "assistant",
+            "content": (
+                "iPhone 16 seminovos disponíveis: 128GB, preto — R$ 3.630 | "
+                "bateria 88%; 256GB, preto — R$ 3.850 | bateria 88%."
+            ),
+        },
+    ]
+    text = (
+        "* 128GB, preto — R$ 3.630 | bateria 88%\n"
+        "* 256GB, preto — R$ 3.850 | bateria 88%"
+    )
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+
+    decision = await service.respond(text, history=history)
+
+    assert decision.reply != TRADE_IN_FORM
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert decision.handoff is False
 
 
 @pytest.mark.asyncio
