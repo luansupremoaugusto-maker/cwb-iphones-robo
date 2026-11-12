@@ -13,6 +13,7 @@ from app.adapters.mercado_phone import MercadoPhoneError, _parse_retry_after
 # Keep a safety ceiling while allowing the complete product photo set returned
 # by Mercado Phone in normal cases (the store currently has items with 7 photos).
 MAX_PRODUCT_PHOTOS = 20
+MAX_PRODUCT_FILE_PAGES = MAX_PRODUCT_PHOTOS
 
 
 def normalize_catalog_key(value: str | None) -> str:
@@ -89,6 +90,36 @@ def extract_file_urls(payload: Any, limit: int = MAX_PRODUCT_PHOTOS) -> list[str
     return urls[:limit]
 
 
+def _file_page_info(payload: Any) -> tuple[int | None, int | None]:
+    """Read legacy pagination totals without exposing response metadata."""
+    total_items: int | None = None
+    page_items: int | None = None
+
+    def visit(value: Any) -> None:
+        nonlocal total_items, page_items
+        if isinstance(value, dict):
+            for key, child in value.items():
+                normalized_key = re.sub(r"[^a-z0-9]", "", normalize_catalog_key(str(key)))
+                if total_items is None and normalized_key in {"totalitens", "totalitems"}:
+                    try:
+                        total_items = max(0, int(child))
+                    except (TypeError, ValueError):
+                        pass
+                if (
+                    page_items is None
+                    and normalized_key in {"items", "itens", "files", "arquivos"}
+                    and isinstance(child, list)
+                ):
+                    page_items = len(child)
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(payload)
+    return total_items, page_items
+
+
 async def list_product_files(
     mercado_client: Any,
     object_id: str,
@@ -96,22 +127,12 @@ async def list_product_files(
     origin: int = 1,
     page: int = 1,
 ) -> dict[str, Any]:
-    """List product attachments through Mercado Phone's read-only endpoint."""
+    """List all product attachment pages through Mercado Phone's read-only endpoint."""
 
     settings = mercado_client.settings
     if not settings.mercado_phone_api_key:
         raise MercadoPhoneError("MERCADO_PHONE_API_KEY não configurada")
 
-    body = {
-        "page": page,
-        "order": "id",
-        "direction": "desc",
-        "filters": {
-            "id": "",
-            "origem": str(origin),
-            "objetoId": str(object_id),
-        },
-    }
     endpoint = settings.mercado_phone_files_url
     http_client = mercado_client._client
     headers = dict(mercado_client.headers)
@@ -120,48 +141,96 @@ async def list_product_files(
     # read-only Mercado Phone surfaces compatible.
     headers["Authorization"] = settings.mercado_phone_api_key
 
-    for attempt in range(3):
-        try:
-            response = await http_client.post(endpoint, json=body, headers=headers)
-        except httpx.HTTPError as exc:
-            if attempt == 2:
-                raise MercadoPhoneError(f"Falha de transporte Mercado Phone: {exc}") from exc
-            await asyncio.sleep(0.25 * (attempt + 1))
-            continue
+    async def fetch_page(page_number: int) -> dict[str, Any]:
+        body = {
+            "page": page_number,
+            "order": "id",
+            "direction": "desc",
+            "filters": {
+                "id": "",
+                "origem": str(origin),
+                "objetoId": str(object_id),
+            },
+        }
 
-        if response.status_code in {429, 502, 503, 504} and attempt < 2:
-            retry_after = _parse_retry_after(response)
-            await asyncio.sleep(min(retry_after or 0.25 * (attempt + 1), 4.0))
-            continue
-
-        if response.status_code >= 400:
+        for attempt in range(3):
             try:
-                response_body = response.json()
-            except ValueError:
-                response_body = response.text[:500]
-            detail = (
-                response_body.get("detail", response_body)
-                if isinstance(response_body, dict)
-                else response_body
-            )
-            raise MercadoPhoneError(
-                f"Mercado Phone HTTP {response.status_code}: {detail}",
-                status_code=response.status_code,
-                retry_after=_parse_retry_after(response),
-            )
+                response = await http_client.post(endpoint, json=body, headers=headers)
+            except httpx.HTTPError as exc:
+                if attempt == 2:
+                    raise MercadoPhoneError(f"Falha de transporte Mercado Phone: {exc}") from exc
+                await asyncio.sleep(0.25 * (attempt + 1))
+                continue
 
-        if not response.content:
+            if response.status_code in {429, 502, 503, 504} and attempt < 2:
+                retry_after = _parse_retry_after(response)
+                await asyncio.sleep(min(retry_after or 0.25 * (attempt + 1), 4.0))
+                continue
+
+            if response.status_code >= 400:
+                try:
+                    response_body = response.json()
+                except ValueError:
+                    response_body = response.text[:500]
+                detail = (
+                    response_body.get("detail", response_body)
+                    if isinstance(response_body, dict)
+                    else response_body
+                )
+                raise MercadoPhoneError(
+                    f"Mercado Phone HTTP {response.status_code}: {detail}",
+                    status_code=response.status_code,
+                    retry_after=_parse_retry_after(response),
+                )
+
+            if not response.content:
+                return {}
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise MercadoPhoneError(
+                    "Mercado Phone arquivos retornou JSON inválido", response.status_code
+                ) from exc
+            if isinstance(data, dict):
+                return data
+            if isinstance(data, list):
+                return {"items": data}
             return {}
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise MercadoPhoneError(
-                "Mercado Phone arquivos retornou JSON inválido", response.status_code
-            ) from exc
-        if isinstance(data, dict):
-            return data
-        if isinstance(data, list):
-            return {"items": data}
-        return {}
 
-    raise MercadoPhoneError("Mercado Phone arquivos não respondeu após as tentativas")
+        raise MercadoPhoneError("Mercado Phone arquivos não respondeu após as tentativas")
+
+    urls: list[str] = []
+    records_seen = 0
+    total_records: int | None = None
+    previous_page_urls: tuple[str, ...] | None = None
+    for page_number in range(page, page + MAX_PRODUCT_FILE_PAGES):
+        payload = await fetch_page(page_number)
+        page_total, page_record_count = _file_page_info(payload)
+        if page_total is not None:
+            total_records = page_total
+        if page_record_count is not None:
+            records_seen += page_record_count
+
+        page_urls = extract_file_urls(payload)
+        if not page_urls:
+            break
+
+        fingerprint = tuple(page_urls)
+        if fingerprint == previous_page_urls and total_records is None:
+            # Avoid repeating requests if the legacy endpoint ignores `page`.
+            break
+        previous_page_urls = fingerprint
+
+        for url in page_urls:
+            if url not in urls:
+                urls.append(url)
+                if len(urls) >= MAX_PRODUCT_PHOTOS:
+                    break
+        if len(urls) >= MAX_PRODUCT_PHOTOS:
+            break
+        if total_records is not None and records_seen >= total_records:
+            break
+
+    # Only the approved HTTPS URLs are needed downstream. Do not expose the
+    # attachment response's IDs or other inventory metadata to the agent.
+    return {"items": [{"url": url} for url in urls]}
