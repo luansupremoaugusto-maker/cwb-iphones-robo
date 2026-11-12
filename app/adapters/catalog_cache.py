@@ -82,7 +82,7 @@ _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN = re.compile(
 )
 
 _NORMAL_AND_SHARED_PRO_MAX_PATTERN = re.compile(
-    r"\b(?P<number>1[0-9])\s+normal\s+(?P<join>e|ou|or)\s+"
+    r"\b(?P<number>1[0-9])\s+(?:o\s+)?normal\s+(?P<join>e|ou|or)\s+"
     r"(?:(?:o|a)\s+)?pro\s+max\b",
     flags=re.IGNORECASE,
 )
