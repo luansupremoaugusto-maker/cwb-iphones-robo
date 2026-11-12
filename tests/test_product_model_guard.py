@@ -7026,6 +7026,32 @@ async def test_price_validity_followup_answers_price_policy_instead_of_repeating
 
 
 @pytest.mark.asyncio
+async def test_old_catalog_price_question_does_not_repeat_the_product(tmp_path):
+    agent = _build_17_pro_price_followup_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "iPhone 17 Pro novo, ainda tem?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim. Encontrei estas opções de iPhone 17 Pro disponíveis: "
+                "256 GB, novo lacrado, R$ 7.600,00."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Aquele valor de 6900 não fazem mais?",
+        history=history,
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "os precos podem ser alterados sem aviso previo" in reply
+    assert "confirmacao deve ser feita no momento do atendimento" in reply
+    assert "encontrei estas opcoes" not in reply
+
+
+@pytest.mark.asyncio
 async def test_price_increase_followup_does_not_turn_delivery_deadline_into_budget(tmp_path):
     agent = _build_17_pro_price_followup_agent(tmp_path)
     history = _price_followup_history()
