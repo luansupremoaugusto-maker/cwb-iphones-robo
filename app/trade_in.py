@@ -898,6 +898,15 @@ def has_explicit_trade_in_cue(text: str | None) -> bool:
     )
 
 
+def is_upgrade_buyback_price_request(text: str | None) -> bool:
+    """Recognize an owned-device buyback quote tied to getting another phone."""
+    normalized = _normalize(text)
+    return bool(
+        _BUYBACK_FOR_UPGRADE_RE.search(normalized)
+        and _has_personal_device_reference(normalized)
+    )
+
+
 def _is_component_repair_request(text: str | None) -> bool:
     normalized = _normalize(text)
     return bool(

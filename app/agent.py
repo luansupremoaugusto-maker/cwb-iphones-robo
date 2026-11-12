@@ -69,6 +69,7 @@ from app.trade_in import (
     is_trade_in_context_request,
     is_trade_in_request,
     has_explicit_trade_in_cue,
+    is_upgrade_buyback_price_request,
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
@@ -3046,6 +3047,7 @@ class AgentService:
             )
         if (
             is_trade_in_request(text)
+            and is_upgrade_buyback_price_request(text)
             and not is_non_apple_trade_in_request(text)
             and not is_parts_buyback_request(text)
             and not is_purchase_without_trade_in_request(text, history)
