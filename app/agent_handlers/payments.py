@@ -14,10 +14,12 @@ from app.agent import (
     _catalog_battery_unit_selection_query,
     _catalog_families,
     _catalog_price_unit_selection_query,
+    _extract_customer_financed_balance,
     _extract_entry_amount,
     _format_ambiguous_installment_decision,
     _has_explicit_sealed_condition,
     _has_installment_product_context,
+    _has_installment_model_prompt,
     _has_product_reference,
     _has_recent_card_installment_simulation,
     _has_recent_catalog_sale_context,
@@ -47,6 +49,7 @@ from app.agent import (
     _is_product_availability_request,
     _is_rate_model_followup,
     _is_specific_installment_request,
+    _is_short_interest_confirmation,
     _last_requested_installments,
     _multi_model_installment_queries,
     _normalize,
@@ -62,6 +65,7 @@ from app.agent import (
     format_installment_table,
     math,
     re,
+    simulate_installment_balance,
     simulate_installment_table_with_entry,
 )
 
@@ -813,13 +817,53 @@ async def _try_entry_installment(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> AgentDecision | None:
-    entry_amount = _extract_entry_amount(text)
+    request_text = text
+    if (
+        _is_short_interest_confirmation(text)
+        and history
+        and history[-1].get("role") == "assistant"
+        and _has_installment_model_prompt([history[-1]])
+    ):
+        previous_user_request = next(
+            (
+                item.get("content", "")
+                for item in reversed(history[:-1])
+                if item.get("role") == "user"
+            ),
+            "",
+        )
+        if (
+            _extract_customer_financed_balance(previous_user_request) is not None
+            and _extract_entry_amount(previous_user_request) is not None
+        ):
+            request_text = previous_user_request
+
+    explicit_balance = _extract_customer_financed_balance(request_text)
+    entry_amount = _extract_entry_amount(request_text)
+    if explicit_balance is not None and entry_amount is not None:
+        balance, installments = explicit_balance
+        result = simulate_installment_balance(balance, installments)
+        if result.get("encontrado"):
+            total_with_entry = round(entry_amount + float(result["valor_total_brl"]), 2)
+            return AgentDecision(
+                reply=(
+                    f"Considerando {format_brl(balance)} como o saldo total a parcelar em "
+                    f"{installments}x, os juros da máquina ficam em "
+                    f"{format_brl(float(result['juros_brl']))}. Seriam "
+                    f"{installments}x de {format_brl(float(result['valor_parcela_brl']))} "
+                    f"(total no cartão de {format_brl(float(result['valor_total_brl']))}).\n"
+                    f"Somando os {format_brl(entry_amount)} à vista, o total fica "
+                    f"{format_brl(total_with_entry)}."
+                ),
+                confidence="high",
+            )
+
     if entry_amount is None:
         return None
-    normalized = _normalize(text)
+    normalized = _normalize(request_text)
     has_installment_intent = (
-        _requested_installments(text) is not None
-        or _is_full_installment_request(text)
+        _requested_installments(request_text) is not None
+        or _is_full_installment_request(request_text)
         or bool(
             re.search(
                 r"\b(?:parcel\w*|quantas\s+vezes|fica\s+quanto|quanto\s+fica)\b",
@@ -830,7 +874,7 @@ async def _try_entry_installment(
     if not has_installment_intent:
         return None
 
-    query = _installment_context_query(text, history)
+    query = _installment_context_query(request_text, history)
     try:
         method = getattr(self.cache, "simulate_all_installments_with_entry", None)
         if not callable(method):

@@ -635,6 +635,14 @@ def _extract_entry_amount(text: str) -> float | None:
             rf"\b(?:r\$\s*)?({amount})\s*(?:a|à)\s+vista\b",
             rf"\b(?:r\$\s*)?({amount})\s+(?:em|no)\s+dinheiro\b",
         )
+    elif re.search(r"\b(?:parcel\w*|financi\w*)\b", normalized):
+        # "Dando mil reais à vista e parcelando R$ 920 em 8x" describes a
+        # cash entry even when the customer does not say "entrada" or
+        # "restante".
+        patterns = (
+            rf"\b(?:dando|pagando|colocando|separando|depositando)\s+"
+            rf"(?:r\$\s*)?({amount})\s*(?:a|à)\s+vista\b",
+        )
     else:
         return None
     for pattern in patterns:
@@ -642,6 +650,35 @@ def _extract_entry_amount(text: str) -> float | None:
         if match:
             return _parse_entry_amount(match.group(1))
     return None
+
+
+def _extract_customer_financed_balance(text: str) -> tuple[float, int] | None:
+    """Read an explicit balance followed by the requested card term."""
+    normalized = _normalize(text)
+    amount = r"(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?"
+    match = re.search(
+        rf"\b(?:parcel\w*|financi\w*)\s+(?:o\s+)?"
+        rf"(?:(?:saldo\s+restante|saldo|restante)\s+)?(?:de\s+)?"
+        rf"(?:r\$\s*)?(?P<amount>{amount})\s+"
+        rf"(?:em\s+)?(?P<count>1[0-8]|[1-9])\s*(?:x|parcelas?|vezes)\b",
+        normalized,
+    )
+    if match is None:
+        return None
+    value = _parse_brl_amount(match.group("amount"))
+    if value is None or value <= 0:
+        return None
+    return value, int(match.group("count"))
+
+
+def _is_short_interest_confirmation(text: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?:sim\s+)?com\s+(?:os\s+)?juros(?:\s+da\s+maquina)?[?!.\s]*",
+            _normalize(text),
+        )
+    )
+
 
 def _requested_installments(text: str) -> int | None:
     normalized = _normalize(text)

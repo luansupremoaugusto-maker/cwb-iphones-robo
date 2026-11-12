@@ -102,6 +102,33 @@ def simulate_installment_with_entry(
     return result
 
 
+def simulate_installment_balance(balance_brl: float, installments: int) -> dict[str, Any]:
+    """Calculate one card offer when the customer gives the financed balance."""
+    try:
+        balance = float(balance_brl)
+        count = int(installments)
+    except (TypeError, ValueError):
+        return {
+            "encontrado": False,
+            "motivo": "Não consegui entender o valor ou as parcelas",
+        }
+
+    if not math.isfinite(balance) or balance <= 0:
+        return {"encontrado": False, "motivo": "O saldo a parcelar deve ser positivo"}
+    if not 1 <= count <= 18:
+        return {"encontrado": False, "motivo": "O parcelamento deve estar entre 1x e 18x"}
+
+    total = round(balance / (1 - FIXED_INSTALLMENT_RATES[count]), 2)
+    return {
+        "encontrado": True,
+        "saldo_restante_brl": round(balance, 2),
+        "vezes": count,
+        "valor_total_brl": total,
+        "juros_brl": round(total - balance, 2),
+        "valor_parcela_brl": round(total / count, 2),
+    }
+
+
 def simulate_installment_table(item: Any) -> dict[str, Any]:
     """Calcula todas as opções aprovadas, de 1x até 18x."""
     price = item.price_brl
