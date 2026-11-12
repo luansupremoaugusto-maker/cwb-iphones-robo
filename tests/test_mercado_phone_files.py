@@ -32,17 +32,21 @@ def test_extract_file_urls_accepts_nested_attachment_shapes_without_metadata():
 
 @pytest.mark.asyncio
 async def test_list_product_files_sends_the_documented_read_only_post():
-    captured: dict[str, object] = {}
+    captured: list[dict[str, object]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        captured["method"] = request.method
-        captured["url"] = str(request.url)
-        captured["body"] = json.loads(request.content)
+        body = json.loads(request.content)
+        captured.append({"method": request.method, "url": str(request.url), "body": body})
         assert request.headers["X-API-Key"] == "mpk-test"
         assert request.headers["X-Unit-Id"] == "2620"
+        if body["page"] == 1:
+            return httpx.Response(
+                200,
+                json={"items": [{"arquivoUrl": "https://cdn.example/iphone.jpg"}]},
+            )
         return httpx.Response(
             200,
-            json={"items": [{"arquivoUrl": "https://cdn.example/iphone.jpg"}]},
+            json={"items": []},
         )
 
     settings = Settings(
@@ -70,15 +74,90 @@ async def test_list_product_files_sends_the_documented_read_only_post():
     finally:
         await client.aclose()
 
-    assert response["items"][0]["arquivoUrl"] == "https://cdn.example/iphone.jpg"
-    assert captured["method"] == "POST"
-    assert "class=ArquivoApiController" in str(captured["url"])
-    assert captured["body"] == {
+    assert extract_file_urls(response) == ["https://cdn.example/iphone.jpg"]
+    assert captured[0]["method"] == "POST"
+    assert "class=ArquivoApiController" in str(captured[0]["url"])
+    assert captured[0]["body"] == {
         "page": 1,
         "order": "id",
         "direction": "desc",
         "filters": {"id": "", "origem": "1", "objetoId": "123"},
     }
+    assert captured[1]["body"]["page"] == 2
+
+
+@pytest.mark.asyncio
+async def test_catalog_loads_all_seven_photos_across_attachment_pages(tmp_path):
+    urls = [f"https://cdn.example/iphone-14-red-128-{index}.jpg" for index in range(7)]
+    page_bodies: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        page_bodies.append(body)
+        page_urls = urls[:3] if body["page"] == 1 else urls[3:] if body["page"] == 2 else []
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "totalItens": len(urls),
+                    "itens": [{"arquivoUrl": url} for url in page_urls],
+                }
+            },
+        )
+
+    settings = Settings(
+        mercado_phone_api_key="mpk-test",
+        mercado_phone_files_url="https://app.mercadophone.tech/api.php?class=ArquivoApiController&method=index",
+        mercado_cache_ttl_seconds=60,
+    )
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    class MercadoStub:
+        def __init__(self):
+            self.settings = settings
+            self._client = http_client
+            self.headers = {
+                "Accept": "application/json",
+                "X-API-Key": "mpk-test",
+                "X-Unit-Id": "2620",
+            }
+
+        async def fetch_all_inventory(self):
+            return []
+
+    cache = StoreCatalogCache(
+        MercadoStub(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-14-photos.json",
+        sealed_cache=None,
+    )
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-14-red-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="VERMELHO",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            source="mercado_phone",
+            search_text="iphone 14 vermelho 128gb celular seminovo",
+        )
+    ]
+    cache.last_refresh = time.time()
+
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    try:
+        decision = await agent.respond("Pode mandar as fotos do iPhone 14 vermelho de 128GB?")
+    finally:
+        await http_client.aclose()
+
+    assert decision.handoff is False
+    assert decision.image_urls == urls
+    assert decision.product_references == ["iphone-14-red-128"]
+    assert [body["page"] for body in page_bodies] == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -89,7 +168,12 @@ async def test_catalog_loads_product_photos_on_demand_from_mercado_phone(tmp_pat
         calls.append(json.loads(request.content))
         return httpx.Response(
             200,
-            json={"items": [{"url": "https://cdn.example/iphone-15.jpg"}]},
+            json={
+                "data": {
+                    "totalItens": 1,
+                    "itens": [{"url": "https://cdn.example/iphone-15.jpg"}],
+                }
+            },
         )
 
     settings = Settings(
@@ -155,7 +239,12 @@ async def test_available_catalog_can_hydrate_photo_counts_for_admin(tmp_path):
         calls.append(json.loads(request.content))
         return httpx.Response(
             200,
-            json={"items": [{"url": "https://cdn.example/iphone-15-front.jpg"}]},
+            json={
+                "data": {
+                    "totalItens": 1,
+                    "itens": [{"url": "https://cdn.example/iphone-15-front.jpg"}],
+                }
+            },
         )
 
     settings = Settings(
@@ -229,7 +318,12 @@ async def test_photo_request_retries_after_an_empty_catalog_file_response(tmp_pa
             return httpx.Response(200, json={"items": []})
         return httpx.Response(
             200,
-            json={"items": [{"url": "https://cdn.example/iphone-13-midnight.jpg"}]},
+            json={
+                "data": {
+                    "totalItens": 1,
+                    "itens": [{"url": "https://cdn.example/iphone-13-midnight.jpg"}],
+                }
+            },
         )
 
     settings = Settings(
@@ -309,7 +403,12 @@ async def test_short_photo_abbreviation_uses_existing_mercado_phone_files(tmp_pa
         calls.append(json.loads(request.content))
         return httpx.Response(
             200,
-            json={"items": [{"url": "https://cdn.example/iphone-15-black.jpg"}]},
+            json={
+                "data": {
+                    "totalItens": 1,
+                    "itens": [{"url": "https://cdn.example/iphone-15-black.jpg"}],
+                }
+            },
         )
 
     settings = Settings(
