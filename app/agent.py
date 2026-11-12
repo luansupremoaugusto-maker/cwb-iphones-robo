@@ -68,6 +68,7 @@ from app.trade_in import (
     is_downgrade_request,
     is_box_inclusion_question,
     is_pending_trade_in_evaluation_followup,
+    is_pending_trade_in_form_send_request,
     is_trade_in_context_request,
     is_trade_in_request,
     has_explicit_trade_in_cue,
@@ -2845,6 +2846,12 @@ class AgentService:
                     if trade_in_em_andamento(history)
                     else DOWNGRADE_EVALUATION_REPLY
                 ),
+                confidence="high",
+            )
+        if is_pending_trade_in_form_send_request(text, history):
+            return AgentDecision(
+                reply=TRADE_IN_FORM,
+                handoff=False,
                 confidence="high",
             )
         if is_pending_trade_in_evaluation_followup(text, image_description, history):

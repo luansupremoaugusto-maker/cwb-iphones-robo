@@ -107,7 +107,7 @@ _NON_APPLE_RE = re.compile(
 )
 
 _NEGATION_RE = re.compile(
-    r"\b(?:nao|nunca|jamais|sem|nenhum|nenhuma)\b.{0,35}\b"
+    r"\b(?:nao|nunca(?!\s+foi\s+abert[oa]\b)|jamais|sem|nenhum|nenhuma)\b.{0,35}\b"
     r"(?:(?:troca|trocar|troco)(?!\s+(?:de\s+)?(?:pecas?|tela|bateria|"
     r"display|vidro|conector|camera|carcaca|microfone|alto\s+falante|"
     r"chip|flex|placa|componentes?))|vender|venda|vende-l[oa]s?|trade[- ]?in)\b",
@@ -462,9 +462,11 @@ _MULTI_DEVICE_TRADE_PRICE_RE = re.compile(
     re.IGNORECASE,
 )
 _IMPLICIT_OWNED_EXCHANGE_TARGET_RE = re.compile(
-    r"\b(?:penso\s+em|estou\s+pensando\s+em)\b.{0,25}"
-    r"\btrocar\s+(?:por|para|pra|pro)\s+(?:um|uma|outro|outra)?\s*"
-    r"(?:iphone\s*)?\d{1,2}\s+(?:pro(?:\s+max)?|max|plus|mini|e|se)\b",
+    r"\b(?:penso\s+em|estou\s+pensando\s+em|quer(?:ia|o)|"
+    r"gostaria\s+de|pretendo)\b.{0,80}"
+    r"\btrocar\s+(?:por|para|pra|pro|pelo|pela)\s+"
+    r"(?:(?:um|uma|outro|outra|o|a)\s+)?(?:iphone\s*)?\d{1,2}"
+    r"(?:\s+(?:pro(?:\s+max)?|max|plus|mini|e|se))?\b",
     re.IGNORECASE,
 )
 _IMPLICIT_GENERIC_UPGRADE_RE = re.compile(
@@ -585,6 +587,16 @@ _TRADE_IN_FORM_PENDING_CONTEXT_RE = re.compile(
     r"\b(?:preench\w*|dados|respostas|informacoes)\b|"
     r"\b(?:preench\w*|dados\s+solicitados)\b.{0,70}"
     r"\b(?:lista|formulario)\s+de\s+avaliacao\b",
+    re.IGNORECASE,
+)
+_PENDING_TRADE_IN_FORM_SEND_REQUEST_RE = re.compile(
+    r"^(?:(?:voce\s+)?(?:pode|consegue|poderia)\s+)?"
+    r"(?:me\s+)?(?:envi\w*|mand\w*|pass\w*|encaminh\w*|repass\w*)"
+    r"(?:\s+(?:(?:a|essa|esta|o|esse|este)\s+)?"
+    r"(?:lista(?:\s+de\s+avaliacao)?|formulario(?:\s+de\s+avaliacao)?|ela)|"
+    r"\s+(?:por\s+favor|pfv))?"
+    r"(?:\s+(?:por\s+favor|pfv|para\s+mim|pra\s+mim))?"
+    r"[.!?,\s]*$",
     re.IGNORECASE,
 )
 _SOFTWARE_UPGRADE_CONTEXT_RE = re.compile(
@@ -1789,6 +1801,53 @@ def is_pending_trade_in_evaluation_followup(
         _TRADE_IN_MODEL_CLARIFICATION_ANSWER_RE.fullmatch(normalized_text)
         or _TRADE_IN_CAPACITY_ANSWER_RE.fullmatch(normalized_text)
         or _DEVICE_EVALUATION_CONDITION_RE.search(normalized_text)
+    )
+
+
+def is_pending_trade_in_form_send_request(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a short request to send the evaluation form already discussed."""
+    normalized = _normalize(text)
+    if (
+        not normalized
+        or not history
+        or not _PENDING_TRADE_IN_FORM_SEND_REQUEST_RE.fullmatch(normalized)
+        or is_parts_buyback_request(normalized)
+        or is_non_apple_trade_in_request(normalized)
+        or _is_component_repair_request(normalized)
+    ):
+        return False
+
+    recent_entries = history[-16:]
+    has_pending_form_context = any(
+        entry.get("role") == "assistant"
+        and _TRADE_IN_FORM_PENDING_CONTEXT_RE.search(
+            _normalize(entry.get("content", ""))
+        )
+        for entry in recent_entries
+    )
+    has_recent_trade_in_offer = any(
+        entry.get("role") == "user"
+        and is_trade_in_request(entry.get("content"))
+        and not is_non_apple_trade_in_request(entry.get("content"))
+        and not is_parts_buyback_request(entry.get("content"))
+        for entry in recent_entries
+    )
+    assistant_confirmed_trade_in_context = any(
+        entry.get("role") == "assistant"
+        and _APPLE_PRODUCT_RE.search(_normalize(entry.get("content", "")))
+        and re.search(
+            r"\b(?:parte do pagamento|como entrada|para troca|troca|"
+            r"avaliacao|avaliar)\b",
+            _normalize(entry.get("content", "")),
+        )
+        for entry in history[-8:]
+    )
+    return bool(
+        has_pending_form_context
+        and (has_recent_trade_in_offer or assistant_confirmed_trade_in_context)
     )
 
 
