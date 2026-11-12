@@ -549,7 +549,8 @@ _GENERIC_TRADE_IN_ENTRY_QUESTION_RE = re.compile(
     r"\b(?:aceit\w*|peg\w*|receb\w*)\b.{0,35}"
     r"\b(?:outro|outra)\b.{0,35}"
     r"\b(?:como\s+entrada|de\s+entrada|(?:na|em)\s+troca|"
-    r"(?:como\s+)?parte\s+(?:(?:do|de)\s+)?pagamento)\b",
+    r"(?:como\s+)?(?:uma\s+|alguma\s+)?parte\s+"
+    r"(?:(?:do|de)\s+)?(?:pagamento|valor))\b",
     re.IGNORECASE,
 )
 _EXPLICIT_TRADE_IN_EVALUATION_REQUEST_RE = re.compile(

@@ -353,6 +353,42 @@ async def test_generic_other_device_entry_question_sends_evaluation_form(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_other_device_as_part_of_value_after_catalog_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Gostaria de ver os valores dos iPhones"},
+        {
+            "role": "assistant",
+            "content": (
+                "Lista completa de iPhones disponíveis para venda, incluindo "
+                "iPhone 16 seminovos por R$ 3.630 e R$ 3.850."
+            ),
+        },
+        {"role": "user", "content": "Obrigada"},
+        {"role": "assistant", "content": "Por nada! 😊"},
+    ]
+    text = "Vcs pegam outro como alguma parte do valor?"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+    cash_question = "Aceita R$ 500 como parte do valor?"
+    assert is_trade_in_request(cash_question) is False
+    assert is_trade_in_context_request(cash_question, history) is False
+
+
+@pytest.mark.asyncio
 async def test_resend_evaluation_form_after_generic_trade_in_question(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
