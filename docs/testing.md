@@ -46,6 +46,11 @@ envia nenhuma mensagem ao WhatsApp.
 Os testes cobrem o debounce de dez segundos, a junção das mensagens, uma única
 chamada ao agente, uma única resposta de saída e a consulta read-only de fotos.
 
+O avaliador em `evals/cases.jsonl` também aceita `history` com mensagens no formato
+`role`/`content`, além de `must_not_contain` e `expect_product_references`. Use esses
+campos para registrar regressões que dependem de turnos anteriores e para conferir
+qual item do catálogo foi selecionado.
+
 ## Fluxo final de homologação
 
 1. Aperfeiçoar o FAQ e o prompt no sandbox offline.

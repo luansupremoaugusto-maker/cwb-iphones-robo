@@ -18,28 +18,89 @@ async def main() -> int:
     cache = InventoryCache(object(), settings, cache_path=root / "data" / "eval-cache.json")
     cache.items = [
         InventoryItem(
-            external_id="eval-13",
-            name="iPhone 13 128GB",
-            description="iPhone 13 128GB",
+            external_id="iphone-13-128",
+            name="IPHONE 13",
             category="Celular",
-            price_brl=1999.0,
+            capacity="128GB",
+            color="MEIA-NOITE",
+            condition="SEMINOVO",
+            price_brl=1730.0,
+            battery_health=87,
             quantity=1,
-            availability="Disponível",
-            search_text="iphone 13 128gb celular",
+            availability="Disponível para venda",
+            source="mercado_phone",
+            search_text="iphone 13 meia-noite 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-13-256",
+            name="IPHONE 13",
+            category="Celular",
+            capacity="256GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            price_brl=1900.0,
+            battery_health=95,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            search_text="iphone 13 azul 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-starlight-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="ESTELAR",
+            condition="SEMINOVO",
+            price_brl=1870.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            search_text="iphone 14 estelar 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-14-midnight-128",
+            name="IPHONE 14",
+            category="Celular",
+            capacity="128GB",
+            color="MEIA NOITE",
+            condition="SEMINOVO",
+            price_brl=1850.0,
+            quantity=1,
+            availability="Disponível para venda",
+            source="mercado_phone",
+            search_text="iphone 14 meia noite 128gb celular seminovo",
         )
     ]
     cache.last_refresh = time.time()
     service = AgentService(cache, FAQStore(root / "data" / "faq.yaml"), settings, offline=True)
-    cases = [json.loads(line) for line in (root / "evals" / "cases.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    cases = [
+        json.loads(line)
+        for line in (root / "evals" / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     results = []
     for case in cases:
-        decision = await service.respond(case["message"])
+        decision = await service.respond(case["message"], history=case.get("history"))
+        normalized_reply = decision.reply.lower()
+        checks = {
+            "handoff": decision.handoff == case["expect_handoff"],
+            "must_contain": all(text.lower() in normalized_reply for text in case["must_contain"]),
+            "must_not_contain": all(
+                text.lower() not in normalized_reply for text in case.get("must_not_contain", [])
+            ),
+        }
+        if "expect_product_references" in case:
+            checks["product_references"] = (
+                decision.product_references == case["expect_product_references"]
+            )
         results.append(
             {
                 "name": case["name"],
-                "passed": decision.handoff == case["expect_handoff"]
-                and all(text.lower() in decision.reply.lower() for text in case["must_contain"]),
+                "passed": all(checks.values()),
+                "checks": checks,
                 "handoff": decision.handoff,
+                "product_references": decision.product_references,
                 "reply": decision.reply,
             }
         )

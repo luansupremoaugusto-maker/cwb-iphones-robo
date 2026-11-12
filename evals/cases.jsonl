@@ -1,3 +1,5 @@
 {"name":"produto existente","message":"Tem iPhone 13?","expect_handoff":false,"must_contain":["iPhone 13"]}
 {"name":"produto desconhecido","message":"Tem um aparelho modelo inexistente?","expect_handoff":false,"must_contain":["catálogo"]}
 {"name":"pedido de atendente","message":"Quero falar com uma pessoa","expect_handoff":true,"must_contain":["atendente"]}
+{"name":"preço e bateria após pedido de fotos","history":[{"role":"user","content":"Me manda foto do iPhone 13"},{"role":"assistant","content":"Claro! Seguem as fotos do IPHONE 13 128GB."}],"message":"Qual valor e saúde da bateria?","expect_handoff":false,"must_contain":["R$ 1.730","87%"],"expect_product_references":["iphone-13-128"]}
+{"name":"correção de cor prevalece no histórico","history":[{"role":"user","content":"Seria o iPhone 14 azul 128 GB"},{"role":"user","content":"Na verdade, eu queria o iPhone 14 roxo 128 GB, não azul"}],"message":"Ele está disponível?","expect_handoff":false,"must_contain":["roxo","não está disponível"],"must_not_contain":["iPhone 14 azul"],"expect_product_references":["iphone-14-starlight-128","iphone-14-midnight-128"]}
