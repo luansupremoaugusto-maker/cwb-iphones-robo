@@ -218,6 +218,12 @@ _PRICE_BUYBACK_RE = re.compile(
     r"(?:em|no|na|num|numa|pelo|pela|por)\b",
     re.IGNORECASE,
 )
+_BUYBACK_FOR_UPGRADE_RE = re.compile(
+    r"\bpor\s+quant(?:o|os)\s+(?:que\s+)?(?:voces|vcs|(?:a\s+)?loja)\b"
+    r".{0,35}\b(?:peg\w*|pag\w*|dari\w*)\b.{0,45}"
+    r"\b(?:para|pra)\s+(?:pegar|comprar|trocar)\s+(?:(?:um|uma)\s+)?outro\b",
+    re.IGNORECASE,
+)
 _NON_APPLE_EXCHANGE_RE = re.compile(
     r"\b(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
     r"como\s+entrada|de\s+entrada|retoma\w*|retomar)\b",
@@ -567,6 +573,7 @@ _TRADE_IN_FORM_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _TRADE_IN_FORM_FIELDS_QUESTION_RE = re.compile(
+    r"\bqual(?:\s+(?:e|seria))?\s+(?:lista|formulario)\b|"
     r"\b(?:quais?|que)\s+(?:sao\s+)?(?:os?\s+)?"
     r"(?:dados|informacoes|campos|itens)\b|"
     r"\bo\s+que\s+(?:preciso|precisa|devo)\s+(?:preencher|informar|enviar)\b",
@@ -1217,10 +1224,14 @@ def _is_store_buyback_question(text: str) -> bool:
         return False
 
     price_buyback = _PRICE_BUYBACK_RE.search(text)
+    buyback_for_upgrade = _BUYBACK_FOR_UPGRADE_RE.search(text)
     if (
-        price_buyback
+        (price_buyback or buyback_for_upgrade)
         and _has_device_reference(text)
-        and _COMPLETE_DEVICE_DETAIL_RE.search(text)
+        and (
+            _COMPLETE_DEVICE_DETAIL_RE.search(text)
+            or (buyback_for_upgrade and _has_personal_device_reference(text))
+        )
     ):
         return True
 
@@ -1677,6 +1688,10 @@ _PENDING_TRADE_IN_MODEL_CONFIRMATION_QUESTION_RE = re.compile(
     r"(?:(?:um|uma|o|a)\s+)?(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
     re.IGNORECASE,
 )
+_PENDING_TRADE_IN_PHOTO_DETAILS_QUESTION_RE = re.compile(
+    r"\bfotos?\b.{0,100}\b(?:capacidade|armazenamento)\b",
+    re.IGNORECASE,
+)
 _TRADE_IN_MODEL_CLARIFICATION_ANSWER_RE = re.compile(
     r"^(?:e\s+)?(?:(?:o|a|um|uma)\s+)?(?:iphone\s*)?"
     r"(?:\d{1,2}(?:\s*(?:pro(?:\s*max)?|max|plus|mini|air|e|se))?"
@@ -1719,7 +1734,14 @@ def is_pending_trade_in_evaluation_followup(
         ),
         "",
     )
-    if not (
+    has_recent_trade_in_offer = any(
+        entry.get("role") == "user"
+        and is_trade_in_request(entry.get("content"))
+        and _APPLE_PRODUCT_RE.search(_normalize(entry.get("content", "")))
+        and not is_non_apple_trade_in_request(entry.get("content"))
+        for entry in history[-16:]
+    )
+    assistant_asked_for_evaluation_details = bool(
         re.search(r"\b(?:avaliacao|avaliar)\b", latest_assistant_message)
         and (
             _PENDING_TRADE_IN_DETAILS_QUESTION_RE.search(latest_assistant_message)
@@ -1728,6 +1750,17 @@ def is_pending_trade_in_evaluation_followup(
             )
         )
         and _APPLE_PRODUCT_RE.search(latest_assistant_message)
+    )
+    assistant_asked_about_photo_capacity = bool(
+        has_recent_trade_in_offer
+        and _APPLE_PRODUCT_RE.search(latest_assistant_message)
+        and _PENDING_TRADE_IN_PHOTO_DETAILS_QUESTION_RE.search(
+            latest_assistant_message
+        )
+    )
+    if not (
+        assistant_asked_for_evaluation_details
+        or assistant_asked_about_photo_capacity
     ):
         return False
 
@@ -1974,7 +2007,18 @@ def is_trade_in_context_request(
             and not is_parts_buyback_request(entry.get("content"))
             for entry in history[-8:]
         )
-        if has_pending_form_context and has_recent_trade_in_offer:
+        assistant_confirmed_trade_in_context = any(
+            entry.get("role") == "assistant"
+            and _APPLE_PRODUCT_RE.search(_normalize(entry.get("content", "")))
+            and re.search(
+                r"\b(?:parte do pagamento|como entrada|para troca|avaliacao|avaliar)\b",
+                _normalize(entry.get("content", "")),
+            )
+            for entry in history[-8:]
+        )
+        if has_pending_form_context and (
+            has_recent_trade_in_offer or assistant_confirmed_trade_in_context
+        ):
             return True
 
     if is_photo_offer_confirmation(text, history):

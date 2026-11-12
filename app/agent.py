@@ -3044,6 +3044,17 @@ class AgentService:
                     form_completed=False,
                 )
             )
+        if (
+            is_trade_in_request(text)
+            and not is_non_apple_trade_in_request(text)
+            and not is_parts_buyback_request(text)
+            and not is_purchase_without_trade_in_request(text, history)
+        ):
+            return AgentDecision(
+                reply=TRADE_IN_FORM,
+                handoff=False,
+                confidence="high",
+            )
         store_condition_policy_decision = self._try_store_condition_policy_question(text)
         if store_condition_policy_decision is not None:
             return protect_customer_decision(store_condition_policy_decision)
