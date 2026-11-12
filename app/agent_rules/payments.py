@@ -293,7 +293,7 @@ def _is_price_validity_question(text: str) -> bool:
             "ainda esta valido",
             "ainda esta valendo",
         )
-    )
+    ) or bool(re.search(r"\bnao\s+faz(?:em)?\s+mais\b", normalized))
 
 def _is_payment_link_request(text: str) -> bool:
     normalized = _normalize(text)
