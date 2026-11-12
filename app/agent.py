@@ -2979,6 +2979,7 @@ class AgentService:
     ) -> AgentDecision:
         turn_interpretation: TurnInterpretation | None = None
         ambiguous_agent_attempted = False
+        combined_request = " ".join(part for part in (text, image_description) if part)
         form_completed = is_completed_trade_in_form(text)
         unlabeled_form_response = is_unlabeled_trade_in_form_response(text, history)
         trade_target = trade_in_catalog_target(text)
@@ -3048,8 +3049,8 @@ class AgentService:
         if (
             is_trade_in_request(text)
             and is_upgrade_buyback_price_request(text)
-            and not is_non_apple_trade_in_request(text)
-            and not is_parts_buyback_request(text)
+            and not is_non_apple_trade_in_request(combined_request)
+            and not is_parts_buyback_request(combined_request)
             and not is_purchase_without_trade_in_request(text, history)
         ):
             return AgentDecision(
@@ -3124,7 +3125,6 @@ class AgentService:
                 )
             )
 
-        combined_request = " ".join(part for part in (text, image_description) if part)
         if is_parts_buyback_request(combined_request):
             # Recent Apple catalog context can disambiguate a bare model number
             # and its battery details from a request to sell a loose battery.
