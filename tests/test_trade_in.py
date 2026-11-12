@@ -28,6 +28,7 @@ from app.trade_in import (
     is_downgrade_request,
     is_trade_in_negotiation,
     is_trade_in_context_request,
+    is_pending_trade_in_form_send_request,
     is_trade_in_request,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
@@ -318,6 +319,7 @@ async def test_generic_buyback_and_device_evaluation_request_send_form(tmp_path,
     assert is_trade_in_request(text) is True
     assert decision.reply == TRADE_IN_FORM
     assert decision.handoff is False
+    assert is_trade_in_request("Nunca vou trocar meu iPhone 11 pelo 13") is False
 
 
 def test_customer_plural_purchase_wording_is_not_a_store_buyback_question():
@@ -3964,6 +3966,81 @@ async def test_owned_iphone_exchange_for_newer_model_returns_evaluation_form(tmp
     assert is_trade_in_request(text) is True
     assert decision.handoff is False
     assert decision.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_trade_to_bare_model_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Oi eu tenho um iPhone 11 que nunca foi aberto e gostaria de trocar pelo 13 quanto fica"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
+async def test_short_request_to_send_pending_evaluation_returns_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Oi eu tenho um iPhone 11 que nunca foi aberto e gostaria de trocar pelo 13 quanto fica"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Pode ser! Temos um iPhone 14 seminovo, vermelho, 128GB, por R$ 1.920. "
+                "Para calcular a diferença na troca, seu iPhone 11 precisa passar por avaliação; "
+                "a lista de avaliação deve ser preenchida. Sem essa avaliação, não consigo "
+                "informar o valor da troca."
+            ),
+        },
+        {"role": "user", "content": "Ah entendi"},
+        {
+            "role": "assistant",
+            "content": (
+                "Isso 😊 Para avaliar seu iPhone 11 e calcular a diferença, é necessário "
+                "preencher a lista de avaliação do aparelho. Depois que você enviar os "
+                "dados preenchidos, encaminho para um atendente."
+            ),
+        },
+    ]
+
+    decision = await service.respond("Pode me enviar", history=history)
+
+    assert is_pending_trade_in_form_send_request("Pode me enviar", history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+def test_short_request_to_send_without_pending_evaluation_context_stays_unmatched():
+    history = [
+        {"role": "user", "content": "Quero comprar um iPhone 14 seminovo."},
+        {
+            "role": "assistant",
+            "content": "Temos um iPhone 14 seminovo vermelho, 128GB, por R$ 1.920.",
+        },
+    ]
+
+    assert is_pending_trade_in_form_send_request("Pode me enviar", history) is False
 
 
 @pytest.mark.asyncio
