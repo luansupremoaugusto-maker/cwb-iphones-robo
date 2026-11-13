@@ -1304,7 +1304,16 @@ def _is_store_buyback_question(text: str) -> bool:
         text,
         flags=re.IGNORECASE,
     )
-    if customer_purchase_context and not _has_personal_device_reference(text):
+    explicit_device_buyback_after_purchase = bool(
+        customer_purchase_context
+        and verb_first
+        and verb_first.start() >= customer_purchase_context.end()
+    )
+    if (
+        customer_purchase_context
+        and not _has_personal_device_reference(text)
+        and not explicit_device_buyback_after_purchase
+    ):
         buyback_context = None
     else:
         if customer_buying_at_store and not _has_personal_device_reference(text):
