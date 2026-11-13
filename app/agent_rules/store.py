@@ -515,6 +515,10 @@ def _is_today_store_status_request(text: str) -> bool:
     )
     if not has_status_marker:
         return False
+    # A weekday-specific hours question remains the user's intent even when
+    # "hoje" appears in a separate phrase such as "hoje não consigo".
+    if _is_store_day_hours_request(text):
+        return False
     if "hoje" in normalized:
         return True
     # In WhatsApp, "a loja está aberta?" commonly omits "hoje" but still
@@ -553,10 +557,12 @@ def _is_store_hours_request(text: str) -> bool:
     normalized = _normalize(text)
     normalized = re.sub(r"\bq\b", "que", normalized)
     normalized = re.sub(r"\bhrs?\b", "horas", normalized)
-    if not normalized or "hoje" in normalized:
+    if not normalized:
         return False
     if _is_store_day_hours_request(text):
         return True
+    if "hoje" in normalized:
+        return False
     phrases = (
         "ate que horas",
         "ate que horario",
