@@ -389,8 +389,10 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         if match.start() <= previous.end() or not is_usable(match):
             continue
         separator = line_aware_normalized[previous.end() : match.start()]
+        # Chat messages often omit "GB" when capacity precedes another model.
         if not re.fullmatch(
             r"\s*[.!?]*\s*(?:\d+(?:[.,]\d+)?\s*(?:gb|tb|g|t)\s*)?"
+            r"(?:(?:1024|512|256|128|64|32)\s*)?"
             r"(?:\d{1,3}\s*%\s*)?"
             r"(?:(?:(?:semi[\s-]*)?nov[oa]s?|usad[oa]s?|lacrad[oa]s?)[?!.,;:]*\s*)?"
             r"(?:\d{1,3}\s*%\s*)?"

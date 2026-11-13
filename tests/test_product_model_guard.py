@@ -97,6 +97,12 @@ def test_pro_max_conjunction_with_do_keeps_both_requested_models():
     ) == ((14, "pro max"), (15, "pro max"))
 
 
+def test_model_parser_keeps_second_model_after_a_bare_capacity():
+    assert _requested_iphone_model_keys(
+        "Tem algum iPhone 17 Pro Max 256 ou 18 Pro Max"
+    ) == ((17, "pro max"), (18, "pro max"))
+
+
 def test_model_range_and_e_joined_base_models_keep_model_identity():
     assert _requested_iphone_model_keys(
         "Quais iPhones estão disponíveis do 14 até o 16?"
@@ -7840,6 +7846,28 @@ async def test_scoped_capacities_do_not_drop_unscoped_third_model(tmp_path):
         "iphone-18-pro-512-black",
         "iphone-18-pro-max-128-white",
     }.issubset(set(decision.product_references))
+
+
+@pytest.mark.asyncio
+async def test_bare_capacity_stays_with_first_model_in_or_availability_request(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-17-pro-max-256", "iPhone 17 Pro Max", "256 GB", 8100),
+        _sealed_item("iphone-17-pro-max-512", "iPhone 17 Pro Max", "512 GB", 9000),
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 10600),
+        _sealed_item("iphone-18-pro-max-512", "iPhone 18 Pro Max", "512 GB", 11600),
+    ]
+
+    decision = await agent.respond("Tem algum iPhone 17 Pro Max 256 ou 18 Pro Max")
+
+    assert decision.handoff is False
+    assert set(decision.product_references) == {
+        "iphone-17-pro-max-256",
+        "iphone-18-pro-max-256",
+        "iphone-18-pro-max-512",
+    }
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "iPhone 18 Pro Max" in decision.reply
 
 
 @pytest.mark.asyncio
