@@ -1307,7 +1307,7 @@ def _is_store_buyback_question(text: str) -> bool:
     explicit_device_buyback_after_purchase = bool(
         customer_purchase_context
         and verb_first
-        and verb_first.start() >= customer_purchase_context.end()
+        and verb_first.re.search(text, customer_purchase_context.end())
     )
     if (
         customer_purchase_context
