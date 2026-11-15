@@ -516,7 +516,7 @@ def _is_sealed_iphone_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    if not re.search(r"\bcelulares?\b|\biphones?\b", normalized):
+    if not re.search(r"\b(?:celulares?|telefones?|iphones?)\b", normalized):
         return False
     if not re.search(r"\blacrados?\b", normalized):
         return False

@@ -183,7 +183,14 @@ async def test_specific_availability_orders_requested_capacities_numerically(tmp
 
 
 @pytest.mark.asyncio
-async def test_sealed_cell_phone_list_returns_only_iphones_from_both_sources(tmp_path):
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Quais celulares lacrados vcs tem?",
+        "Oi boa tarde qual e valor dos telefones lacrado",
+    ],
+)
+async def test_sealed_cell_phone_list_returns_only_iphones_from_both_sources(tmp_path, query):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = FakeSealedCache()
     sealed.items.extend(
@@ -271,7 +278,7 @@ async def test_sealed_cell_phone_list_returns_only_iphones_from_both_sources(tmp
     cache.last_refresh = time.time()
     agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
-    decision = await agent.respond("Quais celulares lacrados vcs tem?")
+    decision = await agent.respond(query)
 
     assert decision.handoff is False
     assert "Lacrados disponíveis para pronta entrega" in decision.reply
