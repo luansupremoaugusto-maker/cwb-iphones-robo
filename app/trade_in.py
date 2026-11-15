@@ -423,7 +423,8 @@ _OWNED_BARE_IPHONE_VARIANT_RE = re.compile(
 _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE = re.compile(
     r"\b(?:tenho|possuo|estou\s+com|to\s+com)\s+(?:um|uma|o|a)?\s*"
     r"(?:iphone\s*)?\d{1,2}\b.{0,45}\b"
-    r"(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
+    r"(?:na\s+troca|para\s+troca|para\s+trocar|pra\s+trocar|"
+    r"parte\s+do\s+pagamento|"
     r"como\s+entrada|de\s+entrada)\b",
     re.IGNORECASE,
 )
@@ -1052,6 +1053,14 @@ def _has_device_offer(text: str) -> bool:
     if _has_detailed_device_entry_offer(text):
         return True
     if _has_owned_iphone_business_offer(text):
+        return True
+    # An owned bare model followed by "para trocar" is an explicit offer,
+    # even when the customer names the target model first and lists condition
+    # details (such as a cracked back cover) after the offer.
+    if (
+        _CONTEXTUAL_BARE_MODEL_TRADE_OFFER_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
+    ):
         return True
     # A short "aceita um 14 de entrada?" identifies a numbered iPhone even
     # when the customer omits the word "iPhone" and has no catalog context.
