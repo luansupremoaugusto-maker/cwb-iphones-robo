@@ -257,6 +257,29 @@ async def test_selling_iphone_with_screen_repair_and_second_iphone_sends_evaluat
 
 
 @pytest.mark.asyncio
+async def test_target_first_iphone_trade_with_cracked_back_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Olá!! Estou buscando um 17 normal ou talvez um 17 pro, "
+        "tenho um 14 normal para trocar. 14 azul / 128gb / "
+        "80% de bateria / Tampa traseira trincada"
+    )
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert is_parts_buyback_request(text) is False
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_bare_iphone_13_buyback_history_keeps_condition_followup_in_evaluation(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
