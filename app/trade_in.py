@@ -255,7 +255,7 @@ _COMPLETE_DEVICE_DETAIL_RE = re.compile(
     r"\b(?:caixa|caixinha|mes(?:es)?\s+de\s+uso|uso|impecavel|perfeito|"
     r"estado|saude\s+(?:da\s+)?bateria)\b"
     r"|\bperfeit[oa]s?\s+condi(?:cao|coes)\b"
-    r"|\b\d{1,3}\s*%\s*(?:de\s*)?bateria\b"
+    r"|\b\d{1,3}\s*%\s*(?:(?:de|da)\s*)?bateria\b"
     r"|\b\d{1,3}\s*%\s*(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?saude\s+(?:(?:da|de)\s+)?bateria\b"
     r"|\b\d{1,3}\s+(?:de\s+)?bateria\b"
