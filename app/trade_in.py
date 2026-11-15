@@ -196,6 +196,11 @@ _BUYBACK_VERB_RE = re.compile(
     r"receb(?:e|em|emos)|avali(?:a|am|amos))\b",
     re.IGNORECASE,
 )
+_STORE_BUYBACK_SUBJECT_RE = re.compile(
+    r"\b(?:voce|voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
+    r"(?:compram|compra|comprar|pegam|pegm|pegem|peguem|aceitam|recebem|avaliam)\b",
+    re.IGNORECASE,
+)
 _PARTS_BUYBACK_OBJECT_RE = re.compile(
     _BUYBACK_VERB_RE.pattern
     + r".{0,20}(?:(?:so|somente|apenas)\s+)?(?:(?:a|o|uma|um)\s+)?"
@@ -1284,12 +1289,7 @@ def _is_store_buyback_question(text: str) -> bool:
     if store_buyback_service and has_store_buyback_device:
         return True
 
-    store_subject = re.search(
-        r"\b(?:voce|voces|vcs|loja|a loja|cwb\.iphones)\b.{0,40}\b"
-        r"(?:compram|compra|comprar|pegam|pegm|pegem|peguem|aceitam|recebem|avaliam)\b",
-        text,
-        flags=re.IGNORECASE,
-    )
+    store_subject = _STORE_BUYBACK_SUBJECT_RE.search(text)
     # In "na compra de um iPhone" or "na compra do aparelho", compra is a
     # noun describing the customer's purchase, not a verb asking whether the
     # store buys a device.
@@ -1524,6 +1524,19 @@ def is_trade_in_request(text: str | None) -> bool:
     if _is_catalog_purchase_observation(normalized):
         return False
 
+    # A first-person question such as "teria como eu compra esse iPhone?" is
+    # about the customer buying a catalog item. The bare word "compra" also
+    # matches the buyback verb above, so keep an explicit store subject or
+    # exchange context as the stronger signal.
+    if (
+        _FIRST_PERSON_PURCHASE_INTENT_RE.search(normalized)
+        and not _STORE_BUYBACK_SUBJECT_RE.search(normalized)
+        and not _has_explicit_device_exchange_context(normalized)
+        and not _has_complete_owned_device_profile(normalized)
+        and not _has_complete_device_buyback_context(normalized)
+    ):
+        return False
+
     has_offer = _has_device_offer(normalized)
     if has_offer:
         return True
@@ -1588,6 +1601,12 @@ _PURCHASE_INTENT_RE = re.compile(
     r"|\bcomprar\s+(?:um|uma|o|a)?\s*(?:aparelho|celular|iphone|ipad|macbook|novo|outro)\b",
     re.IGNORECASE,
 )
+_FIRST_PERSON_PURCHASE_INTENT_RE = re.compile(
+    r"\b(?:nao\s+)?(?:teria|tem)\s+como\s+eu\s+compr\w*\b"
+    r"|\b(?:eu\s+)?(?:posso|poderia|consigo|conseguiria)\s+compr\w*\b"
+    r"|\beu\s+compr\w*\b",
+    re.IGNORECASE,
+)
 _GENERIC_DEVICE_NEED_RE = re.compile(
     r"\b(?:preciso|necessito|quero|busco|procuro|estou procurando|to procurando)\b"
     r".{0,18}\b(?:cell|celular(?:es)?|aparelho(?:s)?|smartphone(?:s)?|telefone(?:s)?)\b",
@@ -1649,7 +1668,10 @@ def is_purchase_without_trade_in_request(
 
     if not normalized or is_trade_in_request(normalized):
         return False
-    if _PURCHASE_INTENT_RE.search(normalized):
+    if (
+        _PURCHASE_INTENT_RE.search(normalized)
+        or _FIRST_PERSON_PURCHASE_INTENT_RE.search(normalized)
+    ):
         return True
     return is_contextual_generic_device_purchase_request(normalized, history)
 

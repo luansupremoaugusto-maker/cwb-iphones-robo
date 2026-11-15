@@ -4960,6 +4960,52 @@ async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp
 
 
 @pytest.mark.asyncio
+async def test_catalog_purchase_today_question_with_typo_does_not_send_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Teria o iPhone 16e?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei estas opções de iPhone 16e: seminovo por R$ 2.810 "
+                "e lacrado por R$ 3.100."
+            ),
+        },
+        {"role": "user", "content": "Eu tinha visto um de R$ 1.600 com bateria 97%."},
+        {
+            "role": "assistant",
+            "content": "O iPhone 16e seminovo disponível está por R$ 2.810, com bateria em 100%.",
+        },
+        {"role": "user", "content": "Me dá mais detalhes desse iPhone 16e de 2.800."},
+        {
+            "role": "assistant",
+            "content": "É um iPhone 16e seminovo, preto, com 128GB e bateria em 100%.",
+        },
+        {"role": "user", "content": "Que horas abre a loja?"},
+        {
+            "role": "assistant",
+            "content": "A loja abre de segunda a sexta, às 9h, até as 18h.",
+        },
+    ]
+    text = "Não teria como eu compra esse iPhone hoje? Ou só segundo mesmo"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_request(text) is False
+    assert is_trade_in_context_request(text, history) is False
+    assert "lista de avaliação" not in decision.reply.lower()
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_owned_iphone_quote_followed_by_base_de_troca_sends_evaluation_form(
     tmp_path,
 ):

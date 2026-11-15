@@ -12,6 +12,7 @@ from app.trade_in import (
     TRADE_IN_FORM,
     TRADE_IN_REASON,
     is_purchase_without_trade_in_request,
+    is_trade_in_context_request,
     is_trade_in_request,
 )
 
@@ -34,6 +35,50 @@ def test_unqualified_conditional_iphone_purchase_interest_is_not_trade_in():
     assert is_purchase_without_trade_in_request(buyer_text) is True
     assert is_trade_in_request(store_buyback_text) is True
     assert is_trade_in_request(owned_device_text) is True
+
+
+def test_first_person_purchase_with_whatsapp_typo_is_not_trade_in():
+    text = "Não teria como eu compra esse iPhone hoje? Ou só segundo mesmo"
+    history = [
+        {"role": "user", "content": "Teria o iPhone 16e?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Encontrei iPhone 16e seminovo e lacrado disponíveis para pronta entrega."
+            ),
+        },
+        {
+            "role": "user",
+            "content": "Me dá mais detalhes desse iPhone 16e de 2.800",
+        },
+        {
+            "role": "assistant",
+            "content": "É um iPhone 16e seminovo, preto, 128GB e bateria em 100%.",
+        },
+        {"role": "user", "content": "Que horas abre a loja?"},
+        {
+            "role": "assistant",
+            "content": "A loja abre de segunda a sexta, às 9h, até as 18h.",
+        },
+    ]
+
+    assert is_trade_in_request(text) is False
+    assert is_purchase_without_trade_in_request(text, history) is True
+    assert is_trade_in_context_request(text, history) is False
+    assert is_trade_in_request("Vocês teriam interesse em comprar um iPhone?") is True
+
+    decision = _ensure_trade_in_form_before_handoff(
+        AgentDecision(
+            reply=TRADE_IN_FORM,
+            handoff=True,
+            handoff_reason=TRADE_IN_REASON,
+        ),
+        text,
+        history,
+    )
+
+    assert decision.reply == PURCHASE_WITHOUT_TRADE_IN_REPLY
+    assert decision.handoff is False
 
 
 def test_purchase_context_cannot_be_rewritten_as_trade_in_handoff():
