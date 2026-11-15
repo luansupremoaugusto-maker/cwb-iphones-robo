@@ -490,7 +490,7 @@ def _is_sealed_catalog_list_request(text: str) -> bool:
     if _has_seminovo_reference(normalized):
         return False
     new_model_list_request = _is_new_model_list_request(normalized)
-    if not new_model_list_request and not re.search(r"\blacrados\b", normalized):
+    if not new_model_list_request and not re.search(r"\blacrados?\b", normalized):
         return False
     return bool(
         re.search(
@@ -516,7 +516,7 @@ def _is_sealed_iphone_list_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
-    if not re.search(r"\bcelulares?\b|\biphones?\b", normalized):
+    if not re.search(r"\b(?:celulares?|telefones?|iphones?)\b", normalized):
         return False
     if not re.search(r"\blacrados?\b", normalized):
         return False
