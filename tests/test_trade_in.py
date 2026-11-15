@@ -871,6 +871,26 @@ async def test_iphone_buyback_with_battery_percentage_after_battery_sends_evalua
 
 
 @pytest.mark.asyncio
+async def test_buyback_price_with_battery_percent_da_bateria_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = "oi quanto vcs pagam no iphone 16 rosa 92% da bateria 128"
+
+    decision = await service.respond(text)
+
+    assert is_trade_in_request(text) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
 async def test_pegaria_detailed_iphone_offer_sends_evaluation_form_with_catalog_history(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
