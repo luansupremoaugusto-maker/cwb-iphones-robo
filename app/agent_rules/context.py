@@ -69,10 +69,15 @@ def _selected_catalog_row_context(
         (entry.get("content", "").strip() for entry in reversed(history) if entry.get("role") == "user"),
         "",
     )
-    if not latest_user or _has_product_reference(_normalize(latest_user)):
-        return None
-
-    selected = _photo_price_selectors(latest_user)
+    # A grouped turn can contain the copied offer row and a short selection
+    # such as "Esse aqui". Prefer its price over the older customer request;
+    # that request often names the model, which must not suppress this lookup.
+    selected = _photo_price_selectors(text)
+    selected_from_current_turn = bool(selected)
+    if not selected_from_current_turn:
+        if not latest_user or _has_product_reference(_normalize(latest_user)):
+            return None
+        selected = _photo_price_selectors(latest_user)
     if not selected:
         return None
     catalog_entries = [
@@ -98,7 +103,16 @@ def _selected_catalog_row_context(
         (line.strip() for line in reversed(lines[:line_index]) if _has_product_reference(_normalize(line))),
         "",
     )
-    return "\n".join(part for part in (heading, matches[0], latest_user, text) if part)
+    return "\n".join(
+        part
+        for part in (
+            heading,
+            matches[0],
+            "" if selected_from_current_turn else latest_user,
+            text,
+        )
+        if part
+    )
 
 def _pending_multi_model_product_request_context(
     text: str,

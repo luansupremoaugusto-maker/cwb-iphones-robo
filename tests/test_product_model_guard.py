@@ -23,6 +23,7 @@ from app.agent import (
     _requested_catalog_colors,
     _unavailable_catalog_color_header,
     _requested_device_quantity,
+    _selected_catalog_row_context,
 )
 from app.config import Settings
 from app.faq import FAQStore
@@ -8025,6 +8026,83 @@ async def test_batched_used_iphone_request_keeps_available_pro_after_missing_mod
     assert "256GB" in decision.reply
     assert "R$ 4.560,00" in decision.reply
     assert _requested_iphone_model_keys(text) == ((17, ""), (16, "pro"))
+
+
+@pytest.mark.asyncio
+async def test_batched_catalog_row_and_esse_aqui_selects_offered_iphone_unit(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16-pro-max-deserto-89",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=89,
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-deserto-85",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO DESERTO",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=5170,
+            battery_health=85,
+            search_text="iphone 16 pro max titanio deserto 256gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-16-pro-max-natural-88",
+            name="IPHONE 16 PRO MAX",
+            category="Celular",
+            capacity="256GB",
+            color="TITÂNIO NATURAL",
+            source="mercado_phone",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4840,
+            battery_health=88,
+            search_text="iphone 16 pro max titanio natural 256gb celular seminovo",
+        ),
+    ]
+    agent.cache.last_refresh = time.time()
+    offered_products = (
+        "IPHONE 16 PRO MAX\n"
+        "• - TITÂNIO DESERTO - 256GB - SEMINOVO — R$ 5.170,00 | Bat: 89%\n"
+        "• - TITÂNIO DESERTO - 256GB - SEMINOVO — R$ 5.170,00 | Bat: 85%\n"
+        "• - TITÂNIO NATURAL - 256GB - SEMINOVO — R$ 4.840,00 | Bat: 88%"
+    )
+    selected_row = (
+        "• - TITÂNIO NATURAL - 256GB - SEMINOVO — "
+        "R$ 4.840,00 | Bat: 88%"
+    )
+    history = [
+        {"role": "user", "content": "Quais iPhone 16 Pro Max seminovos vocês têm?"},
+        {"role": "assistant", "content": offered_products},
+    ]
+    text = f"{selected_row}\nEsse aqui"
+
+    selected_context = _selected_catalog_row_context(text, history)
+    decision = await agent.respond(text, history=history)
+
+    assert selected_context is not None
+    assert "IPHONE 16 PRO MAX" in selected_context
+    assert "TITÂNIO NATURAL" in selected_context
+    assert "R$ 4.840,00" in selected_context
+    assert "TITÂNIO DESERTO" not in selected_context
+    assert decision.product_references == ["iphone-16-pro-max-natural-88"]
+    assert "R$ 4.840,00" in decision.reply
+    assert "não localizei" not in decision.reply.lower()
 
 
 @pytest.mark.asyncio
