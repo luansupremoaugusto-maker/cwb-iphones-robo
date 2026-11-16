@@ -2177,6 +2177,72 @@ async def test_specific_pronta_entrega_request_excludes_sheet_only_options(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_contextual_ready_stock_followup_keeps_model_and_closes_order_decline(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16e-ready",
+            name="iPhone 16E",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3100,
+            search_text="iphone 16e 128 gb preto celular lacrado",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-pro-max-256", "iPhone 18 Pro Max", "256 GB", 9600)
+    ]
+    history = [
+        {"role": "user", "content": "Vocês tem iPhone 18 Pro Max?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de iPhone 18 Pro Max disponíveis:\n"
+                "📦 Novos lacrados por encomenda:\n"
+                "• iPhone 18 Pro Max — 256 GB — NOVO LACRADO — R$ 9.600,00\n"
+                "Os lacrados são por encomenda, com prazo de 1 semana."
+            ),
+        },
+    ]
+
+    ready_decision = await agent.respond(
+        "A pronta entrega vocês tem? Ou só por encomenda?",
+        history=history,
+    )
+
+    assert "Não localizei esse modelo a pronta entrega" in ready_decision.reply
+    assert "iPhone 16E" not in ready_decision.reply
+
+    decline_history = [
+        *history,
+        {"role": "user", "content": "A pronta entrega vocês tem? Ou só por encomenda?"},
+        {"role": "assistant", "content": ready_decision.reply},
+    ]
+    decline_decision = await agent.respond(
+        "Por encomenda não chega a tempo\nMuito obrigado",
+        history=decline_history,
+    )
+
+    assert "iPhone 18 Pro Max" not in decline_decision.reply
+    assert "iPhone 16E" not in decline_decision.reply
+    assert "Encontrei estas opções" not in decline_decision.reply
+
+    explicit_ready_request = await agent.respond(
+        "Por encomenda não chega a tempo. Tem iPhone 16E a pronta entrega?",
+        history=decline_history,
+    )
+
+    assert explicit_ready_request.product_references == ["iphone-16e-ready"]
+    assert "iPhone 16E" in explicit_ready_request.reply
+
+
+@pytest.mark.asyncio
 async def test_generic_model_request_lists_seminovo_and_sealed_options(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
     sealed = SealedCatalog()
