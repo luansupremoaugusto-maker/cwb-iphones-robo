@@ -334,6 +334,35 @@ async def test_photo_request_returns_only_approved_product_urls(tmp_path):
     assert "fotos do iPhone 15" in decision.reply
 
 
+@pytest.mark.parametrize(
+    ("text", "expected_marker"),
+    [
+        (
+            "Pode me mandar as fotos do iPhone 15 128 GB e simular em 12x?",
+            "Parcelamento do iPhone 15",
+        ),
+        (
+            "Pode me mandar as fotos do iPhone 15 128 GB e simular o parcelamento?",
+            "Parcelamento do iPhone 15",
+        ),
+    ],
+)
+async def test_photo_request_also_returns_requested_installment_simulation(
+    tmp_path,
+    text,
+    expected_marker,
+):
+    cache, settings = build_cache(tmp_path, photos=True)
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    decision = await agent.respond(text)
+
+    assert decision.handoff is False
+    assert decision.image_urls == ["https://photos.example/iphone-15.jpg"]
+    assert expected_marker in decision.reply
+    assert "18x" in decision.reply
+
+
 @pytest.mark.asyncio
 async def test_photo_request_for_model_listed_in_prior_availability_reply(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)

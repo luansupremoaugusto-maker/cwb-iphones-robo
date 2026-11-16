@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.adapters.mercado_phone import InventoryCache
-from app.agent import AgentService, _should_use_turn_interpreter
+from app.agent import (
+    AgentService,
+    _should_use_early_photo_installment_interpreter,
+    _should_use_turn_interpreter,
+)
 from app.config import Settings
 from app.faq import FAQStore
 from app.schemas import AgentDecision, TurnInterpretation
@@ -26,6 +30,18 @@ def test_interpreter_skips_simple_catalog_and_trade_in_requests():
     )
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Me manda fotos do iPhone 15 128 GB e simula em 12x", True),
+        ("Me manda fotos do iPhone 15 128 GB", False),
+        ("Me manda fotos do iPhone 15 128 GB. Tem juros?", False),
+    ],
+)
+def test_early_interpreter_targets_only_photo_and_installment_simulation_turns(text, expected):
+    assert _should_use_early_photo_installment_interpreter(text, history=None) is expected
+
+
 def _agent_service(tmp_path) -> AgentService:
     settings = Settings(
         openai_api_key="test-key",
@@ -37,6 +53,43 @@ def _agent_service(tmp_path) -> AgentService:
     service.agent = object()
     service.turn_interpreter = object()
     return service
+
+
+@pytest.mark.asyncio
+async def test_photo_and_installment_turn_uses_interpreter_before_photo_handler(tmp_path, monkeypatch):
+    service = _agent_service(tmp_path)
+    interpretation = TurnInterpretation(
+        intents=["photos", "installments"],
+        current_request="Enviar fotos e simular o parcelamento do iPhone 15 128 GB",
+        confidence="high",
+    )
+    calls: list[str] = []
+
+    async def interpret(*args, **kwargs):
+        calls.append("interpret")
+        return interpretation
+
+    async def respond_with_customer_agent(text, history, image_description=None, interpretation=None):
+        calls.append("customer_agent")
+        assert interpretation is not None
+        return AgentDecision(
+            reply="Seguem as fotos e a simulação do parcelamento.",
+            confidence="high",
+        )
+
+    async def unexpected_photo_handler(*args, **kwargs):
+        pytest.fail("O agente semântico deve receber as duas intenções antes do atalho de fotos")
+
+    monkeypatch.setattr(service, "_interpret_turn", interpret)
+    monkeypatch.setattr(service, "_run_customer_agent", respond_with_customer_agent)
+    monkeypatch.setattr(service, "_try_product_photos", unexpected_photo_handler)
+
+    decision = await service.respond(
+        "Me manda fotos do iPhone 15 128 GB e simula em 12x"
+    )
+
+    assert decision.reply == "Seguem as fotos e a simulação do parcelamento."
+    assert calls == ["interpret", "customer_agent"]
 
 
 @pytest.mark.asyncio

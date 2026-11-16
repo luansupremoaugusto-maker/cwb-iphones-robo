@@ -457,7 +457,9 @@ def _is_full_installment_request(text: str) -> bool:
         "quais as parcelas",
         "quantas vezes",
         "me passa o parcelamento",
+        "simulacao do parcelamento",
         "simulacao de parcelamento",
+        "simular o parcelamento",
         "simular parcelamento",
     )
     return any(phrase in normalized for phrase in phrases)
