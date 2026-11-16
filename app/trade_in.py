@@ -201,6 +201,15 @@ _STORE_BUYBACK_SUBJECT_RE = re.compile(
     r"(?:compram|compra|comprar|pegam|pegm|pegem|peguem|aceitam|recebem|avaliam)\b",
     re.IGNORECASE,
 )
+_STORE_TRADE_IN_SERVICE_QUESTION_RE = re.compile(
+    r"(?:\b(?:voces|vcs|voce|a loja|loja|cwb\.iphones)\b.{0,35}\b"
+    r"(?:troca(?:m|mos)?|faz(?:em|emos)\s+(?:(?:a|uma)\s+)?trocas?)\b"
+    r"|\b(?:trocam|trocamos|fazem\s+(?:(?:a|uma)\s+)?trocas?)\b)\s+"
+    r"(?:(?:de|do|da|um|uma|o|a|os|as)\s+)?"
+    r"(?:iphones?|ipads?|macbooks?|airpods?|apple\s+watch(?:es)?|"
+    r"celulares?|aparelhos?|smartphones?|telefones?)\b",
+    re.IGNORECASE,
+)
 _PARTS_BUYBACK_OBJECT_RE = re.compile(
     _BUYBACK_VERB_RE.pattern
     + r".{0,20}(?:(?:so|somente|apenas)\s+)?(?:(?:a|o|uma|um)\s+)?"
@@ -1258,6 +1267,12 @@ def _is_store_buyback_question(text: str) -> bool:
         return False
     if _PAYMENT_METHOD_RE.search(text) and not _has_device_reference(text):
         return False
+
+    # Customers often ask about the trade-in service without naming the shop:
+    # "Gostaria de saber se trocam iPhones?" Keep this distinct from repair
+    # requests such as changing a phone's screen or case.
+    if _STORE_TRADE_IN_SERVICE_QUESTION_RE.search(text):
+        return True
 
     price_buyback = _PRICE_BUYBACK_RE.search(text)
     buyback_for_upgrade = _BUYBACK_FOR_UPGRADE_RE.search(text)

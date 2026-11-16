@@ -318,6 +318,9 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
     assert is_trade_in_request("Posso dar meu celular de entrada?")
     assert is_trade_in_request("Quero avaliação do meu aparelho usado")
     assert not is_trade_in_request("Quero trocar a película do meu iPhone")
+    assert is_trade_in_request("Vocês trocam iPhones?")
+    assert is_trade_in_request("Você troca iPhone?")
+    assert not is_trade_in_request("Vocês trocam a tela do iPhone?")
 
 
 @pytest.mark.asyncio
@@ -325,6 +328,7 @@ def test_trade_in_detector_matches_part_payment_and_avoids_unrelated_exchange():
     "text",
     [
         "Vocês fazem compras de iphones?",
+        "Gostaria de saber se trocam iphones?",
         "Gostaria de encaminhar meu aparelho para avaliação",
     ],
 )
