@@ -1076,9 +1076,11 @@ async def _try_product_availability(
         seminovo_trade_in_query
         or _customer_product_condition_context_query(text, history)
     )
-    pronta_entrega_only = _is_pronta_entrega_only_request(
-        text
-    ) or _is_pronta_entrega_only_request(customer_request_context)
+    pronta_entrega_only = (
+        _is_pronta_entrega_only_request(text)
+        or _is_pronta_entrega_only_request(customer_request_context)
+        or _is_contextual_pronta_entrega_followup(text, history)
+    )
     if selection_context_used:
         condition_query = current_query
     else:

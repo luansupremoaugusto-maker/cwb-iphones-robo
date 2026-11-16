@@ -1257,6 +1257,37 @@ def _is_catalog_budget_objection(
     )
 
 
+def _is_catalog_delivery_timing_decline(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    normalized = _normalize(text)
+    if (
+        not normalized
+        or "?" in (text or "")
+        or not re.search(
+            r"\b(?:por\s+encomenda\s+)?(?:nao\s+)?(?:vai\s+)?"
+            r"(?:chega(?:r)?\s+a\s+tempo|dar\s+tempo)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:tem|teria|mostra|mostrar|manda|mandar|envia|enviar|"
+            r"quero|queria|preciso|qual|quais|quanto|custa|preco|"
+            r"disponivel|estoque|outra\s+opcao|outro\s+modelo)\b",
+            normalized,
+        )
+    ):
+        return False
+
+    for entry in reversed((history or [])[-10:]):
+        if entry.get("role") != "assistant" or not entry.get("content"):
+            continue
+        answer = _normalize(entry["content"])
+        if _has_product_reference(answer) and re.search(r"\bpor\s+encomenda\b", answer):
+            return True
+    return False
+
+
 def _is_catalog_price_negotiation(
     text: str | None,
     history: list[dict[str, str]] | None,
@@ -3137,6 +3168,29 @@ class AgentService:
                     else "Claro 😊 Qual modelo de iPhone você tem em mente? "
                     "Aí consulto as opções lacradas disponíveis para você."
                 ),
+                confidence="high",
+            )
+
+        if (
+            _is_contextual_pronta_entrega_followup(text, history)
+            and not _has_product_reference(_normalize(text))
+            and not re.search(
+                r"\b(?:foto|imagens?|parcel\w*|entrada|sinal|cartao|pagamento|pix|"
+                r"garantia|bateria|saude|cor|endereco|horario|nota\s+fiscal)\b",
+                _normalize(text),
+            )
+        ):
+            ready_stock_decision = await self._try_product_availability(
+                text,
+                history=history,
+                image_description=image_description,
+            )
+            if ready_stock_decision is not None:
+                return protect_customer_decision(ready_stock_decision)
+
+        if _is_catalog_delivery_timing_decline(text, history):
+            return AgentDecision(
+                reply="Entendo 😊 Por nada! Se precisar, estou à disposição.",
                 confidence="high",
             )
 
