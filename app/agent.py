@@ -232,6 +232,33 @@ def _should_use_turn_interpreter(
     return is_short_contextual_reply
 
 
+def _is_photo_installment_simulation_request(text: str) -> bool:
+    """Recognize a photo request that also asks for a product installment simulation."""
+    if not _is_explicit_photo_request(text):
+        return False
+
+    normalized = _normalize(text)
+    if _is_full_installment_request(text):
+        return True
+
+    has_installment_count = _requested_installments(text) is not None
+    has_simulation_action = bool(
+        re.search(r"\b(?:simul\w*|parcel\w*|fica)\b", normalized)
+    )
+    return has_installment_count and has_simulation_action
+
+
+def _should_use_early_photo_installment_interpreter(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Interpret only combined photo and simulation turns before the photo shortcut."""
+    return _is_photo_installment_simulation_request(text) and _should_use_turn_interpreter(
+        text,
+        history,
+    )
+
+
 _IMPLICIT_DEVICE_BUYBACK_PRICE_RE = re.compile(
     r"\bquanto\s+(?:dari\w*|pagari\w*|pegari\w*)\s+"
     r"(?:em|no|na|num|numa|por|pelo|pela)\s+"
@@ -2805,6 +2832,7 @@ class AgentService:
     ) -> AgentDecision:
         turn_interpretation: TurnInterpretation | None = None
         ambiguous_agent_attempted = False
+        early_interpreter_attempted = False
         combined_request = " ".join(part for part in (text, image_description) if part)
         form_completed = is_completed_trade_in_form(text)
         unlabeled_form_response = is_unlabeled_trade_in_form_response(text, history)
@@ -3112,9 +3140,45 @@ class AgentService:
                 confidence="high",
             )
 
+        interpretation_text = "\n".join(
+            part.strip() for part in (text, image_description) if part and part.strip()
+        )
+        if (
+            self.turn_interpreter is not None
+            and self.agent is not None
+            and _should_use_early_photo_installment_interpreter(text, history)
+        ):
+            early_interpreter_attempted = True
+            turn_interpretation = await self._interpret_turn(
+                text,
+                history,
+                image_description=image_description,
+            )
+            if turn_interpretation is not None:
+                if (
+                    turn_interpretation.needs_clarification
+                    and turn_interpretation.clarification_question
+                    and turn_interpretation.confidence in {"high", "medium"}
+                ):
+                    return AgentDecision(
+                        reply=turn_interpretation.clarification_question.strip(),
+                        confidence=turn_interpretation.confidence,
+                    )
+                if turn_interpretation.confidence in {"high", "medium"}:
+                    ambiguous_agent_attempted = True
+                    semantic_decision = await self._run_customer_agent(
+                        text,
+                        history,
+                        image_description=image_description,
+                        interpretation=turn_interpretation,
+                    )
+                    if semantic_decision is not None and semantic_decision.confidence != "low":
+                        return semantic_decision
+
         # Resolve explicit photo requests before catalog availability can
         # replace the requested photos with a stock listing. Preserve a second
-        # payment answer when WhatsApp batches that question into the same turn.
+        # payment answer or installment simulation when WhatsApp batches that
+        # question into the same turn.
         if _is_explicit_photo_request(text) and len(_photo_price_selectors(text)) < 2:
             photo_decision = await self._try_product_photos(
                 text,
@@ -3122,6 +3186,39 @@ class AgentService:
                 image_description=image_description,
             )
             if photo_decision is not None:
+                installment_decision = await self._try_photo_installment_simulation(
+                    text,
+                    history,
+                    image_description=image_description,
+                )
+                if installment_decision is not None:
+                    confidence_order = {"low": 0, "medium": 1, "high": 2}
+                    confidence = min(
+                        (photo_decision.confidence, installment_decision.confidence),
+                        key=confidence_order.__getitem__,
+                    )
+                    photo_decision = photo_decision.model_copy(
+                        update={
+                            "reply": (
+                                f"{photo_decision.reply.rstrip()}\n\n"
+                                f"{installment_decision.reply.lstrip()}"
+                            ),
+                            "handoff": photo_decision.handoff or installment_decision.handoff,
+                            "handoff_reason": (
+                                photo_decision.handoff_reason
+                                or installment_decision.handoff_reason
+                            ),
+                            "confidence": confidence,
+                            "product_references": list(
+                                dict.fromkeys(
+                                    [
+                                        *photo_decision.product_references,
+                                        *installment_decision.product_references,
+                                    ]
+                                )
+                            ),
+                        }
+                    )
                 if _is_payment_methods_question(text) or _is_installment_rate_question(text):
                     payment_decision = self._try_payment_methods(text)
                     if payment_decision is None:
@@ -3289,11 +3386,9 @@ class AgentService:
                 confidence="high",
             )
 
-        interpretation_text = "\n".join(
-            part.strip() for part in (text, image_description) if part and part.strip()
-        )
         if (
-            self.turn_interpreter is not None
+            not early_interpreter_attempted
+            and self.turn_interpreter is not None
             and self.agent is not None
             and _should_use_turn_interpreter(interpretation_text, history)
         ):
@@ -3853,6 +3948,25 @@ class AgentService:
             _try_entry_installment as _agent_handler,
         )
         return await _agent_handler(self, text, history)
+
+    async def _try_photo_installment_simulation(
+        self,
+        text: str,
+        history: list[dict[str, str]] | None,
+        *,
+        image_description: str | None = None,
+    ) -> AgentDecision | None:
+        if not _is_photo_installment_simulation_request(text):
+            return None
+
+        decision = await self._try_specific_installment(text, history)
+        if decision is None:
+            decision = await self._try_full_installment_table(
+                text,
+                history,
+                image_description=image_description,
+            )
+        return decision
 
     async def _offline_response(
         self,
