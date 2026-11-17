@@ -475,7 +475,7 @@ def _is_generic_iphone_list_request(text: str) -> bool:
         return False
     return all_line_request or bool(
         re.search(
-            r"\b(?:modelo|modelos|preco|precos|valor|valores|lista|catalogo|"
+            r"\b(?:modelo|modelos|opcoes?|preco|precos|valor|valores|lista|catalogo|"
             r"tem|vende|possui|disponivel|disponibilidade|ver|mostrar|mostre|"
             r"a\s+venda)\b",
             normalized,

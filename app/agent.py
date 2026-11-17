@@ -107,6 +107,10 @@ CATALOG_BUDGET_OBJECTION_REPLY = (
     "Entendo 😊 Se quiser, me diga qual faixa de valor cabe no seu orçamento "
     "que procuro opções mais em conta."
 )
+CATALOG_BUYER_INTEREST_CLARIFICATION_REPLY = (
+    "Que bom 😊 Qual modelo dos anúncios chamou sua atenção? Pode me dizer o "
+    "modelo ou enviar a foto para eu conferir o estoque e o preço certinho."
+)
 DELIVERY_FEE_HANDOFF_REPLY = (
     "Vou encaminhar sua mensagem para um atendente confirmar a taxa e o prazo de entrega."
 )
@@ -3483,6 +3487,23 @@ class AgentService:
                 ),
                 confidence="high",
             )
+
+        if (
+            _is_catalog_buyer_interest(text)
+            and not _requested_iphone_model_keys(text)
+            and not _is_available_list_request(text)
+            and not _is_sealed_catalog_list_request(text)
+        ):
+            recent_exchange = "\n".join(
+                entry.get("content", "") for entry in (history or [])[-2:]
+            )
+            context_models = _requested_iphone_model_keys(recent_exchange)
+            has_identified_context = len(context_models) == 1
+            if not has_identified_context:
+                return AgentDecision(
+                    reply=CATALOG_BUYER_INTEREST_CLARIFICATION_REPLY,
+                    confidence="high",
+                )
 
         if (
             not early_interpreter_attempted
