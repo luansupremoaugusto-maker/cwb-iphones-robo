@@ -112,6 +112,7 @@ def test_model_range_and_e_joined_base_models_keep_model_identity():
         "Quero saber os modelos entre o 14, 15 e 16 de 256 GB"
     ) == ((14, ""), (15, ""), (16, ""))
     assert _requested_iphone_model_keys("iPhone 16e") == ((16, "e"),)
+    assert _requested_iphone_model_keys("O iPhone 16 e") == ((16, "e"),)
 
 
 def test_batched_followup_starting_with_e_does_not_turn_models_into_iphone_e():
@@ -2247,6 +2248,70 @@ async def test_contextual_ready_stock_followup_keeps_model_and_closes_order_decl
 
     assert explicit_ready_request.product_references == ["iphone-16e-ready"]
     assert "iPhone 16E" in explicit_ready_request.reply
+
+
+@pytest.mark.asyncio
+async def test_iphone_16e_sealed_inventory_is_ready_stock_in_contextual_replies(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="iphone-16e-ready",
+            name="iPhone 16E",
+            category="Celular",
+            capacity="128 GB",
+            color="PRETO",
+            source="mercado_phone",
+            condition="LACRADO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=3100,
+            search_text="iphone 16e 128 gb preto celular lacrado",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+    initial_history = [
+        {"role": "user", "content": "O iPhone 16 e"},
+        {
+            "role": "assistant",
+            "content": "Oie, boa tarde! O que você gostaria de saber sobre o iPhone 16?",
+        },
+    ]
+    sealed_question = await agent.respond("Se ele é lacrado", history=initial_history)
+
+    assert sealed_question.product_references == ["iphone-16e-ready"]
+    assert "iPhone 16E" in sealed_question.reply
+    assert "pronta entrega" in sealed_question.reply.lower()
+
+    history = [
+        {"role": "user", "content": "O iPhone 16 e"},
+        {"role": "user", "content": "É lacrado?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 16E disponíveis:\n"
+                "• IPHONE 16E — PRETO — 128GB — LACRADO — R$ 3.100,00 | Bat: 100%"
+            ),
+        },
+    ]
+
+    order_followup = await agent.respond("É só sob encomenda?", history=history)
+
+    assert order_followup.product_references == ["iphone-16e-ready"]
+    assert "iPhone 16E" in order_followup.reply
+    assert "pronta entrega" in order_followup.reply.lower()
+    assert "por encomenda" not in order_followup.reply.lower()
+
+    delivery_history = [
+        *history,
+        {"role": "user", "content": "É só sob encomenda?"},
+        {"role": "assistant", "content": order_followup.reply},
+    ]
+    delivery_followup = await agent.respond(
+        "Mas quantos dias para chegar o celular?",
+        history=delivery_history,
+    )
+
+    assert "1 semana" not in delivery_followup.reply.lower()
 
 
 @pytest.mark.asyncio

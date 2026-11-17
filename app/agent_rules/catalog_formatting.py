@@ -122,6 +122,13 @@ def _format_product_availability(
                 line += f" (total no cartão {format_brl(float(quote['valor_total_brl']))})"
             else:
                 line += f" + entrada de {format_brl(entry_amount)}"
+        if _is_sealed_item(item):
+            fulfillment = (
+                "POR ENCOMENDA"
+                if _is_made_to_order_sealed_item(item)
+                else "À PRONTA ENTREGA"
+            )
+            line += f" — {fulfillment}"
         return line
 
     groups = (
