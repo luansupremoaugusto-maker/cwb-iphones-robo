@@ -260,60 +260,20 @@ def _strip_installment_count_list(value: Any) -> str:
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
     normalized = _strip_installment_count_list(value)
-    if any(family != "iphone" for family in _catalog_families(normalized)):
-        return ()
-
-    normalized = _SHARED_PRO_MAX_CONJUNCTION_PATTERN.sub(
-        lambda match: (
-            f"{match.group('number')} pro e {match.group('number')} pro max"
-        ),
-        normalized,
-    )
-    normalized = _NORMAL_AND_SHARED_PRO_MAX_PATTERN.sub(
-        lambda match: (
-            f"{match.group('number')} {match.group('join')} o "
-            f"{match.group('number')} pro max"
-        ),
-        normalized,
-    )
-
-    shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(normalized)
-    if shared_suffix:
-        number = int(shared_suffix.group("number"))
-        normalized = (
-            normalized[: shared_suffix.start()]
-            + f"{number} pro e {number} pro max"
-            + normalized[shared_suffix.end() :]
-        )
-
-    model_or_normal = _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN.search(normalized)
-    if model_or_normal:
-        number = int(model_or_normal.group("number"))
-        variant = " ".join(model_or_normal.group("variant").split()).lower()
-        return ((number, variant), (number, ""))
-
-    model_range = _IPHONE_MODEL_RANGE_PATTERN.search(normalized)
-    if model_range:
-        start = int(model_range.group("start"))
-        end = int(model_range.group("end"))
-        if start <= end:
-            return tuple((number, "") for number in range(start, end + 1))
-
-    shared_variant = _SHARED_MODEL_VARIANT_PATTERN.search(normalized)
-    if shared_variant:
-        variant = " ".join(shared_variant.group("variant").split()).lower()
-        numbers = [int(number) for number in re.findall(r"1[0-9]", shared_variant.group("numbers"))]
-        if len(set(numbers)) > 1:
-            return tuple((number, variant) for number in numbers)
-
     line_aware_normalized = _normalize(
         str(value or "")
         .replace("\r\n", "\n")
         .replace("\r", "\n")
         .replace("\n", " __linebreak__ ")
     )
+    line_aware_normalized = _strip_installment_count_list(line_aware_normalized)
+    if any(family != "iphone" for family in _catalog_families(normalized)):
+        return ()
+
     line_aware_normalized = _SHARED_PRO_MAX_CONJUNCTION_PATTERN.sub(
-        lambda match: f"{match.group('number')} pro e {match.group('number')} pro max",
+        lambda match: (
+            f"{match.group('number')} pro e {match.group('number')} pro max"
+        ),
         line_aware_normalized,
     )
     line_aware_normalized = _NORMAL_AND_SHARED_PRO_MAX_PATTERN.sub(
@@ -323,6 +283,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
         ),
         line_aware_normalized,
     )
+
     shared_suffix = _SHARED_MODEL_SUFFIX_PATTERN.search(line_aware_normalized)
     if shared_suffix:
         number = int(shared_suffix.group("number"))
@@ -331,7 +292,30 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             + f"{number} pro e {number} pro max"
             + line_aware_normalized[shared_suffix.end() :]
         )
-    target = _requested_iphone_model_key(normalized)
+
+    model_or_normal = _MODEL_OR_NORMAL_ALTERNATIVE_PATTERN.search(
+        line_aware_normalized
+    )
+    if model_or_normal:
+        number = int(model_or_normal.group("number"))
+        variant = " ".join(model_or_normal.group("variant").split()).lower()
+        return ((number, variant), (number, ""))
+
+    model_range = _IPHONE_MODEL_RANGE_PATTERN.search(line_aware_normalized)
+    if model_range:
+        start = int(model_range.group("start"))
+        end = int(model_range.group("end"))
+        if start <= end:
+            return tuple((number, "") for number in range(start, end + 1))
+
+    shared_variant = _SHARED_MODEL_VARIANT_PATTERN.search(line_aware_normalized)
+    if shared_variant:
+        variant = " ".join(shared_variant.group("variant").split()).lower()
+        numbers = [int(number) for number in re.findall(r"1[0-9]", shared_variant.group("numbers"))]
+        if len(set(numbers)) > 1:
+            return tuple((number, variant) for number in numbers)
+
+    target = _requested_iphone_model_key(line_aware_normalized)
     if target is None and not re.search(r"\biphones?\b", normalized):
         return ()
 

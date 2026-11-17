@@ -3278,7 +3278,103 @@ class AgentService:
                 history,
                 image_description=image_description,
             )
+            catalog_request_text = re.sub(
+                r"\b(?:fotos?|imagens?)\b",
+                " ",
+                text,
+                flags=re.IGNORECASE,
+            )
+            catalog_price_cue = bool(
+                re.search(
+                    r"\b(?:pre[cç]os?|valor(?:es)?|custa|cotacao)\b"
+                    r"|\bquanto\s+(?:custa|fica)\b",
+                    _normalize(text),
+                )
+            )
+            catalog_context_query = _product_context_query(
+                catalog_request_text,
+                history,
+            )
+            catalog_requested = catalog_price_cue and _is_explicit_catalog_price_request(
+                catalog_context_query
+            )
+            catalog_decision = (
+                await self._try_product_availability(
+                    catalog_request_text,
+                    history=history,
+                    image_description=image_description,
+                )
+                if catalog_requested
+                else None
+            )
+            if photo_decision is None and catalog_decision is not None:
+                photo_decision = AgentDecision(
+                    reply=(
+                        "Não consegui confirmar as fotos desses aparelhos agora. "
+                        "Vou encaminhar sua solicitação para um atendente confirmar."
+                    ),
+                    handoff=True,
+                    handoff_reason=PRODUCT_PHOTO_HANDOFF_REASON,
+                    confidence="low",
+                )
+            elif photo_decision is None and catalog_requested:
+                return protect_customer_decision(
+                    AgentDecision(
+                        reply=(
+                            "Não consegui confirmar a disponibilidade, os valores ou "
+                            "as fotos desses aparelhos agora. Vou encaminhar sua "
+                            "solicitação para um atendente confirmar."
+                        ),
+                        handoff=True,
+                        handoff_reason=PRODUCT_PHOTO_HANDOFF_REASON,
+                        confidence="low",
+                    )
+                )
             if photo_decision is not None:
+                if catalog_decision is not None:
+                    confidence_order = {"low": 0, "medium": 1, "high": 2}
+                    photo_decision = photo_decision.model_copy(
+                        update={
+                            "reply": (
+                                f"{catalog_decision.reply.rstrip()}\n\n"
+                                f"{photo_decision.reply.lstrip()}"
+                            ),
+                            "handoff": photo_decision.handoff or catalog_decision.handoff,
+                            "handoff_reason": (
+                                photo_decision.handoff_reason
+                                or catalog_decision.handoff_reason
+                            ),
+                            "confidence": min(
+                                (photo_decision.confidence, catalog_decision.confidence),
+                                key=confidence_order.__getitem__,
+                            ),
+                            "product_references": list(
+                                dict.fromkeys(
+                                    [
+                                        *catalog_decision.product_references,
+                                        *photo_decision.product_references,
+                                    ]
+                                )
+                            ),
+                        }
+                    )
+                elif catalog_requested:
+                    photo_decision = photo_decision.model_copy(
+                        update={
+                            "reply": (
+                                f"{photo_decision.reply.rstrip()}\n\n"
+                                "Não consegui confirmar a disponibilidade ou os "
+                                "valores desses aparelhos agora. Vou encaminhar sua "
+                                "solicitação para um atendente confirmar."
+                            ),
+                            "handoff": True,
+                            "handoff_reason": (
+                                photo_decision.handoff_reason
+                                or PRODUCT_PHOTO_HANDOFF_REASON
+                            ),
+                            "confidence": "low",
+                        }
+                    )
                 installment_decision = await self._try_photo_installment_simulation(
                     text,
                     history,
