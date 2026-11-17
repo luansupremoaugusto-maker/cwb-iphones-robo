@@ -8637,3 +8637,36 @@ async def test_17_pro_max_prata_availability_matches_prateado_and_does_not_list_
     assert "iphone 14 pro max" not in reply
     assert "iphone 16 pro max" not in reply
     assert "lista completa" not in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_in_stock", [True, False])
+async def test_iphone_16_normal_price_after_16_pro_offer(tmp_path, base_in_stock):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("16e", "iPhone 16e", "128 GB", 3100),
+        _sealed_item("16-pro", "iPhone 16 Pro", "128 GB", 4580),
+    ]
+    if base_in_stock:
+        agent.cache.sealed_cache.items.append(
+            _sealed_item("16-base", "iPhone 16", "128 GB", 4000),
+        )
+    history = [
+        {"role": "user", "content": "ainda tem o 16 pro disponível?"},
+        {"role": "assistant", "content": "Sim, iPhone 16 Pro 128 GB — R$ 4.580,00"},
+        {"role": "user", "content": "aumentou o valor dele então?"},
+        {"role": "assistant", "content": "Os preços podem ser alterados sem aviso prévio."},
+    ]
+
+    decision = await agent.respond("e qual valor está o 16 normal?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == (["16-base"] if base_in_stock else [])
+    assert "iphone 16e" not in _normalize(decision.reply)
+    if base_in_stock:
+        assert "R$ 4.000,00" in decision.reply
+    else:
+        assert "não localizei" in decision.reply.lower()
+
+    explicit_16e = await agent.respond("qual o preço do iPhone 16e?", history=history)
+    assert explicit_16e.product_references == ["16e"]
