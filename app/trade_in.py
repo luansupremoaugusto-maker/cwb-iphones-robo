@@ -558,8 +558,8 @@ _CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE = re.compile(
     re.IGNORECASE,
 )
 _PRICE_DIFFERENCE_FOLLOWUP_RE = re.compile(
-    r"\b(?:quanto\b.{0,35}\bvolta\b|"
-    r"qual\s+(?:o\s+)?valor\b.{0,30}\bvolta\b)",
+    r"\b(?:quanto\s+de\s+volta\b|"
+    r"qual\s+(?:o\s+)?valor\s+(?:de\s+)?volta\b)",
     re.IGNORECASE,
 )
 _BARE_MODEL_ENTRY_FOLLOWUP_RE = re.compile(

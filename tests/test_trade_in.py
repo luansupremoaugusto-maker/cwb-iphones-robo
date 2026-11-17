@@ -478,6 +478,10 @@ async def test_catalog_price_difference_after_owned_iphone_profile_sends_evaluat
         )
         is False
     )
+    assert (
+        is_trade_in_context_request("Daqui quanto tempo ele volta ao estoque?", history)
+        is False
+    )
 
 
 @pytest.mark.asyncio
