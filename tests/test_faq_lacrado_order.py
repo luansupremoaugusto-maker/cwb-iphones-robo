@@ -13,6 +13,10 @@ def test_lacrado_faq_contains_order_deadline_and_delivery_payment():
     assert "1 semana" in answer
     assert "pagamento deve ser antecipado antes do despacho" in answer
     assert "hora da entrega" not in answer
+    assert answer.index("retirada pode ser feita pessoalmente no escritório") < answer.index(
+        "pagamento deve ser antecipado"
+    )
 
     pickup_answer = faq.get("retirada")
     assert "hora da retirada" in pickup_answer
+    assert "escritório" in pickup_answer

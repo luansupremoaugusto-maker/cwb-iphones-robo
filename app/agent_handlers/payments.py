@@ -380,8 +380,9 @@ def _try_sealed_order_payment(
 
     order_information = self.faq.get("lacrados") or (
         "Os aparelhos novos lacrados são vendidos por encomenda, com prazo de "
-        "entrega de 1 semana. Para envios, o pagamento deve ser antecipado "
-        "antes do despacho; na retirada na loja, o pagamento é feito na hora."
+        "entrega de 1 semana. A retirada pode ser feita pessoalmente no escritório, "
+        "com horário marcado e pagamento na hora. Para envios, o pagamento deve ser "
+        "antecipado antes do despacho."
     )
     payment_methods = self.faq.get("pagamento") or PAYMENT_METHODS_REPLY
     return AgentDecision(

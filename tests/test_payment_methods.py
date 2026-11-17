@@ -232,6 +232,9 @@ async def test_delivery_payment_question_explains_prepayment_and_available_metho
     reply = _normalize(decision.reply)
 
     assert decision.handoff is False
+    assert "escritorio" in reply
+    assert "pagamento e feito na hora da retirada" in reply
+    assert reply.index("escritorio") < reply.index("pix") < reply.index("motoboy")
     assert "antecipado antes do despacho" in reply
     assert "nao e possivel pagar na entrega" in reply
     assert "pix" in reply
@@ -239,11 +242,27 @@ async def test_delivery_payment_question_explains_prepayment_and_available_metho
     assert "cartao de debito" in reply
     assert "cartao de credito" in reply
     assert "maquina fisica" in reply
-    assert "nao aceitamos pagamento por cartao de credito online" in reply
     assert "taxa" in reply and "atendente" in reply
     assert "bairro" in reply or "cep" in reply
     assert decision.product_references == []
     assert decision.image_urls == []
+
+
+@pytest.mark.asyncio
+async def test_general_payment_and_delivery_question_leads_with_office_pickup():
+    agent = build_agent_with_cache(AvailableCatalog())
+
+    decision = await agent.respond(
+        "Quais são as formas de pagamento? Como funciona a venda do aparelho e como é entregue?"
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert "escritorio" in reply
+    assert "pagamento e feito na hora da retirada" in reply
+    assert reply.index("escritorio") < reply.index("pix") < reply.index("motoboy")
+    assert reply.count("antecipado antes do despacho") == 1
+    assert "nao e possivel pagar na entrega" not in reply
 
 
 @pytest.mark.asyncio
@@ -286,7 +305,8 @@ async def test_delivery_payment_question_recognizes_deliveram_verb_form():
     assert "parcelado" in reply
     assert "maquina fisica" in reply
     assert "antecipado antes do despacho" in reply
-    assert "nao e possivel pagar na entrega" in reply
+    assert "escritorio" in reply
+    assert "nao e possivel pagar na entrega" not in reply
 
 
 @pytest.mark.asyncio
@@ -297,8 +317,8 @@ async def test_delivery_fee_and_installment_question_keeps_attendant_handoff():
     reply = _normalize(decision.reply)
 
     assert decision.handoff is True
+    assert reply.index("motoboy") < reply.index("pix")
     assert "antecipado antes do despacho" in reply
-    assert "nao e possivel pagar na entrega" in reply
     assert "maquina fisica" in reply
     assert "taxa" in reply and "atendente" in reply
 

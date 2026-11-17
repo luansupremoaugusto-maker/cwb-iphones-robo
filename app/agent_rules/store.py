@@ -329,15 +329,15 @@ def _delivery_or_pickup_reply(
 ) -> str:
     normalized = _normalize(text)
     replies: list[str] = []
+    if _has_pickup_reference(normalized):
+        replies.append(
+            faq.get("retirada")
+            or "Você pode retirar pessoalmente em nosso escritório, com horário marcado. O pagamento é feito na hora da retirada."
+        )
     if force_delivery or re.search(r"\b(?:entrega|entregam|entregas)\b", normalized):
         replies.append(
             faq.get("entrega")
             or "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
-        )
-    if _has_pickup_reference(normalized):
-        replies.append(
-            faq.get("retirada")
-            or "Fazemos retirada na loja com horário marcado. O pagamento é feito na hora da retirada."
         )
     return "\n\n".join(reply for reply in replies if reply)
 
@@ -369,8 +369,10 @@ def _is_visit_unavailability_message(text: str) -> bool:
 
 def _delivery_payment_reply(
     faq: FAQStore,
+    text: str,
     *,
     acknowledge_cannot_visit: bool = False,
+    prioritize_pickup: bool = True,
 ) -> str:
     delivery = faq.get("entrega") or (
         "Enviamos para Curitiba e região por motoboy. Para fora de Curitiba, enviamos por Sedex."
@@ -391,12 +393,29 @@ def _delivery_payment_reply(
     acknowledgement = (
         "Entendi que você não consegue vir até a loja. " if acknowledge_cannot_visit else ""
     )
+    pickup = faq.get("retirada") or (
+        "Você pode retirar pessoalmente em nosso escritório, com horário marcado. "
+        "O pagamento é feito na hora da retirada."
+    )
+    asks_about_payment_at_delivery = bool(
+        re.search(
+            r"\bcomo\s+(?:eu\s+)?pago\b.{0,35}\b(?:a\s+)?entrega\b|"
+            r"\b(?:pagar|pago|pagamento)\b.{0,35}\bna\s+entrega\b|"
+            r"\bna\s+entrega\b.{0,35}\b(?:pagar|pago|pagamento)\b",
+            _normalize(text),
+        )
+    )
+    shipping_payment = "Para envio, o pagamento deve ser antecipado antes do despacho."
+    if asks_about_payment_at_delivery:
+        shipping_payment += " Não é possível pagar na entrega."
+    if acknowledge_cannot_visit or not prioritize_pickup:
+        return (
+            f"{acknowledgement}{delivery} {shipping_payment} {payment} "
+            "A taxa e o prazo são confirmados por um atendente. Qual é seu bairro ou CEP?"
+        )
     return (
-        f"{acknowledgement}{delivery} "
-        "Para envio, o pagamento deve ser antecipado antes do despacho; não é possível pagar na entrega. "
-        f"{payment} Não aceitamos pagamento por cartão de crédito online ou link. "
-        "Um atendente precisa confirmar a taxa e o prazo pelo endereço e orientar "
-        "como concluir o pagamento antes do envio. Qual é seu bairro ou CEP?"
+        f"{pickup} {payment} {delivery} {shipping_payment} "
+        "A taxa e o prazo são confirmados por um atendente. Qual é seu bairro ou CEP?"
     )
 
 def _extract_time_reference(text: str) -> tuple[int, str] | None:
@@ -434,7 +453,7 @@ def _pickup_schedule_reply(faq: FAQStore, text: str) -> str:
     )
     day_key = day_match.group(1).split("-")[0] if day_match else None
     day_label, day_preposition = day_names.get(day_key, ("dia informado", "No"))
-    pickup = "Fazemos retirada na loja com horário marcado."
+    pickup = "A retirada no escritório é feita com horário marcado."
     hours = faq.get("hours") or (
         "Atendemos de segunda a sexta, das 09:00 às 18:00. "
         "Aos sábados, domingos e feriados, a loja fica fechada."

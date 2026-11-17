@@ -71,7 +71,8 @@ async def test_payment_and_delivery_batch_answers_both_questions(tmp_path):
     assert "simulação do parcelamento pelo link" not in reply.lower()
     assert "%" not in reply
     assert "Enviamos para Curitiba e região por motoboy" in reply
-    assert "Fazemos retirada na loja com horário marcado" in reply
+    assert "retirar pessoalmente em nosso escritório" in reply
+    assert reply.index("retirar pessoalmente") < reply.index("Enviamos")
 
 
 @pytest.mark.asyncio
@@ -92,7 +93,7 @@ async def test_delivery_followup_answers_without_handoff_after_payment_batch(tmp
     reply = decision.reply
     assert decision.handoff is False
     assert "Enviamos para Curitiba e região por motoboy" in reply
-    assert "Fazemos retirada na loja com horário marcado" not in reply
+    assert "retirar pessoalmente em nosso escritório" not in reply
 
 
 @pytest.mark.asyncio
@@ -136,7 +137,8 @@ async def test_delivery_and_pickup_question_after_product_context_uses_faq(tmp_p
     reply = decision.reply
     assert decision.handoff is False
     assert "Enviamos para Curitiba e região por motoboy" in reply
-    assert "Fazemos retirada na loja com horário marcado" in reply
+    assert "retirar pessoalmente em nosso escritório" in reply
+    assert reply.index("retirar pessoalmente") < reply.index("Enviamos")
     assert "vou encaminhar suas dúvidas sobre esse aparelho" not in reply.lower()
     assert decision.handoff_reason is None
 
@@ -161,7 +163,7 @@ async def test_asking_how_to_go_pick_up_selected_iphone_uses_pickup_faq(tmp_path
     )
 
     assert decision.handoff is False
-    assert "Fazemos retirada na loja com horário marcado" in decision.reply
+    assert "retirar pessoalmente em nosso escritório" in decision.reply
     assert "O pagamento é feito na hora da retirada" in decision.reply
     assert decision.handoff_reason is None
 
@@ -240,7 +242,7 @@ async def test_pickup_day_and_time_question_after_product_history_uses_store_hou
 
     reply = decision.reply.lower()
     assert decision.handoff is False
-    assert "retirada na loja com horário marcado" in reply
+    assert "retirada no escritório é feita com horário marcado" in reply
     assert "segunda a sexta" in reply
     assert "09:00" in decision.reply
     assert "18:00" in decision.reply
