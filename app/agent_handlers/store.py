@@ -118,7 +118,9 @@ def _try_delivery_payment(
     return AgentDecision(
         reply=_delivery_payment_reply(
             self.faq,
+            text,
             acknowledge_cannot_visit=acknowledge_cannot_visit,
+            prioritize_pickup=not delivery_fee_request,
         ),
         handoff=delivery_fee_request,
         handoff_reason=DELIVERY_FEE_HANDOFF_REASON if delivery_fee_request else None,

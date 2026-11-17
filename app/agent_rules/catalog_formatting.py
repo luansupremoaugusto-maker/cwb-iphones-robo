@@ -148,9 +148,10 @@ def _format_product_availability(
             formatted_lines.extend(
                 [
                     "",
-                    "Os lacrados são por encomenda, com prazo de 1 semana. Em qualquer envio, "
-                    "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
-                    "despacho; na retirada na loja, o pagamento é feito na hora.",
+                    "Os lacrados são por encomenda, com prazo de 1 semana. A retirada pode ser "
+                    "feita pessoalmente no escritório, com horário marcado e pagamento na hora. "
+                    "Para envio, inclusive "
+                    "por motoboy ou Sedex, o pagamento deve ser antecipado antes do despacho.",
                 ]
             )
         if installment_budget is not None:
@@ -305,9 +306,10 @@ def _format_available_products(result: dict[str, Any]) -> str:
         lines.extend(["", "📦 Novos lacrados por encomenda:"])
         lines.extend(grouped_lines(lacrados))
         lines.append(
-            "\nOs lacrados são por encomenda, com prazo de 1 semana. Em qualquer envio, "
-            "inclusive por motoboy ou Sedex, o pagamento deve ser antecipado antes do "
-            "despacho; na retirada na loja, o pagamento é feito na hora."
+            "\nOs lacrados são por encomenda, com prazo de 1 semana. A retirada pode ser "
+            "feita pessoalmente no escritório, com horário marcado e pagamento na hora. "
+            "Para envio, inclusive "
+            "por motoboy ou Sedex, o pagamento deve ser antecipado antes do despacho."
         )
     if not seminovos and not lacrados_pronta_entrega and not lacrados:
         return "No momento não localizei modelos disponíveis para informar. Vou encaminhar para um atendente confirmar."
