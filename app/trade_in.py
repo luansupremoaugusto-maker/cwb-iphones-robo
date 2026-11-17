@@ -557,6 +557,11 @@ _CONTEXTUAL_DEVICE_ENTRY_FOLLOWUP_RE = re.compile(
     r".{0,45}\b(?:volta|diferenc\w*|troco|entrada|pagamento)\b",
     re.IGNORECASE,
 )
+_PRICE_DIFFERENCE_FOLLOWUP_RE = re.compile(
+    r"\b(?:quanto\b.{0,35}\bvolta\b|"
+    r"qual\s+(?:o\s+)?valor\b.{0,30}\bvolta\b)",
+    re.IGNORECASE,
+)
 _BARE_MODEL_ENTRY_FOLLOWUP_RE = re.compile(
     r"\b(?:dar|der|dou|daria|entregar|passar|usar)\s+o\s+\d{1,2}\s+"
     r"(?:de|como)\s+entrada\b",
@@ -1010,6 +1015,32 @@ def _has_complete_owned_device_profile(text: str) -> bool:
         and _COMPLETE_DEVICE_DETAIL_RE.search(text)
         and not _NON_APPLE_RE.search(text)
     )
+
+
+def _has_recent_complete_owned_bare_iphone_profile(
+    history: list[dict[str, str]] | None,
+) -> bool:
+    """Recognize a recent bare iPhone model with capacity and condition details."""
+    for entry in (history or [])[-8:]:
+        if entry.get("role") != "user" or not entry.get("content"):
+            continue
+        normalized = _normalize(entry.get("content", ""))
+        owned_model = _OWNED_BARE_IPHONE_VARIANT_RE.search(normalized)
+        if (
+            not owned_model
+            or _NON_APPLE_RE.search(normalized)
+            or _NEGATION_RE.search(normalized)
+            or _is_component_repair_request(normalized)
+        ):
+            continue
+        details = normalized[owned_model.end() :]
+        has_capacity = re.search(r"\b\d{2,4}\s*(?:gb|tb)?\b", details)
+        has_condition = _COMPLETE_DEVICE_DETAIL_RE.search(details) or re.search(
+            r"\b(?:funcion\w*|perfeit\w*|impecavel)\b", details
+        )
+        if has_capacity and has_condition:
+            return True
+    return False
 
 
 def is_box_inclusion_question(text: str | None) -> bool:
@@ -2282,6 +2313,24 @@ def is_trade_in_context_request(
         )
         for assistant_content in recent_assistant_contexts
     )
+    # After a catalog offer, "Pede quanto de volta?" can refer to the price
+    # difference for the customer's own iPhone. The device profile and catalog
+    # offer must both be present in recent history before this shorthand starts
+    # the evaluation form.
+    if (
+        has_recent_apple_catalog_context
+        and _PRICE_DIFFERENCE_FOLLOWUP_RE.search(normalized)
+        and _has_recent_complete_owned_bare_iphone_profile(history)
+        and not _NEGATION_RE.search(user_context)
+        and not _is_component_repair_request(normalized)
+        and not is_parts_buyback_request(normalized)
+        and not _NON_APPLE_RE.search(user_context)
+        and not _PURCHASE_INTENT_RE.search(normalized)
+        and not _STOCK_QUERY_RE.search(normalized)
+        and not _EXPLICIT_STOCK_QUERY_RE.search(normalized)
+    ):
+        return True
+
     recent_iphone_mentions = _BARE_IPHONE_MODEL_RE.findall(normalized)
     target_appeared_in_recent_catalog = bool(
         len(recent_iphone_mentions) >= 2
