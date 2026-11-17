@@ -3490,15 +3490,15 @@ class AgentService:
 
         if (
             _is_catalog_buyer_interest(text)
-            and not _has_product_reference(_normalize(text))
+            and not _requested_iphone_model_keys(text)
             and not _is_available_list_request(text)
             and not _is_sealed_catalog_list_request(text)
         ):
-            interest_context = _product_context_query(text, history)
-            context_models = _requested_iphone_model_keys(interest_context)
-            has_identified_context = _has_product_reference(
-                _normalize(interest_context)
-            ) and len(context_models) <= 1
+            recent_exchange = "\n".join(
+                entry.get("content", "") for entry in (history or [])[-2:]
+            )
+            context_models = _requested_iphone_model_keys(recent_exchange)
+            has_identified_context = len(context_models) == 1
             if not has_identified_context:
                 return AgentDecision(
                     reply=CATALOG_BUYER_INTEREST_CLARIFICATION_REPLY,
