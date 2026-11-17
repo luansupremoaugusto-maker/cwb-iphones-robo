@@ -55,6 +55,7 @@ from app.agent import (
     _normalize,
     _recent_installment_entry_amount,
     _requested_battery_health,
+    _requested_catalog_colors,
     _requested_capacity_keys,
     _requested_installment_product_keys,
     _requested_installments,
@@ -390,22 +391,58 @@ def _try_sealed_order_payment(
         confidence="high",
     )
 
+def _is_catalog_constraint_line(text: str) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        _requested_capacity_keys(text)
+        or _requested_catalog_colors(text, [])
+        or _has_explicit_sealed_condition(normalized)
+        or _has_seminovo_reference(normalized)
+    )
+
+
+def _is_payment_followup_line(text: str) -> bool:
+    return bool(
+        _is_independent_payment_methods_request(text)
+        or _is_payment_methods_question(text)
+        or _is_payment_link_request(text)
+        or _is_boleto_payment_request(text)
+        or _is_full_installment_request(text)
+        or _is_specific_installment_request(text)
+        or _is_generic_installment_count_question(text)
+    )
+
+
 def _combined_catalog_query_for_payment_turn(
     text: str,
     history: list[dict[str, str]] | None,
 ) -> str | None:
     """Isolate catalog lines from WhatsApp batches that also ask about payment."""
-    catalog_lines = [
-        line.strip()
-        for line in (text or "").splitlines()
-        if line.strip()
-        and (
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    catalog_indexes = {
+        index
+        for index, line in enumerate(lines)
+        if (
             _is_product_availability_request(line, history=history)
             or _is_explicit_catalog_price_request(line)
         )
-    ]
-    if catalog_lines:
-        return "\n".join(catalog_lines)
+    }
+    if catalog_indexes:
+        selected_indexes = set(catalog_indexes)
+        for catalog_index in catalog_indexes:
+            for direction in (-1, 1):
+                index = catalog_index + direction
+                while 0 <= index < len(lines):
+                    line = lines[index]
+                    if _is_payment_followup_line(line):
+                        index += direction
+                        continue
+                    if _is_catalog_constraint_line(line):
+                        selected_indexes.add(index)
+                        index += direction
+                        continue
+                    break
+        return "\n".join(lines[index] for index in sorted(selected_indexes))
     if _is_explicit_catalog_price_request(text):
         return text
     return None

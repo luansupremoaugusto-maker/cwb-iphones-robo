@@ -6968,6 +6968,24 @@ async def test_batched_model_availability_and_payment_questions_answer_both(tmp_
 
 
 @pytest.mark.asyncio
+async def test_combined_catalog_payment_keeps_capacity_constraint_line(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Qual o preço do iPhone 17 Pro Max?\n"
+        "Somente 256 GB\n"
+        "Quais formas de pagamento vocês aceitam?"
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["17-pro-max-256"]
+    assert "r$ 7.800,00" in reply
+    assert "r$ 7.000,00" not in reply
+    assert "cartao de credito" in reply
+
+
+@pytest.mark.asyncio
 async def test_combined_availability_pix_and_installment_answers_every_question(tmp_path):
     agent = build_agent(tmp_path)
     item = _sealed_item("17-pro-256-blue", "iPhone 17 Pro", "256 GB", 7300)
