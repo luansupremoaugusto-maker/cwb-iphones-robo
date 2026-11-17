@@ -6943,6 +6943,31 @@ async def test_explicit_catalog_price_and_payment_methods_request_answers_both(t
 
 
 @pytest.mark.asyncio
+async def test_batched_model_availability_and_payment_questions_answer_both(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-18-128", "iPhone 18", "128 GB", 8200),
+        _sealed_item("iphone-17-128", "iPhone 17", "128 GB", 7200),
+    ]
+
+    decision = await agent.respond(
+        "queria saber se vcs tem o iphone 18, 17\n"
+        "e as formas de pagamento\n"
+        "quantas vezes vcs fazem"
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-18-128", "iphone-17-128"]
+    assert "iphone 18" in reply
+    assert "iphone 17" in reply
+    assert "pix" in reply
+    assert "dinheiro" in reply
+    assert "cartao de credito" in reply
+    assert "18 vezes" in reply
+
+
+@pytest.mark.asyncio
 async def test_combined_availability_pix_and_installment_answers_every_question(tmp_path):
     agent = build_agent(tmp_path)
     item = _sealed_item("17-pro-256-blue", "iPhone 17 Pro", "256 GB", 7300)

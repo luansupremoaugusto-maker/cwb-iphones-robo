@@ -390,19 +390,44 @@ def _try_sealed_order_payment(
         confidence="high",
     )
 
+def _combined_catalog_query_for_payment_turn(
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> str | None:
+    """Isolate catalog lines from WhatsApp batches that also ask about payment."""
+    catalog_lines = [
+        line.strip()
+        for line in (text or "").splitlines()
+        if line.strip()
+        and (
+            _is_product_availability_request(line, history=history)
+            or _is_explicit_catalog_price_request(line)
+        )
+    ]
+    if catalog_lines:
+        return "\n".join(catalog_lines)
+    if _is_explicit_catalog_price_request(text):
+        return text
+    return None
+
+
 async def _try_combined_catalog_payment_methods(
     self,
     text: str,
     history: list[dict[str, str]] | None,
 ) -> AgentDecision | None:
+    catalog_query = _combined_catalog_query_for_payment_turn(text, history)
     if (
-        not _is_explicit_catalog_price_request(text)
+        catalog_query is None
         or not _is_independent_payment_methods_request(text)
         or not _is_payment_methods_question(text)
     ):
         return None
 
-    catalog_decision = await self._try_product_availability(text, history=history)
+    catalog_decision = await self._try_product_availability(
+        catalog_query,
+        history=history,
+    )
     payment_decision = self._try_payment_methods(text)
     if catalog_decision is None or payment_decision is None:
         return None
