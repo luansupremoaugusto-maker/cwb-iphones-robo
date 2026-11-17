@@ -406,7 +406,7 @@ def _delivery_payment_reply(
         )
     )
     shipping_payment = "Para envio, o pagamento deve ser antecipado antes do despacho."
-    if asks_about_payment_at_delivery:
+    if asks_about_payment_at_delivery or acknowledge_cannot_visit:
         shipping_payment += " Não é possível pagar na entrega."
     if acknowledge_cannot_visit or not prioritize_pickup:
         return (
