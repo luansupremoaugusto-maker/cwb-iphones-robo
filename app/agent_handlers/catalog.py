@@ -886,7 +886,9 @@ async def _try_product_availability(
         # make the explicit-model parser discard the other alternative.
         bare_model = _extract_bare_catalog_model_reference(current_query)
         if bare_model:
-            current_query = f"{bare_model} {current_query}".strip()
+            # Keep a leading Portuguese "e" in the question separate from
+            # the model name so "iPhone 16" cannot become "iPhone 16e".
+            current_query = f"{bare_model}. {current_query}".strip()
     query = current_query
     if installment_budget_context:
         query = installment_budget_context
