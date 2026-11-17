@@ -1333,6 +1333,72 @@ async def test_multi_model_photo_request_sends_all_options_for_each_requested_mo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("photo_lookup_fails", [False, True])
+async def test_batched_multi_model_photo_and_price_request_preserves_catalog_answer(
+    tmp_path, monkeypatch, photo_lookup_fails
+):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(),
+        settings,
+        cache_path=tmp_path / "inventory-iphone-11-or-12-photo-price.json",
+        sealed_cache=None,
+    )
+    iphone_12_photo = "https://photos.example/iphone-12-128.jpg"
+    cache.items = [
+        InventoryItem(
+            external_id="iphone-11-128",
+            name="IPHONE 11",
+            category="Celular",
+            capacity="128GB",
+            color="PRETO",
+            condition="SEMINOVO",
+            availability="Sem estoque",
+            quantity=0,
+            price_brl=1800,
+            source="mercado_phone",
+            search_text="iphone 11 preto 128gb celular seminovo",
+        ),
+        InventoryItem(
+            external_id="iphone-12-128",
+            name="IPHONE 12",
+            category="Celular",
+            capacity="128GB",
+            color="AZUL",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=2200,
+            source="mercado_phone",
+            search_text="iphone 12 azul 128gb celular seminovo",
+            photo_urls=[iphone_12_photo],
+        ),
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+
+    if photo_lookup_fails:
+        async def no_photo_result(*_args, **_kwargs):
+            return None
+
+        monkeypatch.setattr(agent, "_try_product_photos", no_photo_result)
+
+    decision = await agent.respond("Vcs tem iPhone 11 ou 12\nE tem foto e valor")
+
+    assert decision.product_references == ["iphone-12-128"]
+    assert "IPHONE 12" in decision.reply.upper()
+    assert "R$ 2.200,00" in decision.reply
+    if photo_lookup_fails:
+        assert decision.handoff is True
+        assert decision.handoff_reason == PRODUCT_PHOTO_HANDOFF_REASON
+        assert decision.image_urls == []
+        assert "não consegui confirmar as fotos" in decision.reply.lower()
+    else:
+        assert decision.handoff is False
+        assert decision.image_urls == [iphone_12_photo]
+
+
+@pytest.mark.asyncio
 async def test_literal_followup_sends_14_and_15_pro_max_photos_after_13_photo(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

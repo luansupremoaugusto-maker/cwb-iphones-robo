@@ -114,6 +114,13 @@ def test_model_range_and_e_joined_base_models_keep_model_identity():
     assert _requested_iphone_model_keys("iPhone 16e") == ((16, "e"),)
 
 
+def test_batched_followup_starting_with_e_does_not_turn_models_into_iphone_e():
+    assert _requested_iphone_model_keys(
+        "Vcs tem iPhone 11 ou 12\nE tem foto e valor"
+    ) == ((11, ""), (12, ""))
+    assert _requested_iphone_model_keys("iPhone 16e") == ((16, "e"),)
+
+
 def test_past_purchase_count_is_not_treated_as_requested_quantity():
     assert _requested_device_quantity("Já comprei 2 celular com vc") is None
     assert _requested_device_quantity("Preciso de 2 aparelhos") == 2
