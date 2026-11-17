@@ -3284,9 +3284,19 @@ class AgentService:
                 text,
                 flags=re.IGNORECASE,
             )
-            catalog_requested = _is_product_availability_request(
+            catalog_price_cue = bool(
+                re.search(
+                    r"\b(?:pre[cç]os?|valor(?:es)?|custa|cotacao)\b"
+                    r"|\bquanto\s+(?:custa|fica)\b",
+                    _normalize(text),
+                )
+            )
+            catalog_context_query = _product_context_query(
                 catalog_request_text,
-                history=history,
+                history,
+            )
+            catalog_requested = catalog_price_cue and _is_explicit_catalog_price_request(
+                catalog_context_query
             )
             catalog_decision = (
                 await self._try_product_availability(
