@@ -418,6 +418,73 @@ async def test_other_device_as_part_of_value_after_catalog_sends_evaluation_form
 
 
 @pytest.mark.asyncio
+async def test_catalog_price_difference_after_owned_iphone_profile_sends_evaluation_form(
+    tmp_path,
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Olá, entro em contato para saber mais informações sobre o produto "
+                "IPHONE 15 PRO MAX - TITÂNIO PRETO - 256gb de código (estoque) "
+                "visto no catálogo online"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?",
+        },
+        {
+            "role": "user",
+            "content": "Tenho um 14 pro max 256 funciona perfeitamente",
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Sim 😊 Encontrei estas opções de IPHONE 15 PRO MAX disponíveis:\n"
+                "• IPHONE 15 PRO MAX — TITÂNIO PRETO — 256GB — SEMINOVO — "
+                "R$ 4.350,00 | Bat: 88%"
+            ),
+        },
+    ]
+    text = "Pede quanto de volta?"
+
+    decision = await service.respond(text, history=history)
+
+    assert is_trade_in_context_request(text, history) is True
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert decision.product_references == []
+    assert decision.image_urls == []
+    assert (
+        is_trade_in_context_request(
+            text,
+            [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Encontrei opções de IPHONE 15 PRO MAX disponíveis por "
+                        "R$ 4.350,00."
+                    ),
+                }
+            ],
+        )
+        is False
+    )
+    assert (
+        is_trade_in_context_request("Daqui quanto tempo ele volta ao estoque?", history)
+        is False
+    )
+
+
+@pytest.mark.asyncio
 async def test_resend_evaluation_form_after_generic_trade_in_question(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
