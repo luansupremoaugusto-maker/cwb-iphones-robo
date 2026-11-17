@@ -1257,6 +1257,41 @@ def _is_catalog_budget_objection(
     )
 
 
+_CATALOG_ALTERNATIVE_SEARCH_ACK_RE = re.compile(
+    r"^(?:sim|ok|okay|certo|perfeito|beleza|blz|show|pode|pode\s+sim|"
+    r"pode\s+ser|claro|ta\s+bom|esta\s+bem)(?:\s+(?:amigo|amiga))?[.!?,\s]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_short_confirmation_of_catalog_alternative_offer(
+    text: str | None,
+    history: list[dict[str, str]] | None,
+) -> bool:
+    if not _CATALOG_ALTERNATIVE_SEARCH_ACK_RE.fullmatch(_normalize(text or "")):
+        return False
+
+    entries = list(history or [])
+    if (
+        entries
+        and entries[-1].get("role") == "user"
+        and _normalize(entries[-1].get("content", "")) == _normalize(text or "")
+    ):
+        entries.pop()
+    if not entries or entries[-1].get("role") != "assistant":
+        return False
+
+    previous_reply = _normalize(entries[-1].get("content", ""))
+    offers_higher_range = bool(
+        re.search(r"\bfaixa(?:\s+de\s+preco)?\s+maior\b", previous_reply)
+    )
+    offers_another_model = bool(re.search(r"\boutro\s+modelo\b", previous_reply))
+    offers_a_search = bool(
+        re.search(r"\b(?:procurar|buscar|consultar|verificar)\b", previous_reply)
+    )
+    return offers_higher_range and offers_another_model and offers_a_search
+
+
 def _is_catalog_delivery_timing_decline(
     text: str | None,
     history: list[dict[str, str]] | None,
@@ -3437,6 +3472,15 @@ class AgentService:
         if _is_catalog_budget_objection(text, history):
             return AgentDecision(
                 reply=CATALOG_BUDGET_OBJECTION_REPLY,
+                confidence="high",
+            )
+
+        if _is_short_confirmation_of_catalog_alternative_offer(text, history):
+            return AgentDecision(
+                reply=(
+                    "Perfeito 😊 Me diga o valor máximo que quer considerar. "
+                    "Se preferir outro modelo, diga qual."
+                ),
                 confidence="high",
             )
 
