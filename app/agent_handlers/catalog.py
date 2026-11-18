@@ -305,6 +305,62 @@ def _try_accessory_inclusion_information(
         confidence="high",
     )
 
+async def _try_iphone_battery_options(
+    self,
+    text: str,
+    history: list[dict[str, str]] | None,
+) -> AgentDecision | None:
+    request = text
+    if (
+        history
+        and history[-1].get("role") == "user"
+        and re.fullmatch(
+            r"quais\s+(?:(?:voce|vc)\s+)?tem(?:\s+ai)?[?.!\s]*",
+            _normalize(text),
+        )
+    ):
+        request = history[-1].get("content", "")
+
+    normalized = _normalize(request)
+    if not (
+        re.search(r"\b(?:procur\w*|busc\w*|quer[oi]|gostaria|tem|quais)\b", normalized)
+        and re.search(r"\biphones?\b", normalized)
+        and re.search(r"\bbateria\s+(?:(?:muito)\s+)?boa\b", normalized)
+        and not _requested_iphone_model_keys(request)
+        and not _extract_bare_catalog_model_reference(request)
+        and not _has_explicit_sealed_condition(request)
+    ):
+        return None
+
+    try:
+        catalog = await self.cache.list_available_products()
+    except Exception:
+        return AgentDecision(
+            reply="Não consegui consultar a saúde das baterias no estoque agora. Pode tentar novamente?",
+            confidence="medium",
+        )
+
+    options = [
+        entry for entry in (catalog.get("seminovos") or [])
+        if _catalog_family(entry.get("nome") or "") == "iphone"
+        and entry.get("saude_bateria") is not None
+    ]
+    if not options:
+        return AgentDecision(
+            reply="No momento, não encontrei iPhones disponíveis com saúde da bateria cadastrada.",
+            confidence="high",
+        )
+
+    options.sort(key=lambda entry: entry["saude_bateria"], reverse=True)
+    return AgentDecision(
+        reply=_format_available_products(
+            {"seminovos": options},
+            heading="Aqui estão os iPhones disponíveis com saúde da bateria cadastrada:",
+        ),
+        confidence="high",
+    )
+
+
 async def _try_battery_detail(
     self,
     text: str,

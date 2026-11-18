@@ -2290,6 +2290,12 @@ def _battery_detail_context_query(text: str, history: list[dict[str, str]] | Non
             )
 
     model_reference = _extract_bare_catalog_model_reference(text)
+    if (
+        re.search(r"\biphone\b", normalized)
+        and not model_reference
+        and not _requested_iphone_model_keys(text)
+    ):
+        return None
     has_explicit_family = bool(
         re.search(r"\b(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b", normalized)
     )
@@ -3232,6 +3238,12 @@ class AgentService:
                 reply="Entendo 😊 Por nada! Se precisar, estou à disposição.",
                 confidence="high",
             )
+
+        from app.agent_handlers.catalog import _try_iphone_battery_options
+
+        battery_options = await _try_iphone_battery_options(self, text, history)
+        if battery_options is not None:
+            return protect_customer_decision(battery_options)
 
         interpretation_text = "\n".join(
             part.strip() for part in (text, image_description) if part and part.strip()
