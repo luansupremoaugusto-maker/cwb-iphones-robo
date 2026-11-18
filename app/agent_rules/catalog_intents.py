@@ -616,8 +616,17 @@ def _is_accessory_catalog_request(text: str) -> bool:
 
 def _is_accessory_inclusion_question(text: str) -> bool:
     normalized = _normalize(text)
-    if not re.search(r"\b(?:fontes?|carregador(?:es)?|cabo|acessorio|acessorios)\b", normalized):
+    accessory = (
+        r"(?:fontes?|carregador(?:es)?|cabos?|acessorios?|"
+        r"capinhas?|capas?|cases?|peliculas?|protetores?)"
+    )
+    if not re.search(rf"\b{accessory}\b", normalized):
         return False
+    if re.match(
+        rf"^(?:e\s+)?vem\s+(?:(?:o|a|os|as|um|uma)\s+)?{accessory}\b",
+        normalized,
+    ):
+        return True
     asks_if_phone_is_sold_alone = bool(
         re.search(
             r"\bvem\s+(?:somente|so)\s+(?:(?:o|a)\s+)?(?:celular|aparelho|iphone)\b",
