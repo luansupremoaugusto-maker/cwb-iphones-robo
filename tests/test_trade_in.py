@@ -5736,3 +5736,7 @@ async def test_store_condition_question_does_not_override_iphone_sale_offer(tmp_
 
     assert decision.reply == TRADE_IN_FORM
     assert decision.handoff is False
+def test_payment_question_preserves_following_explicit_trade_in():
+    assert is_trade_in_request(
+        "Qual forma de pagamento vcs aceitam?\nVocês aceitam meu iPhone 13 na troca?"
+    )

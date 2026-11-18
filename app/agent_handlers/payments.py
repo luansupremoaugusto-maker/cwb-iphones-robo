@@ -418,7 +418,11 @@ def _combined_catalog_query_for_payment_turn(
     history: list[dict[str, str]] | None,
 ) -> str | None:
     """Isolate catalog lines from WhatsApp batches that also ask about payment."""
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in re.split(r"\r?\n|(?<=\?)\s+", text or "")
+        if line.strip()
+    ]
     catalog_indexes = {
         index
         for index, line in enumerate(lines)
