@@ -599,31 +599,42 @@ def _requested_device_quantity(text: str) -> int | None:
                 return count
     return None
 
+_ENTRY_HUNDREDS = {
+    word: value * 100
+    for value, word in enumerate(
+        ("cem", "duzentos", "trezentos", "quatrocentos", "quinhentos",
+         "seiscentos", "setecentos", "oitocentos", "novecentos"),
+        start=1,
+    )
+}
+_ENTRY_SPOKEN_THOUSANDS = (
+    rf"(?:(?P<multiplier>{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s*)?"
+    rf"mil(?:\s+e\s+(?P<hundreds>{'|'.join(_ENTRY_HUNDREDS)}))?(?:\s+reais?)?\b"
+)
+
+
 def _parse_entry_amount(raw_value: str) -> float | None:
     normalized_value = _normalize(raw_value)
     spoken_thousands = re.fullmatch(
-        rf"(?:(?P<multiplier>{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s*)?"
-        r"mil(?:\s+reais?)?",
+        _ENTRY_SPOKEN_THOUSANDS,
         normalized_value,
     )
     if not spoken_thousands:
         return _parse_brl_amount(raw_value)
 
     multiplier = spoken_thousands.group("multiplier")
+    hundreds = _ENTRY_HUNDREDS.get(spoken_thousands.group("hundreds"), 0)
     if not multiplier:
-        return 1000.0
+        return 1000.0 + hundreds
     if multiplier in _ENTRY_AMOUNT_WORD_MULTIPLIERS:
-        return float(_ENTRY_AMOUNT_WORD_MULTIPLIERS[multiplier] * 1000)
+        return float(_ENTRY_AMOUNT_WORD_MULTIPLIERS[multiplier] * 1000 + hundreds)
     numeric_multiplier = _parse_brl_amount(multiplier)
-    return numeric_multiplier * 1000 if numeric_multiplier is not None else None
+    return numeric_multiplier * 1000 + hundreds if numeric_multiplier is not None else None
 
 def _extract_entry_amount(text: str) -> float | None:
     normalized = _normalize(text)
     numeric_amount = r"(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?"
-    spoken_thousands = (
-        rf"(?:(?:{_ENTRY_AMOUNT_WORD_MULTIPLIER_PATTERN})\s*)?mil(?:\s+reais?)?"
-    )
-    amount = rf"(?:{numeric_amount}|{spoken_thousands})"
+    amount = rf"(?:{_ENTRY_SPOKEN_THOUSANDS}|{numeric_amount})"
     has_entry_marker = "entrada" in normalized or "sinal" in normalized
     if has_entry_marker:
         patterns = (
