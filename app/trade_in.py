@@ -201,6 +201,10 @@ _STORE_BUYBACK_SUBJECT_RE = re.compile(
     r"(?:compram|compra|comprar|pegam|pegm|pegem|peguem|aceitam|recebem|avaliam)\b",
     re.IGNORECASE,
 )
+_PAYMENT_METHOD_ACCEPTANCE_RE = re.compile(
+    r"\b(?:qual|quais)\s+(?:forma[s]?|metodo[s]?|meio[s]?)\s+de\s+pagamento"
+    r"\s+(?:(?:voc[eê]s|vcs|a\s+loja)\s+)?aceitam?\b"
+)
 _STORE_TRADE_IN_SERVICE_QUESTION_RE = re.compile(
     r"(?:\b(?:voces|vcs|voce|a loja|loja|cwb\.iphones)\b.{0,35}\b"
     r"(?:troca(?:m|mos)?|faz(?:em|emos)\s+(?:(?:a|uma)\s+)?trocas?)\b"
@@ -1089,6 +1093,7 @@ def _has_owned_iphone_business_offer(text: str) -> bool:
 
 def _has_device_offer(text: str) -> bool:
     """Detect an offer of a device, not a generic payment method."""
+    text = _PAYMENT_METHOD_ACCEPTANCE_RE.sub("", text)
     if _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text):
         return not _NON_APPLE_RE.search(text)
     # A WhatsApp typo such as "eutenho" can join "eu" and "tenho". The
@@ -1298,6 +1303,10 @@ def _is_store_buyback_question(text: str) -> bool:
         return False
     if _PAYMENT_METHOD_RE.search(text) and not _has_device_reference(text):
         return False
+
+    # A payment question can precede a separate catalog or trade-in request
+    # in the same WhatsApp batch. Its "aceitam" refers to payment methods.
+    text = _PAYMENT_METHOD_ACCEPTANCE_RE.sub("", text)
 
     # Customers often ask about the trade-in service without naming the shop:
     # "Gostaria de saber se trocam iPhones?" Keep this distinct from repair

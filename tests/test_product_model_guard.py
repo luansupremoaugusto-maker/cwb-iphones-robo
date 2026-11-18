@@ -7015,6 +7015,35 @@ async def test_explicit_catalog_price_and_payment_methods_request_answers_both(t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("separator", ["\n", " "])
+async def test_payment_question_before_iphone_interest_answers_both(tmp_path, separator):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = [
+        _sealed_item("iphone-16", "iPhone 16", "128 GB", 5200),
+        _sealed_item("iphone-16e", "iPhone 16e", "128 GB", 4700),
+    ]
+
+    decision = await agent.respond(
+        separator.join((
+            "Qual forma de pagamento vcs aceitam?",
+            "Tenho interesse no iPhone 16",
+        )),
+        history=[
+            {"role": "user", "content": "Opa, tudo bem?"},
+            {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"},
+        ],
+    )
+    reply = _normalize(decision.reply)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iphone-16"]
+    assert "r$ 5.200,00" in reply
+    assert "pix" in reply
+    assert "cartao de credito" in reply
+    assert "lista de avaliacao" not in reply
+
+
+@pytest.mark.asyncio
 async def test_batched_model_availability_and_payment_questions_answer_both(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.sealed_cache.items = [
