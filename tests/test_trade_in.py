@@ -751,6 +751,34 @@ async def test_explicit_buyback_question_can_identify_device_from_attached_image
 
 
 @pytest.mark.asyncio
+async def test_non_iphone_trade_in_policy_does_not_resend_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Vocês aceitam usado como parte do pagamento?"},
+        {"role": "assistant", "content": TRADE_IN_FORM},
+    ]
+
+    decision = await service.respond(
+        "E se não for iPhone vcs pegam como metade do pagamento do mesmo jeito ou não?",
+        history=history,
+    )
+
+    assert decision.reply == (
+        "Aceitamos somente produtos da Apple como parte do pagamento, mediante avaliação. "
+        "Pode ser outro produto Apple além de iPhone."
+    )
+    assert decision.handoff is False
+    resend = await service.respond("Pode mandar a lista de avaliação de novo?", history=history)
+    assert resend.reply == TRADE_IN_FORM
+
+
+@pytest.mark.asyncio
 async def test_non_apple_trade_in_text_wins_over_catalog_image_model(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
