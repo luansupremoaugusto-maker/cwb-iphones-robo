@@ -8670,3 +8670,44 @@ async def test_iphone_16_normal_price_after_16_pro_offer(tmp_path, base_in_stock
 
     explicit_16e = await agent.respond("qual o preço do iPhone 16e?", history=history)
     assert explicit_16e.product_references == ["16e"]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question",
+    ["Vem capinha pelicula e carregador?", "Vem película?", "E vem cabo e fonte?"],
+)
+async def test_included_accessories_after_used_iphone_offer(tmp_path, question):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id=f"iphone-15-pro-max-{price}",
+            name="IPHONE 15 PRO MAX",
+            category="Celular",
+            color=color,
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            battery_health=battery,
+            search_text=f"iphone 15 pro max {color} 256gb seminovo celular",
+        )
+        for color, price, battery in (("TITÂNIO AZUL", 4180, 85), ("TITÂNIO PRETO", 4350, 88))
+    ]
+    history = [
+        {"role": "user", "content": "Voces tem o 15 pro Max?"},
+        {
+            "role": "assistant",
+            "content": (
+                "Sim, encontrei estas opções de IPHONE 15 PRO MAX disponíveis:\n"
+                "• IPHONE 15 PRO MAX — TITÂNIO AZUL — 256GB — SEMINOVO — R$ 4.180,00 | Bat: 85%\n"
+                "• IPHONE 15 PRO MAX — TITÂNIO PRETO — 256GB — SEMINOVO — R$ 4.350,00 | Bat: 88%"
+            ),
+        },
+    ]
+
+    decision = await agent.respond(question, history=history)
+
+    assert decision.reply == agent.faq.get("seminovos")
+    assert not decision.handoff
+    assert decision.product_references == []
