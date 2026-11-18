@@ -256,7 +256,11 @@ def _unavailable_catalog_color_header(
         "Encontrei estas opções em outras cores:"
     )
 
-def _format_available_products(result: dict[str, Any]) -> str:
+def _format_available_products(
+    result: dict[str, Any],
+    *,
+    heading: str = "📋 Lista completa de produtos disponíveis:",
+) -> str:
     def entry_line(entry: dict[str, Any]) -> str:
         color = entry.get("cor")
         colors = entry.get("cores") or []
@@ -299,7 +303,7 @@ def _format_available_products(result: dict[str, Any]) -> str:
             lines.extend(entry_line(entry) for entry in grouped[model])
         return lines
 
-    lines = ["📋 Lista completa de produtos disponíveis:"]
+    lines = [heading]
     seminovos = result.get("seminovos") or []
     lacrados_pronta_entrega = result.get("lacrados_pronta_entrega") or []
     lacrados = result.get("lacrados") or []

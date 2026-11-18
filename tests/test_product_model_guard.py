@@ -2966,6 +2966,57 @@ async def test_queria_ver_iphone_16_lists_used_and_sealed_options(tmp_path):
     assert "5.200,00" in decision.reply
 
 
+@pytest.mark.parametrize("batched", [True, False])
+@pytest.mark.asyncio
+async def test_generic_iphone_battery_request_lists_available_options(tmp_path, batched):
+    settings = Settings(mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json"
+    )
+    cache.items = [
+        InventoryItem(
+            external_id=str(index),
+            name=name,
+            source="mercado_phone",
+            category=category,
+            capacity="256 GB",
+            condition="Seminovo",
+            availability="Disponivel para venda",
+            quantity=1,
+            price_brl=4000,
+            battery_health=battery,
+            search_text=name,
+        )
+        for index, (name, category, battery) in enumerate([
+            ("iPhone 16 Pro Max", "Celular", 89),
+            ("iPhone 15", "Celular", 96),
+            ("Apple Watch Series 8", "Apple Watch", 99),
+            ("iPhone 13", "Celular", None),
+        ])
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    request = "estou a procura de um iphone com a % de bateria boa"
+    followup = "quais vc tem aí?"
+    history = [
+        {"role": "user", "content": "boa tarde"},
+        {"role": "assistant", "content": "Boa tarde! Como posso ajudar?"},
+    ]
+    if batched:
+        followup = f"{request}\n{followup}"
+    else:
+        history.append({"role": "user", "content": request})
+
+    decision = await agent.respond(followup, history=history)
+
+    assert not decision.handoff
+    reply = decision.reply.lower()
+    assert reply.index("iphone 15") < reply.index("iphone 16 pro max")
+    assert "96%" in reply and "89%" in reply
+    assert "apple watch" not in reply and "iphone 13" not in reply
+    assert "original" not in reply
+
+
 @pytest.mark.asyncio
 async def test_battery_origin_followup_reuses_iphone_15_from_previous_list(tmp_path):
     settings = Settings(google_sheets_enabled=True, mercado_cache_ttl_seconds=60)
