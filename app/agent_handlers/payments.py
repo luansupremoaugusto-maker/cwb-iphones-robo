@@ -881,6 +881,20 @@ async def _try_entry_installment(
     history: list[dict[str, str]] | None,
 ) -> AgentDecision | None:
     request_text = text
+    # Resume an entry request left pending by the rate-only reply.
+    if (
+        re.fullmatch(r"(?:blz|beleza|ok|sim|pode sim|pode)[.!\s]*", _normalize(text))
+        and history
+        and len(history) >= 2
+        and history[-1].get("role") == "assistant"
+        and history[-1].get("content", "").strip()
+        == format_installment_rates(ask_for_model=False)
+        and history[-2].get("role") == "user"
+    ):
+        previous_request = history[-2].get("content", "")
+        if _is_no_interest_installment_question(previous_request):
+            request_text = previous_request
+
     if (
         _is_short_interest_confirmation(text)
         and history
@@ -944,8 +958,11 @@ async def _try_entry_installment(
             return None
         result = await method(query, entry_amount)
         if result.get("encontrado"):
+            reply = format_installment_table(result)
+            if request_text == text and _is_no_interest_installment_question(text):
+                reply = f"{format_installment_rates(ask_for_model=False)}\n\n{reply}"
             return AgentDecision(
-                reply=format_installment_table(result),
+                reply=reply,
                 confidence="high",
             )
         if result.get("ambiguo"):

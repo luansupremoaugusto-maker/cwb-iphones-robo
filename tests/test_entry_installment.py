@@ -8,6 +8,7 @@ from app.adapters.catalog_cache import StoreCatalogCache
 from app.agent import AgentService
 from app.faq import FAQStore
 from app.installments import (
+    format_installment_rates,
     format_installment_table,
     simulate_installment_table_with_entry,
     simulate_installment_with_entry,
@@ -98,6 +99,66 @@ async def test_agent_returns_remaining_balance_simulation(tmp_path):
     assert "Entrada à vista: R$ 1.000,00" in decision.reply
     assert "Saldo restante para parcelar: R$ 4.700,00" in decision.reply
     assert "18x de R$ 323,16" in decision.reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resume_after_rate_reply", [False, True])
+async def test_spoken_entry_and_interest_question_keep_confirmed_sealed_unit(
+    tmp_path, resume_after_rate_reply
+):
+    item = InventoryItem(
+        external_id="mercado:iphone-16e-black",
+        name="iPhone 16E",
+        capacity="128 GB",
+        color="Preto",
+        price_brl=3000.0,
+        condition="novo lacrado",
+        availability="Disponível para venda",
+        quantity=1,
+        source="mercado_phone",
+        category="Celular",
+        search_text="iphone 16e 128 gb preto novo lacrado",
+    )
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(
+        FakeMercadoClient([item]),
+        settings,
+        cache_path=tmp_path / "inventory.json",
+    )
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "E lacrado?"},
+        {
+            "role": "assistant",
+            "content": "Sim, temos o iPhone 16E de 128 GB preto novo lacrado, à pronta entrega.",
+        },
+        {"role": "user", "content": "Ok"},
+        {
+            "role": "assistant",
+            "content": "Perfeito! Confirmei que o iPhone 16E 128 GB preto lacrado está à pronta entrega.",
+        },
+    ]
+    request = "Se eu te der mil e duzentos de entrada, você me parcela em quantas sem juros?"
+    if resume_after_rate_reply:
+        history.extend(
+            [
+                {"role": "user", "content": request},
+                {"role": "assistant", "content": format_installment_rates(ask_for_model=False)},
+            ]
+        )
+        request = "Blz"
+
+    decision = await agent.respond(request, history=history)
+
+    assert decision.handoff is False
+    assert "Parcelamento do iPhone 16E 128 GB" in decision.reply
+    assert "Preço total: R$ 3.000,00" in decision.reply
+    assert "Entrada à vista: R$ 1.200,00" in decision.reply
+    assert "Saldo restante para parcelar: R$ 1.800,00" in decision.reply
+    assert "18x de" in decision.reply
+    if not resume_after_rate_reply:
+        assert "Não há parcelamento sem juros" in decision.reply
 
 
 @pytest.mark.asyncio
