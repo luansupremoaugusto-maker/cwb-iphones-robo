@@ -161,6 +161,30 @@ def test_latest_valid_budget_ceiling_wins_within_one_message():
     assert _extract_budget_limit(deadline_then_budget) == 4000
 
 
+@pytest.mark.asyncio
+async def test_stock_replenishment_date_after_catalog_is_not_a_budget(tmp_path):
+    question = (
+        "Até o dia 27 de novembro terá mais modelos do iPhone 14 pro max ao "
+        "15 pro max ou apenas estes que já tem na loja?"
+    )
+    history = [
+        {"role": "user", "content": "Quais seminovos vocês têm?"},
+        {
+            "role": "assistant",
+            "content": "iPhone 14 Pro Max por R$ 3.710,00 e iPhone 15 Pro Max por R$ 4.180,00.",
+        },
+    ]
+
+    assert _extract_budget_limit(question) is None
+    assert _extract_budget_limit("Até 27/11 terá mais iPhones?") is None
+    assert _extract_budget_limit("Até dia 27, com orçamento de R$ 4.000") == 4000
+    decision = await build_agent(tmp_path).respond(question, history=history)
+
+    assert "não consigo confirmar se vão chegar" in decision.reply
+    assert "R$ 27" not in decision.reply
+    assert decision.handoff is False
+
+
 def test_thousands_separator_budget_is_not_parsed_as_a_bare_model():
     query = "Olá, gostaria de saber quais celulares vc tem na faixa de 1.000 reais"
 

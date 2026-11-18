@@ -3001,6 +3001,23 @@ class AgentService:
         store_condition_policy_decision = self._try_store_condition_policy_question(text)
         if store_condition_policy_decision is not None:
             return protect_customer_decision(store_condition_policy_decision)
+        normalized_stock_question = _normalize(text)
+        if re.search(
+            r"\bate\s+(?:o\s+)?(?:dia\s+\d{1,2}\b|\d{1,2}\s*(?:/|de\s+))",
+            normalized_stock_question,
+        ) and re.search(
+            r"\b(?:tera|terao|vai\s+ter|vao\s+ter|vai\s+chegar|vao\s+chegar)\s+"
+            r"mais\s+(?:modelos|opcoes|iphones|aparelhos)\b",
+            normalized_stock_question,
+        ):
+            return AgentDecision(
+                reply=(
+                    "Ainda não consigo confirmar se vão chegar mais opções desses modelos "
+                    "até essa data. A lista que te enviei mostra o estoque disponível "
+                    "no momento da consulta."
+                ),
+                confidence="high",
+            )
         image_availability_models = _explicit_image_availability_query(
             text,
             image_description,
