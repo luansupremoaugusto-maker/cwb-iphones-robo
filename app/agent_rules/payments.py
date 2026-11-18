@@ -556,6 +556,12 @@ def _extract_budget_limit(text: str) -> float | None:
         amount_end = marker.end() + amount_match.end()
         prefix = normalized[:amount_start]
         suffix = normalized[amount_end:]
+        if re.search(r"\bdia\s+$", prefix) or re.match(
+            r"\s*(?:/\s*\d{1,2}\b|de\s+(?:janeiro|fevereiro|marco|abril|maio|"
+            r"junho|julho|agosto|setembro|outubro|novembro|dezembro)\b)",
+            suffix,
+        ):
+            continue
         # A model generation is commonly written immediately after "iPhone" or
         # followed by its variant, as in "orçamento do iPhone 15 Pro Max". It is
         # a product reference, not a fifteen-real price limit.
