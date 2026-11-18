@@ -81,6 +81,10 @@ NON_APPLE_TRADE_IN_REPLY = (
     "No momento, avaliamos para troca somente produtos da Apple. "
     "N\u00e3o aceitamos aparelhos de outras marcas na troca."
 )
+TRADE_IN_BRAND_POLICY_REPLY = (
+    "Aceitamos somente produtos da Apple como parte do pagamento, mediante avaliação. "
+    "Pode ser outro produto Apple além de iPhone."
+)
 
 
 def _normalize(value: str | None) -> str:
@@ -863,6 +867,18 @@ def is_catalog_purchase_advice_request(text: str | None) -> bool:
 
 def _has_device_reference(text: str) -> bool:
     return bool(_DEVICE_RE.search(text))
+
+
+_TRADE_IN_BRAND_POLICY_RE = re.compile(
+    r"\b(?:se\s+)?nao\s+(?:for|e)\s+(?:um\s+)?iphone\b"
+    r"[,?]?\s*(?:(?:vcs|voces|a\s+loja)\s+)?"
+    r"(?:pegam?|aceitam?|recebem?)\b.{0,40}"
+    r"\b(?:(?:parte|metade)\s+d[oe]\s+pagamento|como\s+entrada|na\s+troca)\b"
+)
+
+
+def is_trade_in_brand_policy_question(text: str | None) -> bool:
+    return bool(_TRADE_IN_BRAND_POLICY_RE.search(_normalize(text)))
 
 
 def is_non_apple_trade_in_request(text: str | None) -> bool:

@@ -57,6 +57,7 @@ from app.trade_in import (
     DOWNGRADE_EVALUATION_REPLY,
     DOWNGRADE_MODEL_QUESTION,
     NON_APPLE_TRADE_IN_REPLY,
+    TRADE_IN_BRAND_POLICY_REPLY,
     PARTS_BUYBACK_REPLY,
     PURCHASE_WITHOUT_TRADE_IN_REPLY,
     TRADE_IN_FORM,
@@ -76,6 +77,7 @@ from app.trade_in import (
     is_photo_offer_confirmation,
     is_parts_buyback_request,
     is_non_apple_trade_in_request,
+    is_trade_in_brand_policy_question,
     trade_in_catalog_target,
     is_catalog_purchase_advice_request,
     catalog_price_recall_amount,
@@ -2904,6 +2906,8 @@ class AgentService:
         ambiguous_agent_attempted = False
         early_interpreter_attempted = False
         combined_request = " ".join(part for part in (text, image_description) if part)
+        if is_trade_in_brand_policy_question(text):
+            return AgentDecision(reply=TRADE_IN_BRAND_POLICY_REPLY, confidence="high")
         form_completed = is_completed_trade_in_form(text)
         unlabeled_form_response = is_unlabeled_trade_in_form_response(text, history)
         trade_target = trade_in_catalog_target(text)
