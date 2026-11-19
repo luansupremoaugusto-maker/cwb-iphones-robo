@@ -2908,6 +2908,19 @@ class AgentService:
         history: list[dict[str, str]] | None = None,
         image_description: str | None = None,
     ) -> AgentDecision:
+        if not image_description:
+            greeting = re.fullmatch(
+                r"(?:(oi+|ola)[!.,? ]*)?(bom dia|boa tarde|boa noite)?"
+                r"(?:[!.,? ]*tudo bem)?[!.,? ]*",
+                _normalize(text),
+            )
+            if greeting and (greeting[1] or greeting[2]):
+                salutation = greeting[2] or ("olá" if greeting[1] == "ola" else "oi")
+                return AgentDecision(
+                    reply=f"{salutation.capitalize()}! 😊 Como posso te ajudar?",
+                    confidence="high",
+                )
+
         turn_interpretation: TurnInterpretation | None = None
         ambiguous_agent_attempted = False
         early_interpreter_attempted = False
