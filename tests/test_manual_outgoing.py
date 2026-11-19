@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -99,6 +100,47 @@ async def test_whatsapp_business_greeting_does_not_hold_initial_customer_message
             "reason": "whatsapp_business_greeting",
             "message_id": "whatsapp-auto-greeting-1",
         }
+    finally:
+        await runtime.aclose()
+
+
+@pytest.mark.parametrize("greeting", ["Boa tarde", "Olá, boa tarde! Tudo bem?"])
+async def test_standalone_greeting_keeps_bot_available_for_payment_question(greeting):
+    runtime = build_runtime(_settings())
+    phone = "5511888888887"
+    runtime.processor._send_customer = AsyncMock()
+    runtime.processor._notify_admins = AsyncMock()
+    incoming = {
+        "phone": phone,
+        "fromMe": False,
+    }
+    auto_greeting = {
+        **incoming,
+        "messageId": "business-greeting",
+        "fromMe": True,
+        "fromApi": False,
+        "text": {"message": "Cwb.iphones agradece seu contato. Como podemos ajudar?"},
+    }
+    try:
+        await runtime.processor.process_batch([
+            {**incoming, "messageId": "greeting", "text": {"message": greeting}},
+            auto_greeting,
+        ])
+        await runtime.processor.process_batch([
+            {
+                **incoming,
+                "messageId": "payment",
+                "text": {"message": "Boa tarde! Vocês parcelam no boleto?"},
+            },
+        ])
+
+        replies = [
+            call.args[1] for call in runtime.processor._send_customer.await_args_list
+        ]
+        assert len(replies) == 2
+        assert "Como posso te ajudar?" in replies[0]
+        assert "Não parcelamos no boleto" in replies[1]
+        runtime.processor._notify_admins.assert_not_awaited()
     finally:
         await runtime.aclose()
 
