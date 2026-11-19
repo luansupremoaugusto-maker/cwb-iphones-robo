@@ -1512,6 +1512,56 @@ async def test_cheapest_iphone_question_returns_lowest_available_price(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_cheapest_iphone_capacity_followup_compares_available_stock(tmp_path):
+    settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
+    cache = StoreCatalogCache(EmptyMercadoClient(), settings, cache_path=tmp_path / "inventory.json")
+    cache.items = [
+        InventoryItem(
+            external_id=name,
+            name=name,
+            category="Celular",
+            capacity=capacity,
+            color="BRANCO",
+            condition="SEMINOVO",
+            source="mercado_phone",
+            availability="Disponivel para venda",
+            quantity=quantity,
+            price_brl=price,
+            search_text=f"{name} {capacity} seminovo branco",
+        )
+        for name, capacity, quantity, price in (
+            ("iPhone 12", "64 GB", 1, 1200),
+            ("iPhone 13 Pro", "128 GB", 1, 2300),
+            ("iPhone 13", "128 GB", 1, 1900),
+            ("iPhone 11", "128 GB", 0, 900),
+        )
+    ]
+    cache.last_refresh = time.time()
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Qual o cllr mais em conta q teria hj?"},
+        {
+            "role": "assistant",
+            "content": (
+                "O iPhone mais em conta é o 12 seminovo, 64 GB, branco, por R$ 1.200. "
+                "Temos também o iPhone 16E novo lacrado, 128 GB, preto, por R$ 3.100."
+            ),
+        },
+    ]
+
+    decision = await agent.respond("128 gb tem algum?", history=history)
+
+    assert decision.handoff is False
+    assert decision.product_references == ["iPhone 13"]
+    assert "R$ 1.900,00" in decision.reply
+
+    exact = await agent.respond("iPhone 13 Pro de 128 GB tem?", history=history)
+    assert exact.product_references == ["iPhone 13 Pro"]
+
+    unavailable = await agent.respond("iPhone 13 Pro de 256 GB tem?", history=history)
+    assert not unavailable.product_references
+
+@pytest.mark.asyncio
 async def test_affordable_iphone_followup_selects_lowest_used_option(tmp_path):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(

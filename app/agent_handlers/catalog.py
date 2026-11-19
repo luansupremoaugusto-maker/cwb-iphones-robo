@@ -855,7 +855,6 @@ async def _try_product_availability(
         history,
     )
     current_request_budget = _extract_latest_budget_limit(text)
-    is_current_cheapest_request = _is_cheapest_catalog_request(text)
     latest_customer_message = next(
         (
             entry.get("content", "").strip()
@@ -863,6 +862,18 @@ async def _try_product_availability(
             if entry.get("role") == "user" and entry.get("content", "").strip()
         ),
         "",
+    )
+    cheapest_capacity_followup = (
+        not image_description
+        and bool(_requested_capacity_keys(text))
+        and not _has_product_reference(_normalize(text))
+        and not _extract_bare_catalog_model_reference(text)
+        and bool(re.search(r"\b(?:tem|teria|disponivel|estoque|possui)\b", _normalize(text)))
+        and _is_cheapest_catalog_request(latest_customer_message)
+        and _catalog_families(_product_context_query(text, history)) == ("iphone",)
+    )
+    is_current_cheapest_request = (
+        _is_cheapest_catalog_request(text) or cheapest_capacity_followup
     )
     history_entries = history or []
     latest_customer_anchor_index = max(
@@ -946,7 +957,10 @@ async def _try_product_availability(
             # the model name so "iPhone 16" cannot become "iPhone 16e".
             current_query = f"{bare_model}. {current_query}".strip()
     query = current_query
-    if installment_budget_context:
+    if cheapest_capacity_followup:
+        # Retain customer constraints without narrowing to a previously quoted unit.
+        query = f"iPhone {customer_request_context}"
+    elif installment_budget_context:
         query = installment_budget_context
     elif (
         history
