@@ -5058,6 +5058,39 @@ async def test_customer_going_to_store_to_buy_does_not_receive_trade_in_form(tmp
     assert explicit_buyback_decision.handoff is False
 
 
+@pytest.mark.parametrize("form_already_sent", [False, True])
+def test_trade_in_photo_fallback_sends_available_form_once(form_already_sent):
+    history = [
+        {"role": "user", "content": "Quero dar meu iPhone 13 na troca pelo iPhone 16."},
+        {"role": "assistant", "content": "Temos iPhone 16 lacrado por encomenda."},
+    ]
+    if form_already_sent:
+        history.append({"role": "assistant", "content": TRADE_IN_FORM})
+    model_decision = AgentDecision(
+        reply=(
+            "Pela imagem, é um iPhone 13 de 128 GB com bateria em 77%. "
+            "Para avaliarmos na troca, precisamos do formulário de avaliação. "
+            "Não tenho o formulário disponível aqui. Pode me enviar?"
+        ),
+        handoff=False,
+    )
+
+    decision = _ensure_trade_in_form_before_handoff(
+        model_decision,
+        "Está funcionando normalmente e nunca foi aberto.",
+        history,
+        image_description="Captura dos ajustes do iPhone 13 de 128 GB, bateria em 77%.",
+    )
+
+    expected_reply = (
+        "Pode preencher a lista de avaliação que enviei aqui na conversa?"
+        if form_already_sent
+        else TRADE_IN_FORM
+    )
+    assert decision.reply == expected_reply
+    assert decision.handoff is False
+
+
 @pytest.mark.asyncio
 async def test_catalog_purchase_today_question_with_typo_does_not_send_evaluation_form(
     tmp_path,

@@ -2629,6 +2629,13 @@ def build_customer_agent(cache: InventoryCache, faq: FAQStore, settings: Setting
     store_name = faq.get("store_name") or "cwb.iphones"
     assistant_name = faq.get("assistant_name") or "Steve"
     instructions = AGENT_INSTRUCTIONS.format(store_name=store_name, assistant_name=assistant_name)
+    instructions += (
+        "\n\nUse o formulário abaixo no próprio WhatsApp quando iniciar uma avaliação. "
+        "Se o cliente enviar uma foto do aparelho, considere os dados legíveis como "
+        "informações da avaliação e use o histórico para identificar se é uma troca. "
+        "O formulário está disponível aqui. Envie-o diretamente quando for necessário.\n\n"
+        + TRADE_IN_FORM
+    )
     model_settings = ModelSettings(
         reasoning={"effort": settings.openai_reasoning_effort},
         verbosity="low",
@@ -4438,7 +4445,26 @@ def _ensure_trade_in_form_before_handoff(
                 "image_urls": [],
             }
         )
-    if not decision.handoff or trade_in_em_andamento(history):
+    normalized_reply = _normalize(decision.reply)
+    mentions_evaluation_form = bool(
+        re.search(r"\b(?:formulario|lista)\s+de\s+avaliacao\b", normalized_reply)
+    )
+    if trade_in_em_andamento(history):
+        if mentions_evaluation_form and re.search(
+            r"\bnao (?:tenho|temos|consigo acessar)\b[^.!?]*\b(?:formulario|lista)\b",
+            normalized_reply,
+        ):
+            return AgentDecision(
+                reply="Pode preencher a lista de avaliação que enviei aqui na conversa?",
+                confidence="high",
+            )
+        return decision
+
+    if not decision.handoff and not (
+        mentions_evaluation_form
+        and _looks_like_trade_in_handoff(decision)
+        and not is_parts_buyback_request(request_context)
+    ):
         return decision
 
     if _is_device_condition_question(request_context) and not _has_explicit_trade_in_context(
