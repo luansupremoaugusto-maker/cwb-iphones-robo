@@ -125,7 +125,7 @@ def build_iphone_18_pro_max_agent(tmp_path, *, include_ready_stock=True):
                 "ready-18-pro-max-512",
                 "iPhone 18 Pro Max",
                 "512 GB",
-                11000,
+                10590,
                 "GLACIAL",
             ),
         ]
@@ -574,6 +574,27 @@ async def test_iphone_18_pro_max_quote_includes_ready_stock_before_order_options
     assert ready_heading in decision.reply
     assert order_heading in decision.reply
     assert decision.reply.index(ready_heading) < decision.reply.index(order_heading)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_ready_stock", [True, False])
+async def test_whatsapp_batch_model_and_capacity_quote(tmp_path, include_ready_stock):
+    agent = build_iphone_18_pro_max_agent(tmp_path, include_ready_stock=include_ready_stock)
+
+    decision = await agent.respond("Bom dia irmão!\nO 18 pro max\nDe 512")
+
+    assert decision.handoff is False
+    ready, _, order = decision.reply.partition("Novos lacrados por encomenda:")
+    assert "R$ 11.100,00" in order
+    assert "R$ 11.100,00" not in ready
+    expected_references = ["sheet-18-pro-max-512"]
+    if include_ready_stock:
+        expected_references.insert(0, "ready-18-pro-max-512")
+        assert "Lacrados disponíveis para pronta entrega:" in ready
+        assert "R$ 10.590,00" in ready
+    else:
+        assert "pronta entrega" not in decision.reply.lower()
+    assert decision.product_references == expected_references
 
 
 @pytest.mark.asyncio
