@@ -11,6 +11,7 @@ from app.adapters.openai_media import OpenAIMediaError
 from app.adapters.zapi import SendResult, ZapiClient, ZapiError, normalize_received_callback
 from app.admin import AdminCommandService, admin_role_allows
 from app.agent import AgentService
+from app.agent_rules.store import active_holiday_notice
 from app.config import Settings, normalize_phone
 from app.schemas import AgentDecision, IncomingMessage
 from app.storage.database import Repository, utc_now
@@ -479,6 +480,13 @@ class MessageProcessor:
                 handoff_reason=f"Falha inesperada: {type(exc).__name__}",
                 confidence="low",
             )
+
+        notice = active_holiday_notice() if self.settings.app_env == "production" else None
+        if notice and not any(
+            entry.get("role") == "assistant" and notice in entry.get("content", "")
+            for entry in previous_history
+        ):
+            decision.reply = f"{notice}\n\n{decision.reply}"
 
         await self._send_customer(last, decision.reply, image_urls=decision.image_urls)
         self.repository.audit(
