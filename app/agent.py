@@ -3654,6 +3654,26 @@ class AgentService:
                     confidence="high",
                 )
 
+        # WhatsApp can batch a greeting, a bare model and a storage fragment.
+        # Resolve this quote from the catalog so each price keeps its fulfillment type.
+        if not image_description:
+            model_capacity = re.fullmatch(
+                r"(?:(?:bom dia|boa tarde|boa noite)(?: irmao| amigo)?[!.,]* )?"
+                r"(?:o )?(?:iphone )?(?P<model>\d{1,2}(?: ?e| pro max| pro| plus| mini| air)?)"
+                r"[.!?]* (?:de )?(?P<capacity>(?:64|128|256|512|500)(?: ?gb)?|[12] ?tb)"
+                r"[.!?]*",
+                _normalize(text),
+            )
+            if model_capacity:
+                model, capacity = model_capacity.group("model", "capacity")
+                if capacity.isdecimal():
+                    capacity += " GB"
+                stock_quote = await self._try_product_availability(
+                    f"Tem iPhone {model} de {capacity}?"
+                )
+                if stock_quote is not None:
+                    return protect_customer_decision(stock_quote)
+
         if (
             not early_interpreter_attempted
             and self.turn_interpreter is not None
