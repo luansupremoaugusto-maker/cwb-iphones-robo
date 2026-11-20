@@ -11,7 +11,7 @@ from app.adapters.openai_media import OpenAIMediaError
 from app.adapters.zapi import SendResult, ZapiClient, ZapiError, normalize_received_callback
 from app.admin import AdminCommandService, admin_role_allows
 from app.agent import AgentService
-from app.agent_rules.store import active_holiday_notice
+from app.agent_rules.store import HOLIDAY_NOTICE, active_holiday_notice
 from app.config import Settings, normalize_phone
 from app.schemas import AgentDecision, IncomingMessage
 from app.storage.database import Repository, utc_now
@@ -456,10 +456,16 @@ class MessageProcessor:
 
         combined_text = "\n".join(text_parts).strip()
         combined_image_description = "\n".join(image_descriptions).strip() or None
+        agent_history = [
+            {**entry, "content": entry["content"].removeprefix(HOLIDAY_NOTICE).lstrip()}
+            if entry["role"] == "assistant" and entry["content"].startswith(HOLIDAY_NOTICE)
+            else entry
+            for entry in previous_history
+        ]
         try:
             decision = await self.agent.respond(
                 combined_text,
-                history=previous_history,
+                history=agent_history,
                 image_description=combined_image_description,
             )
         except Exception as exc:
@@ -483,7 +489,7 @@ class MessageProcessor:
 
         notice = active_holiday_notice() if self.settings.app_env == "production" else None
         if notice and not any(
-            entry.get("role") == "assistant" and notice in entry.get("content", "")
+            entry["role"] == "assistant" and entry["content"].startswith(notice)
             for entry in previous_history
         ):
             decision.reply = f"{notice}\n\n{decision.reply}"
