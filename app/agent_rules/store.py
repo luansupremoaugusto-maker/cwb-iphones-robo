@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import app.agent as _agent
 
 from app.agent import (
@@ -23,6 +25,22 @@ from app.agent import (
     timedelta,
     timezone,
 )
+
+HOLIDAY_CLOSURE = date(2026, 11, 20)
+HOLIDAY_NOTICE_START = date(2026, 11, 19)
+HOLIDAY_REOPENING = date(2026, 11, 23)
+HOLIDAY_NOTICE = (
+    "Devido ao feriado, a loja estará fechada na sexta-feira, 20/11. "
+    "Retomamos o atendimento normalmente na segunda-feira, 23/11, das 9h às 18h."
+)
+
+
+def active_holiday_notice() -> str | None:
+    today = _store_now().date()
+    if HOLIDAY_NOTICE_START <= today < HOLIDAY_REOPENING:
+        return HOLIDAY_NOTICE
+    return None
+
 
 def _store_now() -> datetime:
     """Honor the app.agent compatibility hook before using the real clock."""
@@ -47,7 +65,7 @@ def _today_label(now: datetime | None = None) -> str:
 
 def _is_business_weekday(now: datetime | None = None) -> bool:
     current = now or _store_now()
-    return current.weekday() < 5
+    return current.weekday() < 5 and current.date() != HOLIDAY_CLOSURE
 
 def _is_physical_store_request(text: str) -> bool:
     normalized = _normalize(text)
