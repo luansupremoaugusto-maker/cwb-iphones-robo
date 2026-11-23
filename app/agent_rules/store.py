@@ -598,6 +598,16 @@ def _is_store_day_hours_request(text: str) -> bool:
     ) or any(marker in normalized for marker in ("horario", "horas"))
     return has_day and has_hours_marker
 
+def _is_lunch_hours_request(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:abre[m]?|fecha[m]?|atende[m]?|funciona[m]?|fica[m]?\s+(?:abert[ao]s?|fechad[ao]s?))"
+            r"\b[^.!?]{0,45}\balmoco\b",
+            _normalize(text),
+        )
+    )
+
+
 def _is_store_hours_request(text: str) -> bool:
     normalized = _normalize(text)
     normalized = re.sub(r"\bq\b", "que", normalized)
@@ -660,7 +670,7 @@ def _is_visit_request(text: str) -> bool:
             normalized,
         )
         or re.search(
-            r"\b(?:posso|consigo|da para|da pra|gostaria de)\s+passar\s+"
+            r"\b(?:posso|consigo|da para|da pra|gostaria de|tem como(?: eu)?)\s+passar\s+"
             r"(?:(?:na|pela)\s+loja(?:\s+fisica)?|ai|aqui|amanha|hoje)\b",
             normalized,
         )

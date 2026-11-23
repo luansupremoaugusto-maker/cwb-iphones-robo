@@ -31,6 +31,41 @@ def build_agent(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("request_text", "expected", "handoff"),
+    [
+        ("Vocês fecham no horário do almoço?", "09:00 às 18:00", False),
+        (
+            "Eu gostei desse, tem como eu passar aí amanhã na parte da manhã? "
+            "Vocês fecham no horário do almoço?",
+            "terça-feira, 24/11/2026",
+            False,
+        ),
+        ("Posso passar aí amanhã às 12h? Vocês fecham no almoço?", "12:00", True),
+    ],
+)
+async def test_lunch_hours_answer_preserves_visit_request(
+    tmp_path, monkeypatch, request_text, expected, handoff
+):
+    current = datetime(2026, 11, 23, 17, 17, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        request_text,
+        history=[
+            {"role": "user", "content": "Você consegue me mandar fotos desse aparelho?"},
+            {"role": "assistant", "content": "Aqui estão as fotos do aparelho. 😊"},
+        ],
+    )
+
+    assert "ficamos abertos no horário do almoço" in decision.reply
+    assert expected in decision.reply
+    assert "horário marcado" in decision.reply
+    assert decision.handoff is handoff
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("day", "expected"),
     [(21, "a loja estará fechada"), (22, "das 09:00 às 18:00")],
 )
