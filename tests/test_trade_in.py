@@ -71,6 +71,50 @@ async def test_buyer_conditional_interest_after_greeting_does_not_get_trade_in_f
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("catalog_available", [True, False])
+async def test_generic_iphone_purchase_with_exchange_sends_form_and_catalog(
+    tmp_path, monkeypatch, catalog_available
+):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = StoreCatalogCache(object(), settings, cache_path=tmp_path / "inventory.json")
+    used_models = ["iPhone 13 Pro", "iPhone 14", "iPhone 15", "iPhone 16 Pro Max"]
+    ready_model = "iPhone 16e"
+    order_model = "iPhone 17"
+
+    async def list_available_products():
+        if not catalog_available:
+            raise RuntimeError("catálogo indisponível")
+        return {
+            "encontrado": True,
+            "seminovos": [{"nome": model} for model in [*used_models, "iPad Air"]],
+            "lacrados_pronta_entrega": [{"nome": ready_model}],
+            "lacrados": [{"nome": order_model}],
+        }
+
+    monkeypatch.setattr(cache, "list_available_products", list_available_products)
+    service = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    history = [
+        {"role": "user", "content": "Ola"},
+        {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"},
+    ]
+
+    decision = await service.respond(
+        "Gostaria de informações sobre compra de iPhone, tenho interesse em trocar o meu",
+        history=history,
+    )
+
+    assert decision.reply.count(TRADE_IN_FORM) == 1
+    assert decision.handoff is False
+    if catalog_available:
+        assert "Lista completa" in decision.reply
+        for model in [*used_models, ready_model, order_model]:
+            assert model in decision.reply
+        assert "iPad Air" not in decision.reply
+    else:
+        assert "Não consegui consultar a lista de iPhones agora." in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_iphone_sale_catalog_request_does_not_start_trade_in(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     cache = StoreCatalogCache(
