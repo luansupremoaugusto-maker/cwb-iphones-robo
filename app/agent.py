@@ -68,6 +68,7 @@ from app.trade_in import (
     is_unlabeled_trade_in_form_response,
     is_downgrade_request,
     is_box_inclusion_question,
+    is_offered_iphone_value_followup,
     is_pending_trade_in_evaluation_followup,
     is_pending_trade_in_form_send_request,
     is_trade_in_context_request,
@@ -2980,6 +2981,15 @@ class AgentService:
             return AgentDecision(
                 reply=TRADE_IN_FORM,
                 handoff=False,
+                confidence="high",
+            )
+        if is_offered_iphone_value_followup(text, history):
+            return AgentDecision(
+                reply=(
+                    "Podemos avaliar esse iPhone. O valor depende do estado do aparelho. "
+                    "Você pode preencher a ficha que te enviei com os dados dele? "
+                    "Se puder, mande fotos também."
+                ),
                 confidence="high",
             )
         if is_pending_trade_in_evaluation_followup(text, image_description, history):

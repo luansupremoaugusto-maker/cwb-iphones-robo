@@ -240,6 +240,11 @@ _PRICE_BUYBACK_RE = re.compile(
     r"(?:em|no|na|num|numa|pelo|pela|por)\b",
     re.IGNORECASE,
 )
+_OFFERED_IPHONE_VALUE_FOLLOWUP_RE = re.compile(
+    r"\b(?:e|tenho|seria)\s+(?:um\s+)?(?:iphone\s*)?\d{1,2}\s+"
+    r"(?:pro(?:\s+max)?|max|plus|mini|e|se)\b[^?\n]{0,100}"
+    r"\bvalor\s+que\s+(?:voces|vcs|a\s+loja)\s+(?:paga(?:m)?|pagariam?)\b"
+)
 _BUYBACK_FOR_UPGRADE_RE = re.compile(
     r"\bpor\s+quant(?:o|os)\s+(?:que\s+)?(?:voces|vcs|(?:a\s+)?loja)\b"
     r".{0,35}\b(?:peg\w*|pag\w*|dari\w*)\b.{0,45}"
@@ -2180,6 +2185,19 @@ def _recent_implicit_discount_context(
     return " ".join(user_messages[quote_indices[-1] :])
 
 
+def is_offered_iphone_value_followup(
+    text: str | None, history: list[dict[str, str]] | None
+) -> bool:
+    normalized = _normalize(text)
+    return bool(
+        history
+        and _OFFERED_IPHONE_VALUE_FOLLOWUP_RE.search(normalized)
+        and trade_in_em_andamento(history[-8:])
+        and not is_parts_buyback_request(normalized)
+        and not is_non_apple_trade_in_request(normalized)
+    )
+
+
 def is_trade_in_context_request(
     text: str | None,
     history: list[dict[str, str]] | None,
@@ -2191,6 +2209,9 @@ def is_trade_in_context_request(
     normalized = _normalize(text)
     if not normalized or not history:
         return False
+
+    if is_offered_iphone_value_followup(normalized, history):
+        return True
 
     if _TRADE_IN_FORM_REQUEST_RE.search(normalized):
         if trade_in_em_andamento(history) or any(
@@ -2282,6 +2303,10 @@ def is_trade_in_context_request(
         is_trade_in_request(recent_user_context)
         and _APPLE_PRODUCT_RE.search(recent_user_context)
         and _COMPLETE_DEVICE_DETAIL_RE.search(normalized)
+        and not re.search(
+            r"\b(?:faz(?:em)?|da)\s+em\s+\d{1,2}\s*(?:x|vezes)\b",
+            normalized,
+        )
     )
     if (
         followup_after_trade_in_question

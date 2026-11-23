@@ -486,7 +486,11 @@ def _is_generic_installment_count_question(text: str) -> bool:
 def _is_specific_installment_request(text: str) -> bool:
     normalized = _normalize(text)
     return _requested_installments(text) is not None and bool(
-        re.search(r"\b(?:quanto|valor|parcela|parcelado|parcelamento|fica)\b", normalized)
+        re.search(
+            r"\b(?:quanto|valor|parcela|parcelado|parcelamento|fica|"
+            r"(?:faz(?:em)?|da)\s+em\s+\d{1,2}\s*(?:x|vezes))\b",
+            normalized,
+        )
     )
 
 def _parse_brl_amount(raw_value: str) -> float | None:
@@ -1352,26 +1356,31 @@ def _bare_iphone_model_in_installment_question(
     normalized = _normalize(text)
     if (
         not _is_specific_installment_request(text)
-        or _requested_iphone_model_keys(text)
+        or re.search(r"\biphones?\b", normalized)
         or any(family != "iphone" for family in _catalog_families(normalized))
     ):
         return None
 
     match = re.search(
-        r"\b(?:do|no|para\s+o)\s+(?P<number>1[0-8])\s+parcel\w*\b",
+        r"\b(?:do|no|para\s+o)\s+(?P<number>1[0-8])\s+parcel\w*\b"
+        r"|\b(?:o|do|no|para\s+o)\s+(?P<selection>1[0-8])\b"
+        r"(?=[^?\n]{0,60}\b(?:faz(?:em)?|da)\s+em\s+\d{1,2}\s*(?:x|vezes)\b)",
         normalized,
     )
     if match is None:
         return None
 
-    requested_model = (int(match.group("number")), "")
+    requested_model = (int(match.group("number") or match.group("selection")), "")
     for item in reversed(history or []):
         if item.get("role") != "assistant":
             continue
         content = item.get("content", "")
         if _catalog_family(content) != "iphone":
             continue
-        if requested_model in _requested_iphone_model_keys(content):
+        offered_models = _requested_iphone_model_keys(content)
+        if not offered_models:
+            continue
+        if requested_model in offered_models:
             return f"iPhone {requested_model[0]}"
         return None
     return None

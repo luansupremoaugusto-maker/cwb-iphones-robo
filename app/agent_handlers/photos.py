@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.agent import (
     AgentDecision,
     MAX_PRODUCT_PHOTOS,
@@ -126,10 +128,24 @@ async def _try_product_photos(
         followup_model = _extract_bare_catalog_model_reference(current_query)
         if followup_model:
             current_query = f"{followup_model} {current_query}".strip()
-    query = _product_context_query(current_query, history)
+    # A demonstrative with only the device family points to the previous
+    # offer. Leaving "iPhone" in the lookup text would make the context
+    # resolver treat the current turn as a standalone product selection.
+    context_query = re.sub(
+        r"\b(des[st][ea])\s+iphone(?=\s*[?!.]*\s*$)",
+        r"\1 aparelho",
+        current_query,
+        flags=re.IGNORECASE,
+    )
+    query = _product_context_query(context_query, history)
+    if context_query != current_query and _model_key(query) is None:
+        return AgentDecision(
+            reply="Qual é o modelo do iPhone que você quer ver nas fotos?",
+            confidence="high",
+        )
     query = _strip_historical_accessory_terms_from_photo_query(
         query,
-        current_query,
+        context_query,
         request_text=text,
         image_description=image_description,
     )
@@ -374,7 +390,7 @@ async def _try_product_photos(
             # the first lookup, but let the current explicit color select
             # the live item when the constrained lookup finds nothing.
             relaxed_query = _product_context_query(
-                current_query,
+                context_query,
                 history,
                 strip_assistant_constraints=True,
             )

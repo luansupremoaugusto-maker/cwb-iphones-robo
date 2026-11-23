@@ -188,6 +188,60 @@ def build_agent(tmp_path):
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+async def test_card_installments_and_used_phone_evaluation_keep_separate_contexts(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="13-blue-256",
+            name="iPhone 13",
+            category="Celular Apple",
+            capacity="256 GB",
+            color="Azul",
+            price_brl=1790,
+            source="mercado_phone",
+            condition="seminovo",
+            availability="Disponível para venda",
+            search_text="iPhone 13 azul 256 GB seminovo",
+        )
+    ]
+    history = [
+        {"role": "user", "content": "Gostaria de ver os modelos disponíveis de iPhone 12 ou 13"},
+        {
+            "role": "assistant",
+            "content": "Temos iPhone 12 e iPhone 13 seminovos.\n"
+            "• iPhone 13 — Azul, 256GB — R$ 1.790 | bateria 100%",
+        },
+    ]
+    turns = [
+        "Vcs aceitam outro iPhone como parte do pagamento",
+        "Vcs parcelam em quantas vezes?",
+        "Perfeito no caso o 13 azul de 256Gb , faz em 15x?",
+        "Então na vdd é um 8 Plus acredito que não vale a pena vender "
+        "não sei se vai ter algum valor que vcs pagariam por este modelo",
+    ]
+    replies = []
+    for message in turns:
+        decision = await agent.respond(message, history=history)
+        assert not decision.handoff
+        replies.append(decision.reply)
+        history.extend(
+            [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": decision.reply},
+            ]
+        )
+
+    assert replies[0] == TRADE_IN_FORM
+    assert "18 vezes" in replies[1]
+    assert "iPhone 13" in replies[2]
+    assert "15x de R$ 142,74" in replies[2]
+    assert "14x de" not in replies[2]
+    assert "lista de avaliação" not in replies[2].lower()
+    assert "Podemos avaliar esse iPhone" in replies[3]
+    assert "ficha que te enviei" in replies[3]
+    assert "disponível" not in replies[3].lower()
+
+
 @pytest.mark.parametrize("ready_quantity", [None, 1, 3])
 async def test_bulk_catalog_request_checks_quantity_before_offering_pickup(tmp_path, ready_quantity):
     agent = build_agent(tmp_path)
