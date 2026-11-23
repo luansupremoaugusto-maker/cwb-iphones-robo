@@ -66,6 +66,8 @@ from app.trade_in import (
     is_trade_in_negotiation,
     is_completed_trade_in_form,
     is_unlabeled_trade_in_form_response,
+    is_trade_in_partial_device_profile,
+    is_trade_in_requested_value_response,
     is_downgrade_request,
     is_box_inclusion_question,
     is_pending_trade_in_evaluation_followup,
@@ -2951,7 +2953,7 @@ class AgentService:
                 handoff_reason=TRADE_IN_REASON,
                 confidence="high",
             )
-        if unlabeled_form_response:
+        if unlabeled_form_response or is_trade_in_requested_value_response(text, history):
             return AgentDecision(
                 reply=TRADE_IN_NEGOTIATION_REPLY,
                 handoff=True,
@@ -2986,6 +2988,17 @@ class AgentService:
             return AgentDecision(
                 reply=TRADE_IN_FORM,
                 handoff=False,
+                confidence="high",
+            )
+        if is_trade_in_partial_device_profile(text, history):
+            decision = await self._run_customer_agent(text, history, image_description)
+            if decision is not None and not decision.product_references:
+                return decision
+            return AgentDecision(
+                reply=(
+                    "Recebi os dados do seu iPhone. Pode me enviar os itens que "
+                    "ainda faltam na lista de avaliação?"
+                ),
                 confidence="high",
             )
         combined_catalog_request = (

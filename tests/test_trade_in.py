@@ -40,6 +40,53 @@ from app.adapters.mercado_phone import InventoryCache
 
 
 @pytest.mark.asyncio
+async def test_trade_in_profile_and_later_asking_price_stay_in_evaluation(tmp_path):
+    class CatalogMustNotBeQueried:
+        async def fetch_all_inventory(self):
+            pytest.fail("Trade-in answers must not query stock")
+
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(CatalogMustNotBeQueried(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    profile = (
+        "iPhone 15 rosa\nComprei novo\n128g\nTodo original\n"
+        "risco na tela\nE um na lateral da camera"
+    )
+    history = [{"role": "assistant", "content": TRADE_IN_FORM}]
+    decision = await service.respond(profile, history=history)
+    assert not decision.handoff
+    assert "Recebi os dados do seu iPhone" in decision.reply
+    assert not decision.product_references
+
+    # At this point the original form can be outside the recent history.
+    history = [
+        {"role": "user", "content": "N tem acessório\nDesbloqueado sim\nNenhuma pessa trocada"},
+        {
+            "role": "assistant",
+            "content": (
+                "Anotei: sem acessórios, desbloqueado para todas as operadoras e nenhuma "
+                "peça trocada. Para concluir a avaliação, me informe se há algum defeito "
+                "além dos riscos, se ainda tem garantia Apple e qual valor pretende pelo aparelho."
+            ),
+        },
+    ]
+    answers = ["N tem garantia", "N tem defeito", "Em media 2.500"]
+    grouped = await service.respond("\n".join(answers), history=history)
+    separate = await service.respond(
+        answers[-1],
+        history=[*history, *({"role": "user", "content": answer} for answer in answers[:-1])],
+    )
+    for decision in (grouped, separate):
+        assert decision.handoff
+        assert decision.handoff_reason == TRADE_IN_REASON
+        assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+
+
+@pytest.mark.asyncio
 async def test_ipad_buyback_offer_with_offer_to_send_photos_gets_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(

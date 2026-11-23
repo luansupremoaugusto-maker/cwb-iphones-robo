@@ -1827,8 +1827,27 @@ def is_photo_offer_confirmation(
     return False
 
 
+_TRADE_IN_VALUE_PROMPT_RE = re.compile(
+    r"\b(?:qual\s+(?:o\s+)?valor|quanto|o\s+valor\s+que)\s+"
+    r"(?:voce\s+)?pretende\b"
+)
+
+
 def trade_in_em_andamento(historico: list[dict[str, str]] | None) -> bool:
-    """Return True when the bot already sent the evaluation form."""
+    """Recognize the form or a recent request for the remaining evaluation details."""
+    latest_reply = next(
+        (
+            _normalize(message.get("content"))
+            for message in reversed(historico or [])
+            if message.get("role") == "assistant"
+        ),
+        "",
+    )
+    if (
+        re.search(r"\b(?:completar|concluir|finalizar)\s+a\s+avaliacao\b", latest_reply)
+        and _TRADE_IN_VALUE_PROMPT_RE.search(latest_reply)
+    ):
+        return True
     for message in historico or []:
         if message.get("role") != "assistant":
             continue
@@ -1836,6 +1855,56 @@ def trade_in_em_andamento(historico: list[dict[str, str]] | None) -> bool:
         if isinstance(content, str) and _FORM_EM_ANDAMENTO_MARKER in _normalize(content):
             return True
     return False
+
+
+def is_trade_in_requested_value_response(
+    text: str, history: list[dict[str, str]] | None
+) -> bool:
+    """Recognize the customer's asking price after the bot requested it."""
+    if not trade_in_em_andamento(history):
+        return False
+
+    latest_reply = next(
+        (
+            _normalize(message.get("content"))
+            for message in reversed(history or [])
+            if message.get("role") == "assistant"
+        ),
+        "",
+    )
+    if not _TRADE_IN_VALUE_PROMPT_RE.search(latest_reply):
+        return False
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return bool(
+        lines
+        and all(
+            re.match(r"^(?:n|nao|sem|sim|nenhum\w*)\b", _normalize(line))
+            and "?" not in line
+            for line in lines[:-1]
+        )
+        and re.fullmatch(
+            r"(?:(?:em\s+media|cerca\s+de|uns|pretendo)\s+)?"
+            r"(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d{2,5})"
+            r"(?:,\d{1,2})?(?:\s+reais)?[.!]?",
+            _normalize(lines[-1]),
+        )
+    )
+
+
+def is_trade_in_partial_device_profile(
+    text: str, history: list[dict[str, str]] | None
+) -> bool:
+    """Recognize a customer's description of their iPhone during evaluation."""
+    normalized = _normalize(text)
+    return bool(
+        trade_in_em_andamento(history)
+        and "?" not in text
+        and re.match(r"iphone\s*\d{1,2}\b", normalized)
+        and re.search(r"\bcomprei\s+(?:ele\s+)?(?:novo|semi\s*novo|usado)\b", normalized)
+        and not is_purchase_without_trade_in_request(text)
+        and not trade_in_catalog_target(text)
+    )
 
 
 _PENDING_TRADE_IN_DETAILS_QUESTION_RE = re.compile(
