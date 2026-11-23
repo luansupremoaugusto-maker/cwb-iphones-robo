@@ -123,7 +123,8 @@ async def test_shared_pro_price_comparison_and_installment_followup(tmp_path, mo
     installment = await agent.respond("qual valor em 6x?", history=history)
     assert "iPhone 17 Pro 256 GB" in installment.reply
     assert "6x de R$ 1.469,24" in installment.reply
-    assert "18x de" not in installment.reply
+    assert "1x de" in installment.reply
+    assert "18x de" in installment.reply
     assert "iPhone 18 Pro" not in installment.reply
 
 

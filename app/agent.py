@@ -3162,6 +3162,22 @@ class AgentService:
                 visit_decision = self._try_visit_scheduling(text, history)
                 if visit_decision is not None:
                     return protect_customer_decision(visit_decision)
+            if _is_tomorrow_store_status_request(text):
+                clauses = re.split(
+                    r"[!?;]|\.(?=\s)|\n|\s+e\s+(?=quanto\s+custa)", text, flags=re.IGNORECASE
+                )
+                for clause in clauses:
+                    if not _is_product_availability_request(clause):
+                        continue
+                    catalog_decision = await self._try_product_availability(clause)
+                    if catalog_decision is not None:
+                        return protect_customer_decision(
+                            catalog_decision.model_copy(
+                                update={
+                                    "reply": f"{current_day_decision.reply}\n\n{catalog_decision.reply}"
+                                }
+                            )
+                        )
             return protect_customer_decision(current_day_decision)
         catalog_price_recall_decision = await self._try_catalog_price_recall(combined_request)
         if catalog_price_recall_decision is not None:
@@ -4714,6 +4730,7 @@ from .agent_rules.store import (
     _is_store_day_hours_request,
     _is_store_hours_request,
     _is_today_store_status_request,
+    _is_tomorrow_store_status_request,
     _is_visit_request,
     _is_visit_unavailability_message,
     _latest_appointment_date_offer,

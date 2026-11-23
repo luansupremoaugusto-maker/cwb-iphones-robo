@@ -56,6 +56,51 @@ async def test_tomorrow_store_hours_after_product_question(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_tomorrow_pix_question_stays_in_payment_flow(tmp_path):
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Amanhã o Pix funciona?",
+        history=[
+            {"role": "assistant", "content": "Podemos marcar sua visita. Qual horário fica melhor?"},
+        ],
+    )
+
+    assert "pix" in decision.reply.lower()
+    assert "visita" not in decision.reply.lower()
+    assert not decision.handoff
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("separator", ["? ", " e "])
+async def test_tomorrow_hours_and_product_price_are_both_answered(tmp_path, monkeypatch, separator):
+    current = datetime(2026, 11, 22, 16, 32, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+    agent.cache.items = [
+        InventoryItem(
+            external_id="17-pro",
+            name="iPhone 17 Pro",
+            category="Celular",
+            condition="seminovo",
+            availability="Disponível para venda",
+            capacity="256 GB",
+            price_brl=6000,
+            quantity=1,
+            search_text="iPhone 17 Pro 256 GB seminovo",
+        )
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(f"Amanhã vocês abrem{separator}quanto custa o iPhone 17 Pro?")
+
+    assert "das 09:00 às 18:00" in decision.reply
+    assert "R$ 6.000,00" in decision.reply
+    assert decision.product_references == ["17-pro"]
+    assert not decision.handoff
+
+
+@pytest.mark.asyncio
 async def test_reservation_denial_offers_visit_without_reserving(tmp_path):
     agent = build_agent(tmp_path)
 
