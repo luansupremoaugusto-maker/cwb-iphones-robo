@@ -176,6 +176,7 @@ def _is_payment_methods_question(text: str) -> bool:
         has_request
         or two_card_payment_question
         or _is_credit_only_installment_question(text)
+        or re.fullmatch(r"(?:amanha )?(?:o )?pix funciona(?: amanha)?[?!.]*", normalized) is not None
         or normalized in {"pix", "dinheiro", "debito", "cartao", "cartao de debito"}
     )
 

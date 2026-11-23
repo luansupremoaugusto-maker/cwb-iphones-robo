@@ -566,6 +566,18 @@ def _is_tomorrow_store_status_request(text: str) -> bool:
             r"funciona(?:m|ndo)?|trabalha(?:m|ndo)?)\b",
             clause,
         )
+        and (
+            re.search(
+                r"\b(?:loja|escritorio|voces?|vcs|atendimento|abrem|atendem|funcionam|trabalham)\b",
+                clause,
+            )
+            or re.fullmatch(
+                r"\s*(?:amanha\s+(?:vai\s+)?(?:abrir|abre|funciona|atende)"
+                r"|(?:vai\s+)?(?:abrir|abre|funciona|atende)\s+amanha"
+                r"|amanha\s+(?:esta|estara|fica|vai ficar)\s+(?:abert[oa]|fechad[oa]))\s*",
+                clause,
+            )
+        )
         for clause in re.split(r"[.!?;]+", normalized)
     )
 
@@ -823,6 +835,7 @@ def _is_appointment_followup(text: str, history: list[dict[str, str]] | None) ->
         or _is_product_availability_request(text)
         or _is_store_hours_request(text)
         or _is_physical_store_request(text)
+        or _agent._is_payment_methods_question(text)
     ):
         return False
 

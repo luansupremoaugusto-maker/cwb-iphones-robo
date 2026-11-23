@@ -731,14 +731,6 @@ async def _try_specific_installment(
     except Exception:
         return None
     if result.get("encontrado"):
-        if re.fullmatch(
-            r"(?:e )?(?:qual (?:o )?valor|quanto(?: fica| sai)?) "
-            r"em \d{1,2}\s*(?:x|vezes)[?!.]*",
-            _normalize(text),
-        ):
-            rows = [row for row in result.get("parcelas", []) if row["vezes"] == installments]
-            if rows:
-                result = {**result, "parcelas": rows}
         return AgentDecision(
             reply=format_installment_table(result),
             confidence="high",
