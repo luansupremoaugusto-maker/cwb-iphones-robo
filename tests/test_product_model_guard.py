@@ -79,6 +79,54 @@ class SealedCatalog:
         return next((item for item in self.items if item.external_id == product_id), None)
 
 
+@pytest.mark.asyncio
+async def test_shared_pro_price_comparison_and_installment_followup(tmp_path, monkeypatch):
+    agent = build_agent(tmp_path)
+    agent.offline = False
+    agent.agent = object()
+    agent.turn_interpreter = object()
+    agent.cache.sealed_cache.items = [
+        _sealed_item("17-pro-512", "iPhone 17 Pro", "512 GB", 9000),
+        _sealed_item("17-pro-256", "iPhone 17 Pro", "256 GB", 8000),
+        _sealed_item("18-pro-256", "iPhone 18 Pro", "256 GB", 8800),
+    ]
+
+    async def unexpected_interpretation(*args, **kwargs):
+        pytest.fail("The catalog can answer this comparison without the interpreter")
+
+    monkeypatch.setattr(agent, "_interpret_turn", unexpected_interpretation)
+    history = [
+        {"role": "user", "content": "ola"},
+        {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"},
+    ]
+    comparison = "gostaria de saber o valor do seu 17 ou 18 pro 256GB?"
+    quote = await agent.respond(comparison, history=history)
+    assert set(quote.product_references) == {"17-pro-256", "18-pro-256"}
+    assert quote.reply.count("POR ENCOMENDA") == 2
+    assert "pronta entrega" not in quote.reply.lower()
+    assert "R$ 8.800,00" in quote.reply
+    agent.cache.sealed_cache.items.pop(0)
+
+    history.extend([
+        {"role": "user", "content": comparison},
+        {"role": "assistant", "content": quote.reply},
+        {"role": "user", "content": "ola"},
+        {"role": "assistant", "content": "Olá! 😊 Como posso te ajudar?"},
+    ])
+    availability = "consegue confirmar se tem o 17 pro disponivel"
+    selected = await agent.respond(availability, history=history)
+    assert selected.product_references == ["17-pro-256"]
+    history.extend([
+        {"role": "user", "content": availability},
+        {"role": "assistant", "content": selected.reply},
+    ])
+    installment = await agent.respond("qual valor em 6x?", history=history)
+    assert "iPhone 17 Pro 256 GB" in installment.reply
+    assert "6x de R$ 1.469,24" in installment.reply
+    assert "18x de" not in installment.reply
+    assert "iPhone 18 Pro" not in installment.reply
+
+
 def test_shared_pro_max_suffix_extracts_each_number_as_a_requested_model():
     assert _requested_iphone_model_keys("Queria saber sobre valores 15 16 17 pro Max") == (
         (15, "pro max"),
