@@ -3197,6 +3197,14 @@ class AgentService:
                 confidence="high",
             )
         current_day_decision = self._try_current_day_information(text)
+        if _is_lunch_hours_request(text):
+            lunch_reply = "Durante os dias de atendimento, ficamos abertos no horário do almoço."
+            decision = self._try_visit_scheduling(text, history) or current_day_decision
+            if decision is None:
+                decision = AgentDecision(reply=_store_hours_reply(self.faq), confidence="high")
+            return protect_customer_decision(
+                decision.model_copy(update={"reply": f"{lunch_reply} {decision.reply}"})
+            )
         if current_day_decision is not None:
             if _is_visit_request(text) or _is_reservation_request(text):
                 visit_decision = self._try_visit_scheduling(text, history)
@@ -4768,6 +4776,7 @@ from .agent_rules.store import (
     _is_pickup_schedule_request,
     _is_reservation_request,
     _is_store_day_hours_request,
+    _is_lunch_hours_request,
     _is_store_hours_request,
     _is_today_store_status_request,
     _is_tomorrow_store_status_request,
