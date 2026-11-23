@@ -139,6 +139,36 @@ def build_agent(tmp_path):
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+@pytest.mark.parametrize("ready_quantity", [None, 1, 3])
+async def test_bulk_catalog_request_checks_quantity_before_offering_pickup(tmp_path, ready_quantity):
+    agent = build_agent(tmp_path)
+    if ready_quantity is not None:
+        agent.cache.items = [
+            InventoryItem(
+                external_id="13-pro-ready",
+                name="iPhone 13 Pro",
+                category="Celular Apple",
+                capacity="128 GB",
+                price_brl=4500,
+                source="mercado_phone",
+                condition="seminovo",
+                availability="Disponível para venda",
+                quantity=ready_quantity,
+                search_text="iPhone 13 Pro 128 GB seminovo",
+            )
+        ]
+
+    decision = await agent.respond("Preciso de 3 aparelhos iPhone 13 Pro de 128 GB")
+
+    assert decision.handoff is False
+    if ready_quantity == 3:
+        assert "Há estoque para 3 aparelhos" in decision.reply
+        assert "prefere para retirada?" in decision.reply
+    else:
+        assert "não consegui confirmar 3 aparelhos para pronta entrega" in decision.reply
+        assert "para retirada?" not in decision.reply
+
+
 def test_delivery_deadline_is_not_parsed_as_budget_limit():
     assert _extract_budget_limit("iPhone 17 com entrega em até 1 semana") is None
     assert _extract_budget_limit("iPhone 17 até R$ 7.200,00") == 7200
