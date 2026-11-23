@@ -1143,6 +1143,16 @@ def _has_device_offer(text: str) -> bool:
     ):
         return True
 
+    # An explicit question about the store's interest in buying a device.
+    if re.search(
+        r"\b(?:voces?|vcs|a\s+loja)\s+(?:tem|teria|teriam|possui|possuem)\s+"
+        r"interesse\s+(?:na|pela)\s+compra\s+d(?:e|o|a)\s+"
+        r"(?:(?:um|uma|meu|minha)\s+)?"
+        r"(?:iphone|ipad|macbook|airpods?|apple\s+watch)\b",
+        text,
+    ):
+        return True
+
     # "Teria interesse em comprar um iPhone?" can be a customer's answer to
     # "Como podemos ajudar?". Treat the conditional as a buyback only when the
     # customer identifies their own device or names the store as the buyer.
