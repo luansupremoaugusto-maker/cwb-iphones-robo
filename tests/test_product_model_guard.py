@@ -897,6 +897,38 @@ async def test_bare_model_sell_question_returns_only_requested_iphone(tmp_path):
     assert "lista completa" not in decision.reply.lower()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("question", "model", "price"),
+    [
+        ("Qual 17 vocês tem disponível?", "17", "R$ 6.500"),
+        ("Qual 17E vocês têm disponível?", "17E", "R$ 4.900"),
+    ],
+)
+async def test_shorthand_iphone_availability_keeps_order_only_stock(
+    tmp_path, question, model, price
+):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items[:0] = [
+        _sealed_item("order-17", "iPhone 17", "256 GB", 6500),
+        _sealed_item("order-17e", "iPhone 17E", "256 GB", 4900),
+    ]
+    history = [
+        {"role": "user", "content": "Opa boa tarde"},
+        {"role": "user", "content": "Qual valor dos iPhones?"},
+        {"role": "assistant", "content": "Opa, boa tarde! 😊 Como podemos ajudar?"},
+    ]
+
+    decision = await agent.respond(question, history=history)
+
+    assert decision.product_references == [f"order-{model.lower()}"]
+    assert f"iPhone {model}" in decision.reply
+    assert price in decision.reply
+    assert "por encomenda" in decision.reply.lower()
+    assert "pronta entrega" not in decision.reply.lower()
+    assert "lista completa" not in decision.reply.lower()
+
+
 def _iphone15_price_followup_agent(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [

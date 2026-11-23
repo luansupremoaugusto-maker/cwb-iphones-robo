@@ -2931,6 +2931,23 @@ class AgentService:
                     reply=f"{salutation.capitalize()}! 😊 Como posso te ajudar?",
                     confidence="high",
                 )
+            # Resolve shorthand before the generic catalog and semantic routes.
+            stock_model = re.fullmatch(
+                r"qual (?:o )?(?:iphone )?"
+                r"(?P<model>1[1-9](?: e| pro max| pro| plus| mini| air)?) "
+                r"(?:(?:voce|voces|vc|vcs) )?tem disponivel[.!?]*",
+                normalized_text,
+            )
+            if stock_model:
+                query = f"Tem iPhone {stock_model['model']} disponível?"
+                decision = await self._try_product_availability(query)
+                return protect_customer_decision(
+                    decision
+                    or AgentDecision(
+                        reply="Não consegui confirmar a disponibilidade desse modelo agora.",
+                        confidence="medium",
+                    )
+                )
             if re.fullmatch(
                 r"[^?]*?\bposso (?:enviar|mandar|passar) "
                 r"(?:(?:as|algumas) )?(?:especificacoes|caracteristicas) "
