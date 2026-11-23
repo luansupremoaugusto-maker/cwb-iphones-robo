@@ -3007,6 +3007,34 @@ class AgentService:
                 )
             )
         if (
+            not image_description
+            and not trade_in_em_andamento(history)
+            and re.fullmatch(
+                r"(?:(?:gostaria|queria|quero)\s+(?:de\s+)?"
+                r"(?:informacoes|saber\s+mais)\s+"
+                r"(?:sobre\s+)?(?:a\s+)?compra\s+de\s+(?:um\s+)?iphone"
+                r"|(?:gostaria\s+de|queria|quero)\s+comprar\s+(?:um\s+)?iphone)"
+                r"(?:\s*[,.;!?]\s*|\s+)(?:e\s+)?"
+                r"(?:(?:tenho\s+interesse\s+em|quero|gostaria\s+de)\s+)?"
+                r"trocar\s+(?:o\s+)?meu(?:\s+iphone)?[.!?]*",
+                _normalize(text),
+            )
+        ):
+            catalog_decision = await self._try_available_products(
+                "Quais modelos de iPhone estão disponíveis?"
+            )
+            catalog_reply = (
+                catalog_decision.reply
+                if catalog_decision is not None
+                else "Não consegui consultar a lista de iPhones agora."
+            )
+            return protect_customer_decision(
+                AgentDecision(
+                    reply=f"{TRADE_IN_FORM}\n\n{catalog_reply}",
+                    confidence="high" if catalog_decision is not None else "medium",
+                )
+            )
+        if (
             is_trade_in_request(text)
             and is_upgrade_buyback_price_request(text)
             and not is_non_apple_trade_in_request(combined_request)
