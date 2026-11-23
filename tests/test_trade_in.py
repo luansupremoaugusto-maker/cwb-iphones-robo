@@ -40,6 +40,37 @@ from app.adapters.mercado_phone import InventoryCache
 
 
 @pytest.mark.asyncio
+async def test_ipad_buyback_offer_with_offer_to_send_photos_gets_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    text = (
+        "Olá, tudo bem? 😊\n\n"
+        "Gostaria de saber se vocês têm interesse na compra de um iPad Air de 13 "
+        "polegadas. Estamos vendendo o aparelho por R$ 6.500.\n\n"
+        "Vocês trabalham com a compra desse tipo de aparelho? "
+        "Caso tenham interesse, posso enviar fotos e mais informações.\n\n"
+        "Aguardo o retorno! Obrigada."
+    )
+
+    decision = await service.respond(text, history=[])
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+    assert not decision.image_urls
+
+
+def test_store_purchase_wording_does_not_reclassify_ipad_buyer():
+    assert not is_trade_in_request(
+        "Vocês me ajudam na compra de um iPad Air? Quero ver fotos."
+    )
+
+
+@pytest.mark.asyncio
 async def test_buyer_conditional_interest_after_greeting_does_not_get_trade_in_form(
     tmp_path,
 ):
