@@ -188,6 +188,32 @@ def build_agent(tmp_path):
     return AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
 
 
+async def test_permission_to_send_iphone_specs_waits_for_details(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [
+        {"role": "user", "content": "Opa\nBoa tarde, tudo bom?"},
+        {"role": "assistant", "content": "Opa, boa tarde! Como posso ajudar?"},
+    ]
+    request = (
+        "Tudo bom.\n\nEntão, estou planejando trocar de celular no início de dezembro "
+        "e queria saber se posso enviar algumas especificações do iPhone que estou "
+        "procurando. Pode ser?"
+    )
+
+    decision = await agent.respond(request, history=history)
+
+    assert decision.reply.startswith("Claro, pode mandar")
+    assert not decision.handoff
+    assert not decision.product_references
+
+    history.extend([
+        {"role": "user", "content": request},
+        {"role": "assistant", "content": decision.reply},
+    ])
+    quote = await agent.respond("Tem iPhone 17 Pro Max 256 GB lacrado?", history=history)
+    assert quote.product_references == ["17-pro-max-256"]
+
+
 async def test_card_installments_and_used_phone_evaluation_keep_separate_contexts(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [

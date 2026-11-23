@@ -2919,15 +2919,32 @@ class AgentService:
         image_description: str | None = None,
     ) -> AgentDecision:
         if not image_description:
+            normalized_text = _normalize(text)
             greeting = re.fullmatch(
                 r"(?:(oi+|ola)[!.,? ]*)?(bom dia|boa tarde|boa noite)?"
                 r"(?:[!.,? ]*tudo bem)?[!.,? ]*",
-                _normalize(text),
+                normalized_text,
             )
             if greeting and (greeting[1] or greeting[2]):
                 salutation = greeting[2] or ("olá" if greeting[1] == "ola" else "oi")
                 return AgentDecision(
                     reply=f"{salutation.capitalize()}! 😊 Como posso te ajudar?",
+                    confidence="high",
+                )
+            if re.fullmatch(
+                r"[^?]*?\bposso (?:enviar|mandar|passar) "
+                r"(?:(?:as|algumas) )?(?:especificacoes|caracteristicas) "
+                r"do iphone"
+                r"(?: que (?:eu )?(?:estou procurando|procuro|quero))?"
+                r"[.!?]*(?: pode ser[.!?]*)?",
+                normalized_text,
+            ):
+                return AgentDecision(
+                    reply=(
+                        "Claro, pode mandar as especificações do iPhone que você procura! "
+                        "Se já souber o modelo, a capacidade ou se prefere lacrado ou "
+                        "seminovo, pode me dizer também. 😊"
+                    ),
                     confidence="high",
                 )
 
