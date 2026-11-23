@@ -3702,6 +3702,30 @@ class AgentService:
                 if stock_quote is not None:
                     return protect_customer_decision(stock_quote)
 
+        # A compact comparison shares its variant and capacity across the models.
+        if not image_description:
+            comparison = re.fullmatch(
+                r"(?:(?:gostaria|queria) de saber |(?:qual|quais) (?:e |sao )?)?"
+                r"(?:o |os )?(?:valor(?:es)?|precos?) (?:d[eo]s? )?(?:seus? )?"
+                r"(?:iphones? )?(?P<first>1[0-9]) (?:ou|e) (?P<second>1[0-9]) "
+                r"(?P<variant>pro(?: max)?|plus|mini|air) (?:de )?"
+                r"(?P<capacity>\d+\s*(?:gb|tb))[?!.]*",
+                _normalize(text),
+            )
+            if comparison:
+                variant, capacity = comparison.group("variant", "capacity")
+                quote = await self._try_product_availability(
+                    f"Valor do iPhone {comparison['first']} {variant} {capacity}\n"
+                    f"E o iPhone {comparison['second']} {variant} {capacity}?"
+                )
+                if quote is not None:
+                    return protect_customer_decision(quote)
+
+        if _is_specific_installment_request(text):
+            specific_installment_decision = await self._try_specific_installment(text, history)
+            if specific_installment_decision is not None:
+                return protect_customer_decision(specific_installment_decision)
+
         if (
             not early_interpreter_attempted
             and self.turn_interpreter is not None
@@ -3773,7 +3797,11 @@ class AgentService:
         if warranty_decision is not None:
             return protect_customer_decision(warranty_decision)
 
-        specific_installment_decision = await self._try_specific_installment(text, history)
+        specific_installment_decision = (
+            await self._try_specific_installment(text, history)
+            if not _is_specific_installment_request(text)
+            else None
+        )
         if specific_installment_decision is not None:
             return protect_customer_decision(specific_installment_decision)
 
