@@ -6186,7 +6186,8 @@ def test_availability_negation_keeps_the_color_being_asked_about():
 
 
 @pytest.mark.asyncio
-async def test_other_color_followup_explains_only_cataloged_color(tmp_path):
+@pytest.mark.parametrize("question", ["Outra cor", "Teria outra cor?", "Só tem nessas cores?"])
+async def test_other_color_followup_explains_only_cataloged_color(tmp_path, question):
     settings = Settings(google_sheets_enabled=False, mercado_cache_ttl_seconds=60)
     cache = StoreCatalogCache(
         EmptyMercadoClient(),
@@ -6232,7 +6233,7 @@ async def test_other_color_followup_explains_only_cataloged_color(tmp_path):
         },
     ]
 
-    decision = await agent.respond("Outra cor", history=history)
+    decision = await agent.respond(question, history=history)
 
     assert decision.handoff is False
     assert decision.product_references == ["iphone-16-plus-128-ultramarino"]
@@ -6256,7 +6257,7 @@ async def test_other_color_followup_explains_only_cataloged_color(tmp_path):
             search_text="iphone 16 plus preto 128gb celular seminovo",
         )
     )
-    alternatives = await agent.respond("Teria outra cor?", history=history)
+    alternatives = await agent.respond(question, history=history)
 
     assert alternatives.handoff is False
     assert set(alternatives.product_references) == {

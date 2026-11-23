@@ -284,7 +284,14 @@ def _is_catalog_price_followup(text: str) -> bool:
     )
 
 def _is_other_color_request(text: str) -> bool:
-    return bool(re.search(r"\boutra(?:s)?\s+cor(?:es)?\b", _normalize(text)))
+    return bool(
+        re.search(
+            r"\boutra(?:s)?\s+cor(?:es)?\b"
+            r"|\b(?:so|somente|apenas)\s+(?:tem|teria|possui)\s+"
+            r"(?:nessa\s+cor|nessas\s+cores|essa\s+cor|essas\s+cores)\b",
+            _normalize(text),
+        )
+    )
 
 def _is_catalog_color_list_request(text: str) -> bool:
     return bool(
