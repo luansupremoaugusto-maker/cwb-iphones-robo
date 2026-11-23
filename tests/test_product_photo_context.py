@@ -137,6 +137,65 @@ def _build_agent_with_items(tmp_path, items: list[InventoryItem]) -> AgentServic
 
 
 @pytest.mark.asyncio
+async def test_photos_of_this_iphone_use_product_from_installment_quote(tmp_path):
+    photo_url = "https://photos.example/iphone-13-blue-256.jpg"
+    agent = _build_agent_with_items(
+        tmp_path,
+        [
+            InventoryItem(
+                external_id="iphone-13-blue-256",
+                name="IPHONE 13",
+                category="Celular",
+                capacity="256GB",
+                color="AZUL",
+                condition="SEMINOVO",
+                availability="Disponível para venda",
+                quantity=1,
+                price_brl=1790.0,
+                search_text="iphone 13 azul 256gb celular seminovo",
+                photo_urls=[photo_url],
+            ),
+            _used_15_pro_max(
+                "another-phone", "256GB", 4130.0, "https://photos.example/other.jpg"
+            ),
+        ],
+    )
+    history = [
+        {"role": "user", "content": "iPhone 13 azul"},
+        {
+            "role": "assistant",
+            "content": "IPHONE 13 — AZUL — 256GB — SEMINOVO — R$ 1.790,00 | Bat: 100%",
+        },
+        {"role": "user", "content": "Parcelamento"},
+        {
+            "role": "assistant",
+            "content": (
+                "Parcelamento do iPhone 13 azul 256GB seminovo\n"
+                "Preço à vista: R$ 1.790,00\n"
+                "15x de R$ 142,74 (total R$ 2.141,15)\n"
+                "18x de R$ 123,07 (total R$ 2.215,35)"
+            ),
+        },
+    ]
+
+    decision = await agent.respond("Tem fotos deste iPhone?", history=history)
+
+    assert decision.image_urls == [photo_url]
+    assert decision.product_references == ["iphone-13-blue-256"]
+
+
+@pytest.mark.asyncio
+async def test_photos_of_this_iphone_without_context_ask_for_the_model(tmp_path):
+    agent = _build_agent(tmp_path)
+
+    decision = await agent.respond("Tem fotos desse iPhone?")
+
+    assert not decision.image_urls
+    assert not decision.product_references
+    assert "qual é o modelo" in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_photo_request_in_batched_messages_is_not_lost_to_payment_question(tmp_path):
     photo_url = "https://photos.example/iphone-13-pro-max-128.jpg"
     agent = _build_agent_with_items(
