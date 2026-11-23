@@ -59,6 +59,7 @@ from app.agent import (
     _is_image_history_entry,
     _is_installment_budget_options_request,
     _is_ipad_model_alternative_price_followup,
+    _is_made_to_order_sealed_item,
     _is_new_model_list_request,
     _is_other_color_request,
     _is_photo_context_followup,
@@ -2133,10 +2134,26 @@ async def _try_product_availability(
                 + "."
             )
     if requested_quantity is not None:
-        reply += (
-            f"\n\nComo você precisa de {requested_quantity} aparelhos, "
-            f"escolha os {requested_quantity} que prefere e depois me informe o horário desejado para retirada."
-        )
+        ready_quantities = {
+            item.external_id: int(item.quantity)
+            for item in selected
+            if item.external_id
+            and item.source == "mercado_phone"
+            and not _is_made_to_order_sealed_item(item)
+            and _is_available_item(item)
+            and item.quantity is not None
+            and float(item.quantity).is_integer()
+        }
+        if sum(ready_quantities.values()) >= requested_quantity:
+            reply += (
+                f"\n\nHá estoque para {requested_quantity} aparelhos entre as opções de pronta entrega. "
+                "Quais dessas opções você prefere para retirada?"
+            )
+        else:
+            reply += (
+                f"\n\nAinda não consegui confirmar {requested_quantity} aparelhos para pronta entrega. "
+                "Você aceita opções por encomenda?"
+            )
     references = [str(getattr(item, "external_id", "")) for item in selected]
     return AgentDecision(
         reply=reply,
