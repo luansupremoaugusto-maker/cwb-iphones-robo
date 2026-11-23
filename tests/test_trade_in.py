@@ -264,6 +264,36 @@ def test_downgrade_detector_ignores_software_and_non_apple_phone_requests():
 
 
 @pytest.mark.asyncio
+async def test_store_price_for_described_iphone_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+
+    decision = await service.respond(
+        "quanto paga por um iphone 17e branco 256 gigas 100% bateria 18 ciclos?",
+        history=[
+            {"role": "user", "content": "aoba bom dia, tudo bem?"},
+            {"role": "assistant", "content": "Bom dia! Tudo bem, e com você? Como posso ajudar?"},
+            {"role": "user", "content": "tudo certinho"},
+            {"role": "assistant", "content": "Que bom! 😊 Como posso te ajudar?"},
+        ],
+    )
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+
+def test_customer_price_for_described_iphone_is_not_trade_in():
+    assert not is_trade_in_request(
+        "quanto eu pago por um iphone 17e branco 256 gigas 100% bateria?"
+    )
+
+
+@pytest.mark.asyncio
 async def test_bare_iphone_13_buyback_with_battery_health_sends_evaluation_form(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
