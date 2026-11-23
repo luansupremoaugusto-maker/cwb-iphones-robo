@@ -5848,3 +5848,30 @@ def test_payment_question_preserves_following_explicit_trade_in():
     assert is_trade_in_request(
         "Qual forma de pagamento vcs aceitam?\nVocês aceitam meu iPhone 13 na troca?"
     )
+
+
+@pytest.mark.asyncio
+async def test_owned_iphone_credit_toward_installments_sends_evaluation_form(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    cache = InventoryCache(None, settings, cache_path=tmp_path / "inventory.json")
+    agent = AgentService(cache, FAQStore(settings.faq_file), settings, offline=True)
+    request = (
+        "Boa tarde.\nGostaria de uma informação com vocês.\n"
+        "Tenho um iPhone 15 / bateria 86%, totalmente original e sem nenhuma "
+        "substituição de tela e etc.\nquanto valeria pra vocês e quanto ele abateria "
+        "no valor do IPhone 18 Pro Max 256gb ?\nNas parcelas no caso.\n"
+        "Não sei se expliquei bem\nKkk"
+    )
+
+    decision = await agent.respond(request)
+
+    assert decision.reply == TRADE_IN_FORM
+    assert decision.handoff is False
+
+    clarification = await agent.respond(
+        "Não, seria dar meu iPhone como parte do pagamento.",
+        history=[{"role": "user", "content": request}],
+    )
+
+    assert clarification.reply == TRADE_IN_FORM
+    assert clarification.handoff is False

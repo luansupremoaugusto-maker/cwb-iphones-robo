@@ -246,6 +246,11 @@ _BUYBACK_FOR_UPGRADE_RE = re.compile(
     r"\b(?:para|pra)\s+(?:pegar|comprar|trocar)\s+(?:(?:um|uma)\s+)?outro\b",
     re.IGNORECASE,
 )
+_DEVICE_CREDIT_TOWARD_IPHONE_RE = re.compile(
+    r"\bquanto\s+(?:(?:ele|ela|isso|o\s+aparelho)\s+)?"
+    r"abat(?:e|eria)\s+(?:no\s+(?:valor|preco)\s+d[eo]\s+|"
+    r"n[eo]\s+)iphone\s*\d{1,2}\b",
+)
 _NON_APPLE_EXCHANGE_RE = re.compile(
     r"\b(?:na\s+troca|para\s+troca|parte\s+do\s+pagamento|"
     r"como\s+entrada|de\s+entrada|retoma\w*|retomar)\b",
@@ -955,8 +960,20 @@ def is_upgrade_buyback_price_request(text: str | None) -> bool:
     """Recognize an owned-device buyback quote tied to getting another phone."""
     normalized = _normalize(text)
     return bool(
-        _BUYBACK_FOR_UPGRADE_RE.search(normalized)
-        and _has_personal_device_reference(normalized)
+        (
+            _BUYBACK_FOR_UPGRADE_RE.search(normalized)
+            and _has_personal_device_reference(normalized)
+        )
+        or _is_owned_iphone_credit_request(normalized)
+    )
+
+
+def _is_owned_iphone_credit_request(text: str) -> bool:
+    return bool(
+        _OWNED_NUMBERED_IPHONE_RE.search(text)
+        and _DEVICE_CREDIT_TOWARD_IPHONE_RE.search(text)
+        and not _NEGATION_RE.search(text)
+        and not _NON_APPLE_RE.search(text)
     )
 
 
@@ -1581,6 +1598,8 @@ def is_trade_in_request(text: str | None) -> bool:
         return True
     if is_parts_buyback_request(normalized):
         return False
+    if _is_owned_iphone_credit_request(normalized):
+        return True
 
     if _DEVICE_COMPONENT_REPAIR_RE.search(normalized) and not (
         _has_implicit_device_upgrade_offer(normalized)
