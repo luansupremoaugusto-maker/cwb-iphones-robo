@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from app.agent_rules.store import _is_tomorrow_store_status_request
+
 from app.agent import (
     AgentDecision,
     DELIVERY_FEE_HANDOFF_REASON,
@@ -166,6 +168,11 @@ def _try_delivery_or_pickup(
 def _try_current_day_information(self, text: str) -> AgentDecision | None:
     if _is_current_date_request(text):
         return AgentDecision(reply=f"Hoje é {_today_label()}.", confidence="high")
+    if _is_tomorrow_store_status_request(text):
+        return AgentDecision(
+            reply=_tomorrow_store_reply(self.faq, include_physical_store=False),
+            confidence="high",
+        )
     if _is_today_store_status_request(text):
         return AgentDecision(
             reply=_today_store_reply(self.faq, include_physical_store=False),

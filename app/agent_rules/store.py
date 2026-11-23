@@ -556,6 +556,20 @@ def _is_today_store_status_request(text: str) -> bool:
         or implicit_open_status
     )
 
+def _is_tomorrow_store_status_request(text: str) -> bool:
+    normalized = _normalize(text)
+    return any(
+        re.search(r"\bamanha\b", clause)
+        and re.search(
+            r"\b(?:abert[oa]s?|fechad[oa]s?|abrem?|fecham?|(?:vai|vao) abrir|"
+            r"atende(?:m|mos|ra|rao|ndo)?|(?:vai|vao) atender|"
+            r"funciona(?:m|ndo)?|trabalha(?:m|ndo)?)\b",
+            clause,
+        )
+        for clause in re.split(r"[.!?;]+", normalized)
+    )
+
+
 def _is_store_day_hours_request(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
@@ -578,7 +592,7 @@ def _is_store_hours_request(text: str) -> bool:
     normalized = re.sub(r"\bhrs?\b", "horas", normalized)
     if not normalized:
         return False
-    if _is_store_day_hours_request(text):
+    if _is_store_day_hours_request(text) or _is_tomorrow_store_status_request(text):
         return True
     if "hoje" in normalized:
         return False

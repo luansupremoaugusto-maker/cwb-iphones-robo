@@ -30,6 +30,32 @@ def build_agent(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("day", "expected"),
+    [(21, "a loja estará fechada"), (22, "das 09:00 às 18:00")],
+)
+async def test_tomorrow_store_hours_after_product_question(tmp_path, monkeypatch, day, expected):
+    current = datetime(2026, 11, day, 16, 32, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    monkeypatch.setattr(agent_module, "_store_now", lambda: current)
+    agent = build_agent(tmp_path)
+
+    decision = await agent.respond(
+        "Amanhã vocês estão atendendo?",
+        history=[
+            {"role": "user", "content": "Esse está disponível?"},
+            {
+                "role": "assistant",
+                "content": "IPHONE 13 — AZUL — 256GB — SEMINOVO — R$ 1.790,00",
+            },
+        ],
+    )
+
+    assert decision.handoff is False
+    assert expected in decision.reply.lower()
+    assert ("domingo, 22/11/2026" if day == 21 else "segunda-feira, 23/11/2026") in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_reservation_denial_offers_visit_without_reserving(tmp_path):
     agent = build_agent(tmp_path)
 
