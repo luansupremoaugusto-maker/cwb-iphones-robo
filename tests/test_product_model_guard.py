@@ -9057,3 +9057,46 @@ async def test_included_accessories_after_used_iphone_offer(tmp_path, question):
     assert decision.reply == agent.faq.get("seminovos")
     assert not decision.handoff
     assert decision.product_references == []
+
+
+@pytest.mark.asyncio
+async def test_seminovo_price_then_owned_iphone_with_screen_defect(tmp_path):
+    agent = build_agent(tmp_path)
+    agent.cache.sealed_cache.items = []
+    agent.cache.items = [
+        InventoryItem(
+            external_id=f"used-{model}",
+            name=model,
+            category="Celular",
+            capacity="256GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=price,
+            source="mercado_phone",
+            search_text=f"{model.lower()} 256gb seminovo",
+        )
+        for model, price in (("iPhone 15", 3210), ("iPhone 15 Pro", 4100))
+    ]
+    agent.cache.last_refresh = time.time()
+    price_question = "Gostaria de saber quanto custa um iPhone semi novo 15 pro"
+    price = await agent.respond(price_question)
+    history = [
+        {"role": "user", "content": price_question},
+        {"role": "assistant", "content": price.reply},
+        {"role": "user", "content": "15 pro"},
+    ]
+    confirmation = await agent.respond("15 pro", history=history[:-1])
+    history.append({"role": "assistant", "content": confirmation.reply})
+    appraisal = await agent.respond(
+        "Quanto você paga no meu 15 Pro ele está com pequeno defeito na tela "
+        "uma manchinha escura e também fica reiniciando",
+        history=history,
+    )
+
+    assert price.product_references == ["used-iPhone 15 Pro"]
+    assert confirmation.product_references == ["used-iPhone 15 Pro"]
+    assert appraisal.reply == TRADE_IN_FORM
+    assert not appraisal.handoff
+    assert not appraisal.product_references
+    assert not appraisal.image_urls
