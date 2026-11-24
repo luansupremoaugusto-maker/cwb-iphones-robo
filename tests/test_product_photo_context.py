@@ -137,6 +137,69 @@ def _build_agent_with_items(tmp_path, items: list[InventoryItem]) -> AgentServic
 
 
 @pytest.mark.asyncio
+async def test_photo_followup_uses_latest_shorthand_model(tmp_path):
+    phone = InventoryItem(
+        external_id="used-13",
+        name="IPHONE 13",
+        category="Celular",
+        capacity="128GB",
+        color="MEIA NOITE",
+        condition="SEMINOVO",
+        availability="Disponível para venda",
+        quantity=1,
+        price_brl=1920,
+        battery_health=93,
+        search_text="iphone 13 meia noite 128gb celular seminovo",
+        photo_urls=["https://photos.example/iphone-13.jpg"],
+    )
+    other_unit = phone.model_copy(
+        update={
+            "external_id": "used-13-second",
+            "price_brl": 1940,
+            "battery_health": 91,
+            "photo_urls": ["https://photos.example/iphone-13-second.jpg"],
+        }
+    )
+    previous_model = phone.model_copy(
+        update={
+            "external_id": "used-14-pro",
+            "name": "IPHONE 14 PRO",
+            "capacity": "1TB",
+            "color": "PRETO ESPACIAL",
+            "price_brl": 3400,
+            "battery_health": 100,
+            "search_text": "iphone 14 pro preto espacial 1tb celular seminovo",
+            "photo_urls": ["https://photos.example/iphone-14-pro.jpg"],
+        }
+    )
+    agent = _build_agent_with_items(tmp_path, [phone, other_unit, previous_model])
+    history = [
+        {"role": "user", "content": "Tem iPhone 14 Pro"},
+        {
+            "role": "assistant",
+            "content": "IPHONE 14 PRO — PRETO ESPACIAL — 1TB — SEMINOVO — R$ 3.400,00 | Bat: 100%",
+        },
+        {"role": "user", "content": "Tem 13"},
+        {
+            "role": "assistant",
+            "content": (
+                "Temos sim 😊 iPhone 13 seminovo, 128GB, meia-noite: uma unidade "
+                "com bateria em 93% por R$ 1.920 e outra com 91% por R$ 1.940."
+            ),
+        },
+    ]
+
+    stock_decision = await agent.respond("Tem 13", history=history[:2])
+    assert set(stock_decision.product_references) == {"used-13", "used-13-second"}
+
+    decision = await agent.respond("tem foto ?", history=history)
+
+    assert decision.image_urls
+    assert set(decision.image_urls) <= set(phone.photo_urls + other_unit.photo_urls)
+    assert "lista completa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_photos_of_this_iphone_use_product_from_installment_quote(tmp_path):
     photo_url = "https://photos.example/iphone-13-blue-256.jpg"
     agent = _build_agent_with_items(
