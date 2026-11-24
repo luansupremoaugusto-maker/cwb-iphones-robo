@@ -1447,8 +1447,24 @@ def _has_complete_owned_device_buyback_offer(text: str) -> bool:
     )
 
 
+def _is_owned_iphone_buyback_price_request(text: str) -> bool:
+    price_request = _PRICE_BUYBACK_RE.search(text)
+    if price_request is None:
+        return False
+    offer = text[price_request.end() :].lstrip()
+    return bool(
+        offer.startswith("meu ")
+        and _OWNED_BARE_IPHONE_VARIANT_RE.match(offer)
+        and not _NON_APPLE_RE.search(text)
+        and not _NEGATION_RE.search(text)
+        and not _EXPLICIT_PART_ONLY_OFFER_RE.search(text)
+    )
+
+
 def _has_complete_device_buyback_context(text: str) -> bool:
     """Return True when a part term describes a complete device offer."""
+    if _is_owned_iphone_buyback_price_request(text):
+        return True
     if _has_abbreviated_iphone_buyback_profile(text):
         return True
     # Customers often list iPhone models and battery health without saying
@@ -1603,7 +1619,10 @@ def is_trade_in_request(text: str | None) -> bool:
         return True
     if is_parts_buyback_request(normalized):
         return False
-    if _is_owned_iphone_credit_request(normalized):
+    if (
+        _is_owned_iphone_credit_request(normalized)
+        or _is_owned_iphone_buyback_price_request(normalized)
+    ):
         return True
 
     if _DEVICE_COMPONENT_REPAIR_RE.search(normalized) and not (
