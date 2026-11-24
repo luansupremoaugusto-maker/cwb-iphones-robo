@@ -372,6 +372,14 @@ def _customer_product_condition_context_query(
 
 def _extract_bare_catalog_model_reference(text: str) -> str | None:
     """Turn follow-ups such as "a bateria do 15" into an explicit model."""
+    short_stock_query = re.fullmatch(
+        r"(?:tem|teria|possui)\s+(1[1-9](?:\s*(?:e|pro\s+max|pro|plus|mini|air))?)"
+        r"\s*[?!.,]*",
+        _normalize(text),
+    )
+    if short_stock_query:
+        return _bare_model_selection_reply(short_stock_query[1])
+
     pattern = re.compile(
         r"\b(?:do|da|dos|das|de|no|na|o|a|um|uma|esse|essa|este|esta|"
         r"desse|dessa|deste|desta)\s+"
