@@ -855,6 +855,21 @@ async def _try_product_availability(
         text,
         history,
     )
+    # A family and color alone ("iPhone branco") can narrow a recent model quote.
+    color_followup_models = _requested_iphone_model_keys(customer_request_context)
+    if (
+        not image_description
+        and not _requested_iphone_model_keys(text)
+        and not _extract_bare_catalog_model_reference(text)
+        and _catalog_families(text) in ((), ("iphone",))
+        and len(color_followup_models) == 1
+        and _has_recent_catalog_product_context(history)
+        and re.search(r"\b(?:tem|teriam?|disponivel|estoque)\b", _normalize(text))
+        and _requested_catalog_colors(text, [])
+    ):
+        number, variant = color_followup_models[0]
+        model = " ".join(part for part in ("iPhone", str(number), variant) if part)
+        current_query = f"{model}. {current_query}"
     current_request_budget = _extract_latest_budget_limit(text)
     latest_customer_message = next(
         (
