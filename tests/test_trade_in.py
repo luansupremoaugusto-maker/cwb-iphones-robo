@@ -1959,6 +1959,45 @@ async def test_filled_evaluation_form_after_bot_form_is_forwarded_to_attendant(t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("followup", ["", "\nQuero fazer upgrade"])
+async def test_upgrade_profile_without_asking_price_is_forwarded(tmp_path, followup):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    request = "Tenho um iPhone 17 que comprei em setembro e queria trocar por um 17 Pro ou 18 Pro."
+    initial_decision = await service.respond(request)
+    assert not initial_decision.handoff
+    assert TRADE_IN_FORM in initial_decision.reply
+    history = [
+        {"role": "user", "content": request},
+        {"role": "assistant", "content": initial_decision.reply},
+    ]
+    profile = (
+        "iPhone 17 256 GB\n"
+        "Salvia\n"
+        "100% bateria\n"
+        "Sem marcas de uso\n"
+        "Perfeito estado\n"
+        "Sem manutenção\n"
+        "Cabo e caixa\n\n"
+        "Comprei novo em setembro então tá na garantia ainda"
+        + followup
+    )
+
+    decision = await service.respond(profile, history=history)
+
+    assert decision.handoff is True
+    assert decision.handoff_reason == TRADE_IN_REASON
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+    assert not is_unlabeled_trade_in_form_response(profile, history[:1])
+    assert not is_unlabeled_trade_in_form_response("iPhone 17 256 GB\n100% bateria", history)
+
+
+@pytest.mark.asyncio
 async def test_unlabeled_evaluation_answers_with_past_repair_are_forwarded_to_attendant(
     tmp_path,
 ):

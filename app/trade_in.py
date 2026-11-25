@@ -2178,13 +2178,11 @@ def is_unlabeled_trade_in_form_response(
         return False
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) < 8:
-        return False
-
-    if not any(
-        _UNLABELED_TRADE_IN_FORM_MODEL_RE.fullmatch(_normalize(line))
-        for line in lines[:2]
-    ):
+    model_lines = [
+        line for line in map(_normalize, lines[:2])
+        if _UNLABELED_TRADE_IN_FORM_MODEL_RE.fullmatch(line)
+    ]
+    if not model_lines:
         return False
 
     has_battery_health = any(
@@ -2210,7 +2208,30 @@ def is_unlabeled_trade_in_form_response(
     answered_field_count = sum(
         bool(re.search(pattern, normalized)) for pattern in field_markers
     )
-    return has_battery_health and has_value and answered_field_count >= 3
+    if not has_battery_health or answered_field_count < 3:
+        return False
+    if len(lines) >= 8 and has_value:
+        return True
+
+    latest_reply = next(
+        (
+            _normalize(message.get("content"))
+            for message in reversed(history or [])
+            if message.get("role") == "assistant"
+        ),
+        "",
+    )
+    # A detailed device profile can be forwarded even without an asking price.
+    return bool(
+        _FORM_EM_ANDAMENTO_MARKER in latest_reply
+        and any(
+            model.startswith("iphone") and re.search(r"\b\d{2,4}\s*(?:gb|tb)$", model)
+            for model in model_lines
+        )
+        and "?" not in text
+        and not is_parts_buyback_request(text)
+        and not is_purchase_without_trade_in_request(text)
+    )
 
 
 def _iphone_model_generations(text: str) -> set[int]:
