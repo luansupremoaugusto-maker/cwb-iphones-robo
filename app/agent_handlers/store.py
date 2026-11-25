@@ -112,6 +112,39 @@ def _try_delivery_payment(
         )
 
     delivery_fee_request = _is_delivery_fee_request(text, history)
+    normalized = _normalize(text)
+    if (
+        not delivery_fee_request
+        and not _is_explicit_human_request(text)
+        and re.search(
+            r"\b(?:entreg\w*|envi\w*|despach\w*|chega\w*|receb\w*|motoboy|sedex)\b"
+            r"(?:\s+(?:e|seria|vai|fica|para|pra|ainda|so|somente))*"
+            r"\s+(?:hoje|no mesmo dia|(?:em )?outro dia)\b",
+            normalized,
+        )
+        and (
+            _has_delivery_context(history)
+            or re.search(
+                r"\b(?:entrega|entregam|entregue|motoboy|sedex|frete|despacho)\b",
+                normalized,
+            )
+        )
+        and not re.search(r"\b(?:pronta entrega|fotos?|listas?|links?|comprovantes?)\b", normalized)
+        and not re.search(r"\b(?:te|lhes?)\s+(?:entregar|enviar)\b", normalized)
+    ):
+        if re.search(r"\bsedex\b", normalized) and not re.search(r"\bmotoboy\b", normalized):
+            reply = (
+                "Para envio por Sedex, um atendente confirma a taxa e o prazo. "
+                "O pagamento é antecipado."
+            )
+        else:
+            reply = (
+                "Para Curitiba e região, quando o envio é por motoboy, "
+                "despachamos o aparelho no mesmo dia após a confirmação do pagamento. "
+                "Um atendente confirma a taxa e a previsão de chegada."
+            )
+        return AgentDecision(reply=reply, confidence="high")
+
     acknowledge_cannot_visit = (
         _is_visit_unavailability_message(text) and _has_delivery_context(history)
     )
