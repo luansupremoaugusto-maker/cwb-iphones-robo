@@ -55,6 +55,39 @@ PRODUCT_CONTEXT = (
 
 
 @pytest.mark.asyncio
+async def test_same_day_dispatch_after_delivery_question(tmp_path):
+    agent = build_agent(tmp_path)
+    history = [{"role": "assistant", "content": PRODUCT_CONTEXT}]
+    first_question = "Preciso até a loja retirar ou vocês fazem entrega?"
+    delivery = await agent.respond(first_question, history=history)
+    assert "motoboy" in delivery.reply
+    history.extend(
+        [{"role": "user", "content": first_question}, {"role": "assistant", "content": delivery.reply}]
+    )
+
+    for question in (
+        "Se eu comprasse o aparelho hoje e pagasse a vista, o aparelho seria entregue hoje?",
+        "Então no caso eu teria que pagar hoje e o aparelho seria enviado outro dia "
+        "de acordo com o despacho?",
+    ):
+        decision = await agent.respond(question, history=history)
+        assert not decision.handoff
+        assert "motoboy" in decision.reply
+        assert "despachamos o aparelho no mesmo dia após a confirmação do pagamento" in decision.reply
+        history.extend(
+            [{"role": "user", "content": question}, {"role": "assistant", "content": decision.reply}]
+        )
+
+
+@pytest.mark.asyncio
+async def test_sedex_timing_requires_quote(tmp_path):
+    decision = await build_agent(tmp_path).respond("Por Sedex chega hoje?")
+
+    assert "um atendente confirma a taxa e o prazo" in decision.reply
+    assert "mesmo dia" not in decision.reply
+
+
+@pytest.mark.asyncio
 async def test_payment_and_delivery_batch_answers_both_questions(tmp_path):
     agent = build_agent(tmp_path)
 
