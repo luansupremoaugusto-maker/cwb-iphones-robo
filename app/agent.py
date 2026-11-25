@@ -3188,9 +3188,13 @@ class AgentService:
             )
 
         if is_parts_buyback_request(combined_request):
-            # Recent Apple catalog context can disambiguate a bare model number
-            # and its battery details from a request to sell a loose battery.
+            # A photo description can mention components of the device offered
+            # in the customer's caption. Give the caption priority in that case.
             if (
+                image_description
+                and is_trade_in_request(text)
+                and not is_purchase_without_trade_in_request(text, history)
+            ) or (
                 not is_purchase_without_trade_in_request(combined_request)
                 and is_trade_in_context_request(combined_request, history)
             ):

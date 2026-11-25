@@ -4198,6 +4198,37 @@ async def test_bare_iphone_model_used_as_entry_after_catalog_reply_sends_evaluat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("caption", "expected_reply"),
+    [
+        ("Boa tarde , vocês compra iPhone 14 Pro Max 256 ?", TRADE_IN_FORM),
+        ("Boa tarde, vocês compram tela de iPhone 14 Pro Max?", PARTS_BUYBACK_REPLY),
+    ],
+)
+async def test_buyback_target_in_photo_caption_takes_priority(tmp_path, caption, expected_reply):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Qual valor do iPhone 17 Pro Max 256?"},
+        {"role": "assistant", "content": "Temos iPhone 17 Pro Max lacrado de 256 GB."},
+        {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"},
+    ]
+    decision = await service.respond(
+        caption,
+        history=history,
+        image_description="Descrição visual da imagem recebida: tela e bateria de um iPhone.",
+    )
+
+    assert decision.reply == expected_reply
+    assert decision.handoff is False
+
+
+@pytest.mark.asyncio
 async def test_repassar_complete_iphone_with_battery_photo_sends_evaluation_form(tmp_path):
     class EmptyMercadoClient:
         async def fetch_all_inventory(self):
