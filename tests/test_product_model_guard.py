@@ -929,6 +929,63 @@ async def test_shorthand_iphone_availability_keeps_order_only_stock(
     assert "lista completa" not in decision.reply.lower()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ready_white", [False, True])
+async def test_iphone_color_availability_followup_uses_confirmed_stock(tmp_path, ready_white):
+    agent = build_agent(tmp_path)
+    used = InventoryItem(
+        external_id="used-16",
+        name="iPhone 16",
+        category="Celular",
+        capacity="128 GB",
+        color="ROSA",
+        source="mercado_phone",
+        condition="SEMINOVO",
+        availability="Disponível para venda",
+        quantity=1,
+        price_brl=4060,
+        search_text="iphone 16 rosa 128 gb celular seminovo",
+    )
+    agent.cache.items = [used]
+    if ready_white:
+        agent.cache.items.append(used.model_copy(update={
+            "external_id": "ready-white-16",
+            "color": "BRANCO",
+            "condition": "NOVO LACRADO",
+            "search_text": "iphone 16 branco 128 gb celular novo lacrado",
+        }))
+    agent.cache.last_refresh = time.time()
+    agent.cache.sealed_cache.items.append(
+        _sealed_item("order-16", "iPhone 16", "128 GB", 5600).model_copy(
+            update={"colors": "Rosa | Branco | Preto"}
+        )
+    )
+    question = "Oii, td bem? gostaria de saber se vcs tem o iPhone 16"
+    initial = await agent.respond(question, history=[])
+    assert "used-16" in initial.product_references
+    assert "order-16" in initial.product_references
+
+    decision = await agent.respond(
+        "por um acaso o iPhone branco vcs n teriam?",
+        history=[
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": initial.reply},
+        ],
+    )
+
+    assert "used-16" not in decision.product_references
+    assert "branco" in decision.reply.lower()
+    if ready_white:
+        assert "ready-white-16" in decision.product_references
+        assert "pronta entrega" in decision.reply.lower()
+    else:
+        assert decision.product_references == ["order-16"]
+        assert "por encomenda" in decision.reply.lower()
+        assert "1 semana" in decision.reply.lower()
+        assert "R$ 5.600,00" in decision.reply
+        assert "pronta entrega" not in decision.reply.lower()
+
+
 def _iphone15_price_followup_agent(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
