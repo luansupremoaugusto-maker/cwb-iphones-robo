@@ -528,6 +528,18 @@ _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE = re.compile(
     rf"(?:(?:um|uma|o|a)\s+)?(?:iphone\s*)?(?P<target_model>{_TRADE_UP_MODEL})\b",
     re.IGNORECASE,
 )
+_OWNED_IPHONE_UPGRADE_TARGET_RE = re.compile(
+    r"\b(?:tenho|possuo|estou\s+com|t[oô]\s+com)\s+"
+    rf"(?:(?:um|o)\s+)?(?:iphone\s*)?{_TRADE_UP_MODEL}\b"
+    r"\s*[,;]?\s+e\s+(?:quer(?:ia|o)|gostaria\s+de|pretendo)\s+"
+    r"(?P<upgrade>(?:mudar|trocar)\s+(?:por|para|pra|pro|pelo)\s+)?"
+    rf"(?:(?:um|o)\s+)?(?:iphone\s*)?(?P<target_model>{_TRADE_UP_MODEL})\b",
+    re.IGNORECASE,
+)
+_PERSONAL_PHONE_EXCHANGE_RE = re.compile(
+    r"\b(?:quer(?:ia|o)|gostaria\s+de|pretendo)\s+"
+    r"(?:trocar|tocar)\s+(?:o\s+)?meu\s+(?:celular|iphone|aparelho)\b",
+)
 _TARGET_FIRST_AVAILABLE_TRADE_IN_RE = re.compile(
     rf"\b(?:iphone\s*)?(?P<target_model>{_TRADE_UP_MODEL})\b"
     r"(?P<target_details>.{0,60}?)\b(?:esta|ta|continua|segue)\s+disponivel\b"
@@ -684,18 +696,41 @@ def _has_store_purchased_iphone_profile(text: str) -> bool:
     )
 
 
-def trade_in_catalog_target(text: str | None) -> str | None:
+def trade_in_catalog_target(
+    text: str | None,
+    history: list[dict[str, str]] | None = None,
+) -> str | None:
     """Extract the target iPhone when a customer explicitly offers theirs to trade."""
     normalized = _normalize(text)
     if _NEGATION_RE.search(normalized):
         return None
-    match = _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(text or "")
+    raw_text = text or ""
+    match = _EXPLICIT_OWNED_IPHONE_TRADE_TARGET_RE.search(raw_text)
+    upgrade = _OWNED_IPHONE_UPGRADE_TARGET_RE.search(raw_text) if not match else None
+    if upgrade and not _NON_APPLE_RE.search(normalized):
+        previous_user = _normalize(next(
+            (
+                entry.get("content")
+                for entry in reversed(history or [])
+                if entry.get("role") == "user"
+            ),
+            None,
+        ))
+        if (
+            upgrade.group("upgrade")
+            or _PERSONAL_PHONE_EXCHANGE_RE.search(_normalize(raw_text[:upgrade.start()]))
+            or (
+                not _NEGATION_RE.search(previous_user)
+                and _PERSONAL_PHONE_EXCHANGE_RE.fullmatch(previous_user.rstrip(".!? "))
+            )
+        ):
+            match = upgrade
     if match:
         model = re.sub(r"\s+", " ", match.group("target_model")).strip()
-        target_line_end = (text or "").find("\n", match.end("target_model"))
+        target_line_end = raw_text.find("\n", match.end("target_model"))
         if target_line_end < 0:
-            target_line_end = len(text or "")
-        details = (text or "")[match.end("target_model") : target_line_end].strip()
+            target_line_end = len(raw_text)
+        details = raw_text[match.end("target_model") : target_line_end].strip()
         return " ".join(part for part in (f"iPhone {model}", details) if part)
 
     match = _TARGET_FIRST_AVAILABLE_TRADE_IN_RE.search(normalized)
@@ -1638,6 +1673,8 @@ def is_trade_in_request(text: str | None) -> bool:
         return False
     if _NEGATION_RE.search(normalized):
         return False
+    if _PERSONAL_PHONE_EXCHANGE_RE.fullmatch(normalized.rstrip(".!? ")):
+        return True
     if re.search(r"\b(?:nao quero|so quero|s[oó] quero)\s+comprar\b", normalized):
         return False
     if (
@@ -2117,6 +2154,15 @@ _UNLABELED_TRADE_IN_FORM_MODEL_RE = re.compile(
 _UNLABELED_TRADE_IN_INLINE_CAPACITY_RE = re.compile(
     r"\s(?:\d{2,4}\s*(?:gb|tb)|32|64|128|256|512|1024|2048)$"
 )
+_UNLABELED_TRADE_IN_MODEL_COLOR_RE = re.compile(
+    r"\s+(?:(?:na|da|de)\s+)?cor\s*:?\s+[^?]+$"
+)
+_UNLABELED_TRADE_IN_CAPACITY_RE = re.compile(
+    r"(?:\d{1,4}\s*(?:gb|tb)|32|64|128|256|512|1024|2048)"
+)
+_TRADE_IN_BALANCE_QUESTION_RE = re.compile(
+    r"(?:quanto|quando)\s+ficaria\b.*\bcom\s+o\s+meu\s+na\s+troca[?.!]*"
+)
 _TRADE_IN_FORM_VALUE_RE = re.compile(
     r"(?:r\$\s*)?(?:\d{1,3}(?:[.,]\d{3})+|\d{2,5})(?:[.,]\d{1,2})?"
 )
@@ -2183,28 +2229,39 @@ def is_unlabeled_trade_in_form_response(
     ):
         return False
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    model_lines = [
-        line for line in map(_normalize, lines[:2])
-        if _UNLABELED_TRADE_IN_FORM_MODEL_RE.fullmatch(line)
-    ]
-    if not model_lines:
+    lines = [_normalize(line) for line in text.splitlines() if line.strip()]
+    if lines and _TRADE_IN_BALANCE_QUESTION_RE.fullmatch(lines[-1]):
+        lines.pop()
+    models = {}
+    for index, line in enumerate(lines[:2]):
+        model = _UNLABELED_TRADE_IN_MODEL_COLOR_RE.sub("", line)
+        if _UNLABELED_TRADE_IN_FORM_MODEL_RE.fullmatch(model):
+            models[index] = model
+    if not models:
         return False
 
+    capacity_lines = {
+        index + 1
+        for index, model in models.items()
+        if not _UNLABELED_TRADE_IN_INLINE_CAPACITY_RE.search(model)
+        and index + 1 < len(lines)
+        and _UNLABELED_TRADE_IN_CAPACITY_RE.fullmatch(lines[index + 1])
+    }
     has_battery_health = any(
-        re.search(r"\b\d{1,3}\s*%(?!\d)", _normalize(line))
+        re.search(r"\b\d{1,3}\s*%(?!\d)", line)
         for line in lines
     )
     has_value = any(
-        _TRADE_IN_FORM_VALUE_RE.fullmatch(_normalize(line))
-        for line in lines[1:]
+        _TRADE_IN_FORM_VALUE_RE.fullmatch(line)
+        for index, line in enumerate(lines[1:], 1)
+        if index not in capacity_lines
     )
     field_markers = (
         r"\b(?:novo|semi\s*novo|seminovo|usado)\b",
         r"\b(?:caixa|capinha|carregador|acessorios?)\b",
         r"\b(?:marcas?\s+de\s+uso|riscos?\s+na\s+tela|sem\s+marcas?|"
         r"sem\s+riscos?|quebrad\w*|defeitu\w*)\b",
-        r"\b(?:trocad\w*|repar\w*)\b",
+        r"\b(?:trocad\w*|troquei|repar\w*)\b",
         r"\bdesbloquead\w*\b",
         r"\bgarantia\b",
     )
@@ -2216,22 +2273,17 @@ def is_unlabeled_trade_in_form_response(
     if len(lines) >= 8 and has_value:
         return True
 
-    latest_reply = next(
-        (
-            _normalize(message.get("content"))
-            for message in reversed(history or [])
-            if message.get("role") == "assistant"
-        ),
-        "",
-    )
     # A detailed device profile can be forwarded even without an asking price.
     return bool(
-        _FORM_EM_ANDAMENTO_MARKER in latest_reply
-        and any(
-            model.startswith("iphone") and _UNLABELED_TRADE_IN_INLINE_CAPACITY_RE.search(model)
-            for model in model_lines
+        any(
+            model.startswith("iphone")
+            and (
+                _UNLABELED_TRADE_IN_INLINE_CAPACITY_RE.search(model)
+                or index + 1 in capacity_lines
+            )
+            for index, model in models.items()
         )
-        and "?" not in text
+        and not any("?" in line for line in lines)
         and not is_parts_buyback_request(text)
         and not is_purchase_without_trade_in_request(text)
     )

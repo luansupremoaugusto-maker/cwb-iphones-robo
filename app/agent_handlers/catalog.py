@@ -805,6 +805,7 @@ async def _try_product_availability(
     *,
     image_description: str | None = None,
     allow_buyer_interest_with_image: bool = False,
+    report_unavailable_models: bool = False,
 ) -> AgentDecision | None:
     battery_unit_selection_query = _catalog_battery_unit_selection_query(
         text,
@@ -2095,9 +2096,14 @@ async def _try_product_availability(
     if (
         len(requested_models) > 1
         and selected
-        and not requested_capacities
-        and not condition_was_requested
-        and bare_model_price_request
+        and (
+            report_unavailable_models
+            or (
+                not requested_capacities
+                and not condition_was_requested
+                and bare_model_price_request
+            )
+        )
     ):
         selected_models = {
             _model_key(getattr(item, "name", "")) for item in selected

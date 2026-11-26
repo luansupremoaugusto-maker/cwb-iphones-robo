@@ -214,6 +214,56 @@ async def test_permission_to_send_iphone_specs_waits_for_details(tmp_path):
     assert quote.product_references == ["17-pro-max-256"]
 
 
+@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("has_iphone_16", [False, True])
+async def test_phone_exchange_lists_all_requested_models(
+    tmp_path, grouped, has_iphone_16
+):
+    agent = build_agent(tmp_path)
+    generations = (13, 16, 17) if has_iphone_16 else (13, 17)
+    agent.cache.items = [
+        InventoryItem(
+            external_id=f"used-{generation}",
+            name=f"iPhone {generation}",
+            category="Celular Apple",
+            capacity="128 GB",
+            color="Azul",
+            condition="seminovo",
+            availability="Disponível para venda",
+            price_brl=1000 + 100 * generation,
+            quantity=1,
+            source="mercado_phone",
+            search_text=f"iPhone {generation} Azul 128 GB seminovo",
+        )
+        for generation in generations
+    ]
+    exchange = "Queria tocar meu celular"
+    models = "Tenho um 13 e queria o 16 ou 17"
+    history = [
+        {"role": "user", "content": "Oii, tudo bem?"},
+        {"role": "assistant", "content": "Oi! 😊 Como posso te ajudar?"},
+    ]
+    if grouped:
+        models = f"{exchange}\n{models}"
+    else:
+        initial = await agent.respond(exchange, history=history)
+        assert initial.reply == TRADE_IN_FORM
+        history.extend([
+            {"role": "user", "content": exchange},
+            {"role": "assistant", "content": initial.reply},
+        ])
+
+    decision = await agent.respond(models, history=history)
+
+    assert not decision.handoff
+    assert "used-17" in decision.product_references
+    assert "used-13" not in decision.product_references
+    assert ("used-16" in decision.product_references) is has_iphone_16
+    assert "iphone 16" in decision.reply.lower()
+    assert "iphone 17" in decision.reply.lower()
+    assert (TRADE_IN_FORM in decision.reply) is grouped
+
+
 async def test_card_installments_and_used_phone_evaluation_keep_separate_contexts(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
