@@ -257,6 +257,62 @@ def _strip_installment_count_list(value: Any) -> str:
     return count_list.sub(" ", normalized, count=1)
 
 
+_COMMON_CATALOG_COLOR_NAMES = (
+    "azul claro",
+    "azul escuro",
+    "azul intenso",
+    "azul ultramarino",
+    "roxo profundo",
+    "preto espacial",
+    "titânio natural",
+    # Customers often shorten the titanium color to just "natural".
+    "natural",
+    "titânio deserto",
+    "titânio branco",
+    "titânio preto",
+    "meia noite",
+    "ultramarino",
+    "estelar",
+    "roxo",
+    "roxa",
+    "azul",
+    "preto",
+    "preta",
+    "branco",
+    "branca",
+    "verde",
+    "rosa",
+    "amarelo",
+    "amarela",
+    "vermelho",
+    "vermelha",
+    "laranja",
+    "dourado",
+    "dourada",
+    "prata",
+    "prateado",
+    "prateada",
+    "cinza",
+    "grafite",
+    "bege",
+    "marrom",
+    "purple",
+    "blue",
+    "black",
+    "white",
+    "green",
+    "pink",
+    "midnight",
+    "starlight",
+    "ultramarine",
+)
+
+
+_CATALOG_COLOR_PATTERN = "|".join(
+    re.escape(_normalize(color)) for color in _COMMON_CATALOG_COLOR_NAMES
+)
+
+
 def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...]:
     """Return all iPhone models joined as alternatives in a request."""
     normalized = _strip_installment_count_list(value)
@@ -380,6 +436,7 @@ def _requested_iphone_model_keys(value: Any) -> tuple[tuple[int | str, str], ...
             r"(?:\d{1,3}\s*%\s*)?"
             r"(?:(?:(?:semi[\s-]*)?nov[oa]s?|usad[oa]s?|lacrad[oa]s?)[?!.,;:]*\s*)?"
             r"(?:\d{1,3}\s*%\s*)?"
+            rf"(?:(?:{_CATALOG_COLOR_PATTERN})\s+(?=(?:e|ou|or)\b))?"
             r"(?:(?:ou|o|e|or)(?:\s+(?:o|a|um|uma|do|da|dos|das|no|na))?\s*(?:iphone\s*)?|[/,;]|__linebreak__)\s*",
             separator,
         ):
