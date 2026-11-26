@@ -2898,6 +2898,35 @@ async def test_generic_iphone_models_request_lists_every_iphone_without_other_ca
         assert expected in decision.reply.upper()
     assert "MACBOOK" not in decision.reply.upper()
 
+    cache.items.extend(
+        InventoryItem(
+            external_id=f"iphone-{generation}-seminovo",
+            name=f"iPhone {generation}",
+            category="Celular",
+            capacity="128 GB",
+            condition="SEMINOVO",
+            availability="Disponível para venda",
+            quantity=1,
+            price_brl=4000,
+            search_text=f"iphone {generation} 128 gb celular seminovo",
+        )
+        for generation in (16, 17)
+    )
+    seminovos = await agent.respond(
+        "Quais os iPhones seminovos disponíveis?",
+        history=[
+            {"role": "user", "content": "Boa tarde"},
+            {"role": "assistant", "content": "Cwb.iphones agradece seu contato. Como podemos ajudar?"},
+        ],
+    )
+
+    assert "Lista completa" in seminovos.reply
+    assert seminovos.reply.count("| Bat:") == 5
+    for item in cache.items:
+        assert item.name in seminovos.reply
+    assert "LACRADO" not in seminovos.reply.upper()
+    assert "MACBOOK" not in seminovos.reply.upper()
+
 
 @pytest.mark.asyncio
 async def test_generic_iphone_list_filters_an_explicit_capacity(tmp_path):
