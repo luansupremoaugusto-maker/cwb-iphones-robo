@@ -2108,12 +2108,21 @@ async def _try_product_availability(
         if unavailable_models:
             unavailable_labels = []
             for number, variant in unavailable_models:
-                if not variant:
-                    unavailable_labels.append(f"iPhone {number} (modelo base)")
-                elif variant == "e":
-                    unavailable_labels.append(f"iPhone {number}e")
+                scopes = requested_model_scopes.get((number, variant), ())
+                colors = tuple(dict.fromkeys(
+                    color for _, _, scope_colors in scopes for color in scope_colors
+                ))
+                if variant == "e":
+                    model_label = f"iPhone {number}e"
+                elif variant:
+                    model_label = f"iPhone {number} {variant.title()}"
                 else:
-                    unavailable_labels.append(f"iPhone {number} {variant.title()}")
+                    model_label = f"iPhone {number}"
+                if colors:
+                    model_label += " na cor " + " ou ".join(colors)
+                elif not variant:
+                    model_label += " (modelo base)"
+                unavailable_labels.append(model_label)
             reply += (
                 "\n\nNão localizei opção disponível para "
                 + " e ".join(unavailable_labels)

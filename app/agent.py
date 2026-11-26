@@ -30,6 +30,7 @@ from app.adapters.catalog_cache import (
     _requested_catalog_price_cents,
     _requested_ipad_model_keys,
     _requested_iphone_model_floor,
+    _COMMON_CATALOG_COLOR_NAMES,
     _requested_iphone_model_keys,
     _requested_photo_condition,
 )
@@ -802,57 +803,6 @@ def _requested_model_segments(text: str) -> dict[_RequestedModelKey, tuple[str, 
 
 
 
-
-
-_COMMON_CATALOG_COLOR_NAMES = (
-    "azul claro",
-    "azul escuro",
-    "azul intenso",
-    "azul ultramarino",
-    "roxo profundo",
-    "preto espacial",
-    "titânio natural",
-    # Customers often shorten the titanium color to just "natural".
-    "natural",
-    "titânio deserto",
-    "titânio branco",
-    "titânio preto",
-    "meia noite",
-    "ultramarino",
-    "estelar",
-    "roxo",
-    "roxa",
-    "azul",
-    "preto",
-    "preta",
-    "branco",
-    "branca",
-    "verde",
-    "rosa",
-    "amarelo",
-    "amarela",
-    "vermelho",
-    "vermelha",
-    "laranja",
-    "dourado",
-    "dourada",
-    "prata",
-    "prateado",
-    "prateada",
-    "cinza",
-    "grafite",
-    "bege",
-    "marrom",
-    "purple",
-    "blue",
-    "black",
-    "white",
-    "green",
-    "pink",
-    "midnight",
-    "starlight",
-    "ultramarine",
-)
 
 
 def _requested_catalog_colors(text: str, items: list[Any]) -> tuple[str, ...]:

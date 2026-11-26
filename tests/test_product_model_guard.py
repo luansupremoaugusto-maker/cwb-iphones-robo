@@ -930,6 +930,58 @@ async def test_shorthand_iphone_availability_keeps_order_only_stock(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pink_available", [True, False])
+async def test_price_request_keeps_pink_iphone_16_separate_from_16_pro(
+    tmp_path, pink_available
+):
+    agent = build_agent(tmp_path)
+    pink = InventoryItem(
+        external_id="pink-16",
+        name="iPhone 16",
+        category="Celular",
+        capacity="128 GB",
+        color="ROSA",
+        source="mercado_phone",
+        condition="SEMINOVO",
+        availability="Disponível para venda",
+        quantity=1,
+        price_brl=4060,
+        search_text="iphone 16 rosa 128 gb celular seminovo",
+    )
+    agent.cache.items = [
+        *([pink] if pink_available else []),
+        pink.model_copy(update={
+            "external_id": "black-16",
+            "color": "PRETO",
+            "search_text": "iphone 16 preto 128 gb celular seminovo",
+        }),
+        pink.model_copy(update={
+            "external_id": "black-16-pro",
+            "name": "iPhone 16 Pro",
+            "color": "TITÂNIO PRETO",
+            "price_brl": 4580,
+            "search_text": "iphone 16 pro titanio preto 128 gb celular seminovo",
+        }),
+    ]
+    agent.cache.last_refresh = time.time()
+
+    decision = await agent.respond(
+        "Boa noite, poderia me informar o valor do 16 rosa e do 16 pro por favor, "
+        "pagamento vai ser feito no pix daí",
+        history=[],
+    )
+
+    if pink_available:
+        assert set(decision.product_references) == {"pink-16", "black-16-pro"}
+        assert "R$ 4.060" in decision.reply
+    else:
+        assert decision.product_references == ["black-16-pro"]
+        assert "não localizei opção disponível para iphone 16 na cor rosa" in decision.reply.lower()
+    assert "R$ 4.580" in decision.reply
+    assert "16 pro rosa" not in decision.reply.lower()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("ready_white", [False, True])
 async def test_iphone_color_availability_followup_uses_confirmed_stock(tmp_path, ready_white):
     agent = build_agent(tmp_path)
