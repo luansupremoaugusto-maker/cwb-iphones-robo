@@ -58,7 +58,7 @@ def test_webhook_queues_manual_outgoing_and_ignores_bot_echoes():
     assert claimed[1]["messageId"] == "manual-1"
 
 
-async def test_whatsapp_business_greeting_does_not_hold_initial_customer_message():
+async def test_whatsapp_business_greeting_does_not_hold_initial_product_question():
     runtime = build_runtime(_settings(), offline=True)
     phone = "5511888888887"
     calls: list[tuple[str, list[dict[str, str]]]] = []
@@ -73,10 +73,10 @@ async def test_whatsapp_business_greeting_does_not_hold_initial_customer_message
         await runtime.processor.process_batch(
             [
                 {
-                    "messageId": "customer-greeting-1",
+                    "messageId": "customer-question-1",
                     "phone": phone,
                     "fromMe": False,
-                    "text": {"message": "Bom dia"},
+                    "text": {"message": "Bom dia, tem iPhone 15?"},
                 },
                 {
                     "messageId": "whatsapp-auto-greeting-1",
@@ -90,7 +90,7 @@ async def test_whatsapp_business_greeting_does_not_hold_initial_customer_message
             ]
         )
 
-        assert calls == [("Bom dia", [])]
+        assert calls == [("Bom dia, tem iPhone 15?", [])]
         ignored_events = runtime.repository.list_audit_events(
             event_type="ignored_event",
             limit=10,
@@ -105,7 +105,8 @@ async def test_whatsapp_business_greeting_does_not_hold_initial_customer_message
 
 
 @pytest.mark.parametrize("greeting", ["Boa tarde", "Olá, boa tarde! Tudo bem?"])
-async def test_standalone_greeting_keeps_bot_available_for_payment_question(greeting):
+@pytest.mark.parametrize("business_greeted", [True, False])
+async def test_standalone_greeting_keeps_bot_available_for_payment_question(greeting, business_greeted):
     runtime = build_runtime(_settings())
     phone = "5511888888887"
     runtime.processor._send_customer = AsyncMock()
@@ -122,10 +123,11 @@ async def test_standalone_greeting_keeps_bot_available_for_payment_question(gree
         "text": {"message": "Cwb.iphones agradece seu contato. Como podemos ajudar?"},
     }
     try:
-        await runtime.processor.process_batch([
-            {**incoming, "messageId": "greeting", "text": {"message": greeting}},
-            auto_greeting,
-        ])
+        batch = [{**incoming, "messageId": "greeting", "text": {"message": greeting}}]
+        if business_greeted:
+            batch.append(auto_greeting)
+        await runtime.processor.process_batch(batch)
+        assert runtime.repository.recent_messages(phone, limit=1)[0]["content"] == greeting
         await runtime.processor.process_batch([
             {
                 **incoming,
@@ -137,9 +139,10 @@ async def test_standalone_greeting_keeps_bot_available_for_payment_question(gree
         replies = [
             call.args[1] for call in runtime.processor._send_customer.await_args_list
         ]
-        assert len(replies) == 2
-        assert "Como posso te ajudar?" in replies[0]
-        assert "Não parcelamos no boleto" in replies[1]
+        assert len(replies) == (1 if business_greeted else 2)
+        if not business_greeted:
+            assert "Como posso te ajudar?" in replies[0]
+        assert "Não parcelamos no boleto" in replies[-1]
         runtime.processor._notify_admins.assert_not_awaited()
     finally:
         await runtime.aclose()

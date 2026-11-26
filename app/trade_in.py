@@ -2114,6 +2114,9 @@ _UNLABELED_TRADE_IN_FORM_MODEL_RE = re.compile(
     r"(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
     r"(?:\s+\d{2,4}\s*(?:gb|tb)?)?$"
 )
+_UNLABELED_TRADE_IN_INLINE_CAPACITY_RE = re.compile(
+    r"\s(?:\d{2,4}\s*(?:gb|tb)|32|64|128|256|512|1024|2048)$"
+)
 _TRADE_IN_FORM_VALUE_RE = re.compile(
     r"(?:r\$\s*)?(?:\d{1,3}(?:[.,]\d{3})+|\d{2,5})(?:[.,]\d{1,2})?"
 )
@@ -2225,7 +2228,7 @@ def is_unlabeled_trade_in_form_response(
     return bool(
         _FORM_EM_ANDAMENTO_MARKER in latest_reply
         and any(
-            model.startswith("iphone") and re.search(r"\b\d{2,4}\s*(?:gb|tb)$", model)
+            model.startswith("iphone") and _UNLABELED_TRADE_IN_INLINE_CAPACITY_RE.search(model)
             for model in model_lines
         )
         and "?" not in text

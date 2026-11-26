@@ -10,7 +10,7 @@ from typing import Any
 from app.adapters.openai_media import OpenAIMediaError
 from app.adapters.zapi import SendResult, ZapiClient, ZapiError, normalize_received_callback
 from app.admin import AdminCommandService, admin_role_allows
-from app.agent import AgentService
+from app.agent import AgentService, standalone_greeting
 from app.config import Settings, normalize_phone
 from app.schemas import AgentDecision, IncomingMessage
 from app.storage.database import Repository, utc_now
@@ -195,6 +195,7 @@ class MessageProcessor:
     async def process_batch(self, payloads: list[dict[str, Any]]) -> None:
         """Process all messages in one durable debounce window as one turn."""
         grouped: dict[str, list[IncomingMessage]] = defaultdict(list)
+        business_greeted_phones: set[str] = set()
         for payload in payloads:
             incoming = normalize_received_callback(payload)
             if not incoming.phone:
@@ -206,6 +207,8 @@ class MessageProcessor:
             if incoming.from_me:
                 auto_reply_reason = _whatsapp_business_auto_reply_reason(incoming)
                 if auto_reply_reason:
+                    if auto_reply_reason == "whatsapp_business_greeting":
+                        business_greeted_phones.add(incoming.phone)
                     self.repository.audit(
                         "ignored_event",
                         incoming.phone,
@@ -235,7 +238,9 @@ class MessageProcessor:
             grouped[incoming.phone].append(incoming)
 
         for phone, incoming_messages in grouped.items():
-            await self._process_phone_batch(phone, incoming_messages)
+            await self._process_phone_batch(
+                phone, incoming_messages, business_greeted=phone in business_greeted_phones
+            )
 
     async def _store_inbound_without_response(self, incoming_messages: list[IncomingMessage]) -> None:
         """Save customer messages already answered manually during this debounce window."""
@@ -347,7 +352,9 @@ class MessageProcessor:
             {"message_id": incoming.message_id, "kind": incoming.kind},
         )
 
-    async def _process_phone_batch(self, phone: str, incoming_messages: list[IncomingMessage]) -> None:
+    async def _process_phone_batch(
+        self, phone: str, incoming_messages: list[IncomingMessage], *, business_greeted: bool = False
+    ) -> None:
         first = incoming_messages[0]
         last = incoming_messages[-1]
         self.repository.get_or_create_conversation(phone, first.chat_name)
@@ -395,6 +402,22 @@ class MessageProcessor:
                     "protocol": protocol,
                     "message_ids": stored_message_ids,
                     "status": conversation.status,
+                    "batch_size": len(incoming_messages),
+                },
+            )
+            return
+
+        if business_greeted and all(
+            incoming.kind == "text" and standalone_greeting(incoming.text or "")
+            for incoming in incoming_messages
+        ):
+            self.repository.audit(
+                "message_held",
+                phone,
+                {
+                    "protocol": protocol,
+                    "message_ids": stored_message_ids,
+                    "reason": "whatsapp_business_greeting_already_sent",
                     "batch_size": len(incoming_messages),
                 },
             )

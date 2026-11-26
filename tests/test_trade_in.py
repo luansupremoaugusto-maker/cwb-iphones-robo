@@ -1998,6 +1998,40 @@ async def test_upgrade_profile_without_asking_price_is_forwarded(tmp_path, follo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["", "Quero trocar esse meu no 15 pro Max\n"])
+async def test_trade_in_profile_without_storage_unit_continues_evaluation(tmp_path, prefix):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    request = "Gostaria de saber se pega na troca um 15 pro 128 impecável"
+    initial = await service.respond(f"{request}\nSem marca de uso branco\n89% bateria")
+    assert initial.reply == TRADE_IN_FORM
+    history = [
+        {"role": "user", "content": "Vc tem 15 pro Max 256"},
+        {"role": "assistant", "content": "Temos iPhone 15 Pro Max 256GB seminovo."},
+        {"role": "user", "content": request},
+        {"role": "assistant", "content": initial.reply},
+    ]
+    profile = (
+        "iPhone 15 pro 128\nBranco\nNunca foi aberto\nSem marca de usos\n"
+        "Novo\nSem riscos na tela\nDesbloqueado todas opearadoras\n"
+        "89% bateria\nImpecável sem detalhes"
+    )
+
+    decision = await service.respond(prefix + profile, history=history)
+
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+    assert decision.handoff
+    assert decision.handoff_reason == TRADE_IN_REASON
+    assert not decision.product_references
+    assert not is_unlabeled_trade_in_form_response("Vocês têm iPhone 15 Pro 128 novo?", history)
+
+
+@pytest.mark.asyncio
 async def test_ordered_buyback_answers_with_grouped_price_are_forwarded(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
