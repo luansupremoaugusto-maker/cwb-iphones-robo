@@ -1998,6 +1998,36 @@ async def test_upgrade_profile_without_asking_price_is_forwarded(tmp_path, follo
 
 
 @pytest.mark.asyncio
+async def test_ordered_buyback_answers_with_grouped_price_are_forwarded(tmp_path):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    request = "Por quantos vcs pegam um iPhone 15 pro Max bateria 84%"
+    initial_decision = await service.respond(request)
+    assert initial_decision.reply == TRADE_IN_FORM
+    assert not initial_decision.handoff
+    history = [
+        {"role": "user", "content": request},
+        {"role": "assistant", "content": initial_decision.reply},
+    ]
+    filled_form = (
+        "iPhone 15 pro Max\n258\nNatural\nSemi-novo\nCapinhas (9capinhas)\n"
+        "Não\nNão\nNão\nTela\nSim\n84%\n3,400\nNão sei"
+    )
+
+    decision = await service.respond(filled_form, history=history)
+
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+    assert decision.handoff is True
+    assert decision.handoff_reason == TRADE_IN_REASON
+    assert not decision.product_references
+
+
+@pytest.mark.asyncio
 async def test_unlabeled_evaluation_answers_with_past_repair_are_forwarded_to_attendant(
     tmp_path,
 ):

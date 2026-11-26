@@ -2114,6 +2114,9 @@ _UNLABELED_TRADE_IN_FORM_MODEL_RE = re.compile(
     r"(?:\s*(?:pro\s*max|pro|max|plus|mini|air)|e|se)?"
     r"(?:\s+\d{2,4}\s*(?:gb|tb)?)?$"
 )
+_TRADE_IN_FORM_VALUE_RE = re.compile(
+    r"(?:r\$\s*)?(?:\d{1,3}(?:[.,]\d{3})+|\d{2,5})(?:[.,]\d{1,2})?"
+)
 
 
 def is_completed_trade_in_form(text: str | None) -> bool:
@@ -2154,7 +2157,7 @@ def is_completed_trade_in_form(text: str | None) -> bool:
             for answer in answers[4:]
         )
         has_value = any(
-            re.fullmatch(r"(?:r\$\s*)?\d{2,5}(?:[.,]\d{1,2})?", _normalize(answer))
+            _TRADE_IN_FORM_VALUE_RE.fullmatch(_normalize(answer))
             for answer in answers[4:]
         )
         if yes_no_count >= 4 and has_battery_health and has_value:
@@ -2190,10 +2193,7 @@ def is_unlabeled_trade_in_form_response(
         for line in lines
     )
     has_value = any(
-        re.fullmatch(
-            r"(?:r\$\s*)?(?:\d{1,3}(?:[.,]\d{3})+|\d{2,5})(?:[.,]\d{1,2})?",
-            _normalize(line),
-        )
+        _TRADE_IN_FORM_VALUE_RE.fullmatch(_normalize(line))
         for line in lines[1:]
     )
     field_markers = (
