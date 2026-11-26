@@ -108,6 +108,7 @@ from app.agent import (
 
 async def _try_available_products(self, text: str) -> AgentDecision | None:
     variant_list_request = _is_variant_catalog_list_request(text)
+    generic_iphone_list = _is_generic_iphone_list_request(text)
     sealed_iphone_only = _is_sealed_iphone_list_request(text)
     sealed_only = _is_sealed_catalog_list_request(text) or sealed_iphone_only
     if not (_is_available_list_request(text) or sealed_only or sealed_iphone_only):
@@ -171,8 +172,10 @@ async def _try_available_products(self, text: str) -> AgentDecision | None:
             result["lacrados"] = []
         elif _has_sealed_reference(normalized) and not _has_seminovo_reference(normalized):
             result["seminovos"] = []
-    if _is_generic_iphone_list_request(text) or sealed_iphone_only:
+    if generic_iphone_list or sealed_iphone_only:
         normalized = _normalize(text)
+        if _has_seminovo_reference(normalized) and not _has_sealed_reference(normalized):
+            result = {**result, "lacrados_pronta_entrega": [], "lacrados": []}
         other_family_requested = bool(
             re.search(r"\b(?:ipads?|mac(?:books?)?|airpods?|apple\s+watch)\b", normalized)
         )
@@ -249,9 +252,7 @@ async def _try_available_products(self, text: str) -> AgentDecision | None:
                 entry for entry in result.get("lacrados", []) if has_requested_capacity(entry)
             ],
         }
-        is_category_iphone_list = (
-            _is_generic_iphone_list_request(text) or sealed_iphone_only
-        )
+        is_category_iphone_list = generic_iphone_list or sealed_iphone_only
         if is_category_iphone_list and not any(
             result.get(key)
             for key in ("seminovos", "lacrados_pronta_entrega", "lacrados")
