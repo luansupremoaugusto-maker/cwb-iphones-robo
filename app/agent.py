@@ -2849,18 +2849,22 @@ class AgentService:
         catalog_request: str,
         *,
         form_completed: bool,
+        form_already_sent: bool = False,
     ) -> AgentDecision:
-        catalog_decision = await self._try_product_availability(catalog_request)
+        catalog_decision = await self._try_product_availability(
+            catalog_request, report_unavailable_models=True
+        )
         catalog_reply = (
             catalog_decision.reply.strip()
             if catalog_decision is not None
-            else "Não consegui confirmar agora a disponibilidade do modelo pedido."
+            else "Não consegui confirmar agora a disponibilidade das opções pedidas."
         )
         follow_up = (
             TRADE_IN_NEGOTIATION_REPLY if form_completed else TRADE_IN_FORM
         )
+        include_follow_up = form_completed or not form_already_sent
         return AgentDecision(
-            reply=f"{catalog_reply}\n\n{follow_up}",
+            reply=f"{catalog_reply}\n\n{follow_up}" if include_follow_up else catalog_reply,
             handoff=form_completed,
             handoff_reason=TRADE_IN_REASON if form_completed else None,
             confidence="high",
@@ -2930,7 +2934,7 @@ class AgentService:
             return AgentDecision(reply=TRADE_IN_BRAND_POLICY_REPLY, confidence="high")
         form_completed = is_completed_trade_in_form(text)
         unlabeled_form_response = is_unlabeled_trade_in_form_response(text, history)
-        trade_target = trade_in_catalog_target(text)
+        trade_target = trade_in_catalog_target(text, history)
         if form_completed:
             if trade_target:
                 return protect_customer_decision(
@@ -3013,11 +3017,15 @@ class AgentService:
                     combined_catalog_request
                 )
             )
-        if trade_target and not trade_in_em_andamento(history):
+        form_already_sent = trade_in_em_andamento(history)
+        if trade_target and (
+            not form_already_sent or not trade_in_catalog_target(text)
+        ):
             return protect_customer_decision(
                 await self._try_trade_in_with_catalog_target(
                     trade_target,
                     form_completed=False,
+                    form_already_sent=form_already_sent,
                 )
             )
         if (
@@ -4188,6 +4196,7 @@ class AgentService:
         *,
         image_description: str | None = None,
         allow_buyer_interest_with_image: bool = False,
+        report_unavailable_models: bool = False,
     ) -> AgentDecision | None:
         from app.agent_handlers.catalog import (
             _try_product_availability as _agent_handler,
@@ -4198,6 +4207,7 @@ class AgentService:
             history,
             image_description=image_description,
             allow_buyer_interest_with_image=allow_buyer_interest_with_image,
+            report_unavailable_models=report_unavailable_models,
         )
 
     def _try_current_day_information(self, text: str) -> AgentDecision | None:

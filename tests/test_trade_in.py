@@ -2032,6 +2032,47 @@ async def test_trade_in_profile_without_storage_unit_continues_evaluation(tmp_pa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "followup",
+    [
+        "",
+        "\nQuando ficaria o semi novo com o meu na troca",
+        "\nQuanto ficaria o seminovo com o meu na troca?",
+    ],
+)
+async def test_trade_in_profile_with_color_and_separate_capacity_after_catalog(tmp_path, followup):
+    settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
+    service = AgentService(
+        InventoryCache(object(), settings, cache_path=tmp_path / "inventory.json"),
+        FAQStore(settings.faq_file),
+        settings,
+        offline=True,
+    )
+    history = [
+        {"role": "user", "content": "Queria tocar meu celular"},
+        {"role": "user", "content": "Tenho um 13 e queria o 16 ou 17"},
+        {"role": "assistant", "content": TRADE_IN_FORM},
+        {"role": "assistant", "content": "Temos iPhone 17 seminovo de 256 GB por R$ 5.650."},
+    ]
+    profile = (
+        "iPhone 13 na cor rosa\n128gb\nComprei semi novo em janeiro desse ano\n"
+        "Sem marcas de uso ou riscos na tela e também sem defeitos\n"
+        "Nunca fiz nenhum reparo e nem troquei peça\nChip desbloqueado\n78% de bateria"
+    )
+
+    decision = await service.respond(profile + followup, history=history)
+
+    assert decision.reply == TRADE_IN_NEGOTIATION_REPLY
+    assert decision.handoff
+    assert decision.handoff_reason == TRADE_IN_REASON
+    assert not decision.product_references
+    assert not is_unlabeled_trade_in_form_response(
+        "iPhone 16 na cor rosa\n128gb\nVocês têm seminovo sem riscos, desbloqueado, com 90% de bateria?",
+        history,
+    )
+
+
+@pytest.mark.asyncio
 async def test_ordered_buyback_answers_with_grouped_price_are_forwarded(tmp_path):
     settings = Settings(openai_api_key=None, faq_path=str(tmp_path / "faq.yaml"))
     service = AgentService(
