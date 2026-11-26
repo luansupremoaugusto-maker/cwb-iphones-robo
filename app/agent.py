@@ -177,6 +177,18 @@ def _normalize(value: str) -> str:
     return re.sub(r"\bpromax\b", "pro max", normalized)
 
 
+def standalone_greeting(text: str) -> str | None:
+    """Return the salutation when the message contains only a greeting."""
+    greeting = re.fullmatch(
+        r"(?:(oi+|ola)[!.,? ]*)?(bom dia|boa tarde|boa noite)?"
+        r"(?:[!.,? ]*tudo bem)?[!.,? ]*",
+        _normalize(text),
+    )
+    if greeting and (greeting[1] or greeting[2]):
+        return greeting[2] or ("olá" if greeting[1] == "ola" else "oi")
+    return None
+
+
 def _should_use_turn_interpreter(
     text: str,
     history: list[dict[str, str]] | None,
@@ -2870,13 +2882,8 @@ class AgentService:
     ) -> AgentDecision:
         if not image_description:
             normalized_text = _normalize(text)
-            greeting = re.fullmatch(
-                r"(?:(oi+|ola)[!.,? ]*)?(bom dia|boa tarde|boa noite)?"
-                r"(?:[!.,? ]*tudo bem)?[!.,? ]*",
-                normalized_text,
-            )
-            if greeting and (greeting[1] or greeting[2]):
-                salutation = greeting[2] or ("olá" if greeting[1] == "ola" else "oi")
+            salutation = standalone_greeting(text)
+            if salutation:
                 return AgentDecision(
                     reply=f"{salutation.capitalize()}! 😊 Como posso te ajudar?",
                     confidence="high",
