@@ -79,6 +79,50 @@ class SealedCatalog:
         return next((item for item in self.items if item.external_id == product_id), None)
 
 
+@pytest.mark.parametrize("sealed_quantity", [None, 0, 1])
+async def test_batched_greeting_and_17_pro_sealed_quote(tmp_path, monkeypatch, sealed_quantity):
+    agent = build_agent(tmp_path)
+    agent.offline = False
+    agent.agent = object()
+    agent.turn_interpreter = object()
+    pro = _sealed_item("sheet:17-pro", "iPhone 17 Pro", "256 GB", 8000)
+    pro_max = _sealed_item("sheet:17-pro-max", "iPhone 17 Pro Max", "256 GB", 8700)
+    agent.cache.sealed_cache.items = [pro, pro_max]
+    agent.cache.items = [
+        pro.model_copy(update={
+            "external_id": "used-pro",
+            "category": "Celular",
+            "source": "mercado_phone",
+            "condition": "seminovo",
+            "availability": "Disponível para venda",
+            "quantity": 1,
+            "price_brl": 7100,
+        }),
+        pro.model_copy(update={
+            "external_id": "physical-pro",
+            "category": "Celular",
+            "source": "mercado_phone",
+            "availability": "Disponível para venda",
+            "quantity": sealed_quantity,
+        }),
+    ]
+
+    async def unexpected_interpretation(*args, **kwargs):
+        pytest.fail("The greeting must not send a clear catalog quote to the interpreter")
+
+    monkeypatch.setattr(agent, "_interpret_turn", unexpected_interpretation)
+    quote = await agent.respond(
+        "Bom dia\nTudo bem ?\nPoderia me passar os valores do iPhone 17 pro e pro max novos"
+    )
+    assert "R$ 8.000,00" in quote.reply and "R$ 8.700,00" in quote.reply
+    assert "R$ 7.100,00" not in quote.reply
+    assert "POR ENCOMENDA" in quote.reply
+    assert ("pronta entrega" in quote.reply.lower()) == (sealed_quantity == 1)
+    assert ("physical-pro" in quote.product_references) == (sealed_quantity == 1)
+    assert await agent.cache.get("sheet:17-pro") == pro
+    assert await agent.cache.get("sheet:17-pro-max") == pro_max
+
+
 @pytest.mark.asyncio
 async def test_shared_pro_price_comparison_and_installment_followup(tmp_path, monkeypatch):
     agent = build_agent(tmp_path)

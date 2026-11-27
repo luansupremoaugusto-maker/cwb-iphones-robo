@@ -11,6 +11,7 @@ from app.agent import (
     DELIVERY_FEE_HANDOFF_REASON,
     DELIVERY_FEE_HANDOFF_REPLY,
     _appointment_context,
+    _customer_product_request_context_query,
     _delivery_or_pickup_reply,
     _delivery_payment_reply,
     _has_delivery_context,
@@ -30,6 +31,7 @@ from app.agent import (
     _is_delivery_or_pickup_request,
     _is_delivery_payment_question,
     _is_delivery_quote_followup,
+    _is_explicit_catalog_price_request,
     _is_explicit_human_request,
     _is_physical_store_request,
     _is_pickup_schedule_request,
@@ -42,6 +44,7 @@ from app.agent import (
     _is_warranty_request,
     _normalize,
     _pickup_schedule_reply,
+    _requested_iphone_model_keys,
     _reservation_policy,
     _reservation_reply,
     _store_address,
@@ -407,4 +410,41 @@ async def _try_warranty(
                 f"{reply} {self.faq.get('seminovos')} "
                 f"{self.faq.get('lacrados')}"
             ).strip()
+    if kind == "seminovo":
+        # WhatsApp can deliver a separate price question in the warranty turn.
+        # Resolve its models from the customer's request and apply the new condition.
+        for part in re.split(r"\r?\n|(?<=\?)\s+", text):
+            price_question = _normalize(part)
+            if _is_warranty_request(part) or _has_sealed_reference(price_question):
+                continue
+            if not (
+                _is_explicit_catalog_price_request(part)
+                or re.search(
+                    r"\b(?:valor(?:es)?|precos?)\s+(?:deles?|delas?|desses?|dessas?)\b",
+                    price_question,
+                )
+            ):
+                continue
+            if re.search(r"\b(?:parcel\w*|juros|entrada|frete)\b", price_question):
+                continue
+            query = part
+            if not _has_product_reference(price_question):
+                models = _requested_iphone_model_keys(
+                    _customer_product_request_context_query(part, history)
+                )
+                if not models:
+                    break
+                model_names = " e ".join(
+                    f"iPhone {str(number).upper()} {variant.title()}".strip()
+                    for number, variant in models
+                )
+                query = f"{model_names}. {query}"
+            quote = await self._try_product_availability(
+                f"{query} seminovo",
+                report_unavailable_models=True,
+            )
+            if quote is not None:
+                return quote.model_copy(update={"reply": f"{reply}\n\n{quote.reply}"})
+            reply += "\n\nNão consegui confirmar os valores dos seminovos agora."
+            break
     return AgentDecision(reply=reply, confidence="high")

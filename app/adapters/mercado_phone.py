@@ -498,30 +498,11 @@ class InventoryCache:
             return []
         return await self.sealed_cache.search(query, limit=limit)
 
-    async def _enrich_sealed_item(self, item: InventoryItem) -> InventoryItem:
-        candidates = await self.search_inventory(
-            f"{item.name} {item.capacity or ''}".strip(),
-            limit=10,
-        )
-        target_tokens = [token for token in _normalize_text(f"{item.name} {item.capacity or ''}").split() if token]
-        for candidate in candidates:
-            candidate_text = _normalize_text(f"{candidate.name} {candidate.description}")
-            if all(token in candidate_text for token in target_tokens):
-                return item.model_copy(
-                    update={
-                        "quantity": candidate.quantity,
-                        "availability": candidate.availability or "Disponibilidade a confirmar",
-                    }
-                )
-        return item
-
     async def search(self, query: str, limit: int = 5) -> list[InventoryItem]:
-        inventory_available = True
         try:
             inventory_items = await self.search_inventory(query, limit=limit)
         except Exception as exc:
             inventory_items = []
-            inventory_available = False
             logger.warning(
                 "Mercado Phone search failed; continuing with sealed prices if available (%s)",
                 type(exc).__name__,
@@ -536,23 +517,11 @@ class InventoryCache:
                 type(exc).__name__,
             )
 
-        enriched_sealed: list[InventoryItem] = []
-        if not inventory_available:
-            enriched_sealed = sealed_items
-        else:
-            for item in sealed_items:
-                try:
-                    enriched_sealed.append(await self._enrich_sealed_item(item))
-                except Exception as exc:
-                    enriched_sealed.append(item)
-                    logger.warning(
-                        "Mercado Phone enrichment failed; using the sealed price row (%s)",
-                        type(exc).__name__,
-                    )
         ranked: list[tuple[int, InventoryItem]] = [
             (score_item(query, item), item) for item in inventory_items
         ]
-        ranked.extend((score_item(query, item) + 80, item) for item in enriched_sealed)
+        # Sheet prices represent orders. Physical stock has its own inventory row.
+        ranked.extend((score_item(query, item) + 80, item) for item in sealed_items)
         ranked.sort(key=lambda pair: (pair[0], pair[1].name, pair[1].capacity or ""), reverse=True)
         seen: set[str] = set()
         result: list[InventoryItem] = []
@@ -567,8 +536,7 @@ class InventoryCache:
 
     async def get(self, product_id: str) -> InventoryItem | None:
         if str(product_id).startswith("sheet:") and self.sealed_cache is not None:
-            item = await self.sealed_cache.get(product_id)
-            return await self._enrich_sealed_item(item) if item else None
+            return await self.sealed_cache.get(product_id)
         await self.ensure_fresh()
         for item in self.items:
             if item.external_id == str(product_id):

@@ -129,6 +129,50 @@ async def test_colloquial_semis_warranty_followup_returns_only_used_device_polic
 
 
 @pytest.mark.asyncio
+async def test_grouped_seminovo_warranty_and_price_keeps_both_quoted_models(tmp_path):
+    agent = build_agent(tmp_path)
+    template = agent.cache.items[0]
+    agent.cache.items = [
+        template.model_copy(update={
+            "external_id": "17-pro-seminovo",
+            "name": "iPhone 17 Pro",
+            "price_brl": 7100.0,
+            "search_text": "iphone 17 pro 256gb celular seminovo prata",
+        }),
+        template.model_copy(update={
+            "external_id": "17-pro-max-lacrado",
+            "name": "iPhone 17 Pro Max",
+            "condition": "LACRADO",
+            "price_brl": 8700.0,
+            "search_text": "iphone 17 pro max 256gb celular lacrado prata",
+        }),
+    ]
+    history = [
+        {"role": "user", "content": "Poderia me passar os valores do iPhone 17 pro e pro max novos"},
+        {
+            "role": "assistant",
+            "content": (
+                "Valores dos novos lacrados, ambos com 256 GB:\n"
+                "• iPhone 17 Pro: R$ 8.000.\n"
+                "• iPhone 17 Pro Max: R$ 8.700."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "Os semi novos tem garantia também ?\nPoderia me passar o valor deles",
+        history=history,
+    )
+
+    assert "90 dias" in decision.reply
+    assert "iPhone 17 Pro" in decision.reply
+    assert "R$ 7.100" in decision.reply
+    assert "iPhone 17 Pro Max" in decision.reply
+    assert "R$ 8.700" not in decision.reply
+    assert decision.product_references == ["17-pro-seminovo"]
+
+
+@pytest.mark.asyncio
 async def test_warranty_and_payment_question_after_catalog_reply_answers_both_without_handoff(tmp_path):
     agent = build_agent(tmp_path)
     agent.cache.items = [
