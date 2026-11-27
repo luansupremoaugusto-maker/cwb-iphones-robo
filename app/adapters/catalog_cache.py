@@ -525,8 +525,9 @@ def _requested_macbook_model_keys(value: Any) -> tuple[str, ...]:
 
 
 _APPLE_WATCH_MODEL_PATTERN = re.compile(
-    r"\b(?:(?:apple\s+)?watch\s+)?"
-    r"(?P<family>series|se|ultra)\s*(?P<number>\d{1,2})"
+    r"\b(?P<watch>(?:apple\s+)?watch\s+)?"
+    r"(?P<family>series|se|ultra)"
+    r"(?:\s*(?P<number>\d{1,2})\b(?!\s*mm\b))?"
     r"(?:\s+(?P<size>\d{2})\s*mm)?\b"
 )
 
@@ -538,21 +539,14 @@ def _requested_apple_watch_model_keys(
 ) -> tuple[tuple[str, str, str | None], ...]:
     """Return named Apple Watch models and optional case sizes in a request."""
     normalized = _score_text(value)
-    pattern = _APPLE_WATCH_MODEL_PATTERN
-    if not allow_bare:
-        pattern = re.compile(
-            r"\b(?:apple\s+)?watch\s+"
-            r"(?P<family>series|se|ultra)\s*(?P<number>\d{1,2})"
-            r"(?:\s+(?P<size>\d{2})\s*mm)?\b"
-        )
-
     requested: list[tuple[str, str, str | None]] = []
-    for match in pattern.finditer(normalized):
-        key = (
-            match.group("family"),
-            match.group("number"),
-            match.group("size"),
-        )
+    for match in _APPLE_WATCH_MODEL_PATTERN.finditer(normalized):
+        watch, family, number, size = match.groups()
+        if not watch and not allow_bare:
+            continue
+        if number is None and not (watch and family == "se"):
+            continue
+        key = (family, number or "", size)
         if key not in requested:
             requested.append(key)
     return tuple(requested)
@@ -584,7 +578,8 @@ def _matches_requested_apple_watch_model(
         getattr(item, "capacity", None) or getattr(item, "name", "")
     ) or item_model[2]
     return any(
-        (item_model[0], item_model[1]) == (family, number)
+        item_model[0] == family
+        and (not number or item_model[1] == number)
         and (size is None or item_size == size)
         for family, number, size in requested_models
     )

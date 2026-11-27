@@ -198,7 +198,9 @@ def _unavailable_catalog_color_header(
         watch_labels = []
         for family, number, size in requested_apple_watch_models:
             family_label = {"series": "Series", "se": "SE", "ultra": "Ultra"}[family]
-            label = f"Apple Watch {family_label} {number}"
+            label = f"Apple Watch {family_label}"
+            if number:
+                label += f" {number}"
             if size:
                 label += f" {size} mm"
             watch_labels.append(label)

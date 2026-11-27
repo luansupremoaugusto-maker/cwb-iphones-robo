@@ -1170,6 +1170,11 @@ async def _try_product_availability(
         _is_pronta_entrega_only_request(text)
         or _is_pronta_entrega_only_request(customer_request_context)
         or _is_contextual_pronta_entrega_followup(text, history)
+        or (
+            bool(_requested_apple_watch_model_keys(text))
+            and bool(re.search(r"\bem estoque\b", _normalize(text)))
+            and not re.search(r"\bencomenda\b", _normalize(text))
+        )
     )
     if selection_context_used:
         condition_query = current_query
@@ -1645,7 +1650,9 @@ async def _try_product_availability(
                     "se": "SE",
                     "ultra": "Ultra",
                 }[family]
-                label = f"Apple Watch {family_label} {number}"
+                label = f"Apple Watch {family_label}"
+                if number:
+                    label += f" {number}"
                 if size:
                     label += f" {size} mm"
                 watch_labels.append(label)
