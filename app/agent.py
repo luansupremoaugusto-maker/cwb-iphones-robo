@@ -221,7 +221,15 @@ def _should_use_turn_interpreter(
             normalized,
         )
     )
-    if len(model_keys) > 1 and (has_ambiguity_marker or len(text.splitlines()) > 1):
+    # A greeting in a WhatsApp batch does not make a clear quote ambiguous.
+    substantive_lines = [
+        line
+        for line in text.splitlines()
+        if line.strip()
+        and not standalone_greeting(line)
+        and _normalize(line).strip(" !?.,") != "tudo bem"
+    ]
+    if len(model_keys) > 1 and (has_ambiguity_marker or len(substantive_lines) > 1):
         return True
 
     # Conflicting service cues often arrive together in one WhatsApp batch.

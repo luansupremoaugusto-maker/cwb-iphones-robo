@@ -967,7 +967,7 @@ def _is_available_item(item: Any) -> bool:
         return False
     quantity = getattr(item, "quantity", None)
     if quantity is None:
-        return True
+        return not _is_sealed_catalog_item(item)
     try:
         return float(quantity) > 0
     except (TypeError, ValueError):
