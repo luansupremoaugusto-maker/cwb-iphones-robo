@@ -5135,6 +5135,57 @@ async def test_real_sedex_question_for_ready_stock_stays_in_delivery_faq(tmp_pat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("has_se_in_stock", [False, True])
+async def test_apple_watch_se_stock_followup(tmp_path, has_se_in_stock):
+    ultra = _watch_seminovo().model_copy(
+        update={
+            "external_id": "watch-ultra-2",
+            "name": "Apple Watch Ultra 2",
+            "capacity": "49MM",
+            "search_text": "apple watch ultra 2 49mm titanio natural seminovo",
+        }
+    )
+    agent = _build_watch_agent(
+        tmp_path,
+        seminovos=[ultra, _watch_seminovo()] if has_se_in_stock else [ultra],
+        sealed=_watch_sealed_catalog(),
+    )
+    history = [
+        {"role": "user", "content": "Gostaria de saber sobre o Apple Watch"},
+        {"role": "assistant", "content": "Quer saber quais modelos temos disponíveis?"},
+        {"role": "user", "content": "Sim os modelos disponíveis"},
+        {
+            "role": "assistant",
+            "content": (
+                "Apple Watch Ultra 2 seminovo para pronta entrega. "
+                "Apple Watch SE 3 e Series 11 lacrados por encomenda."
+            ),
+        },
+    ]
+
+    decision = await agent.respond(
+        "O Apple Watch SE não tem possibilidade de ter em estoque ?", history=history
+    )
+
+    assert not decision.handoff
+    reply = _normalize(decision.reply)
+    assert "ultra" not in reply
+    assert "series" not in reply
+    assert "apple watch se 3" not in reply
+    if has_se_in_stock:
+        assert decision.product_references == ["watch-se2-seminovo"]
+        assert "apple watch se 2" in reply
+    else:
+        assert decision.product_references == []
+        assert "nao localizei apple watch se" in reply
+        assert "pronta entrega" in reply
+
+    alternatives = await agent.respond("Quais outros Apple Watch têm à pronta entrega?")
+    assert "apple watch ultra 2" in _normalize(alternatives.reply)
+    assert "watch-se3" not in alternatives.product_references
+
+
+@pytest.mark.asyncio
 async def test_seminovo_request_does_not_fallback_to_sealed_catalog(tmp_path):
     agent = _build_watch_agent(
         tmp_path,
